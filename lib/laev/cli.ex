@@ -687,9 +687,7 @@ defmodule Laev.CLI do
 
   # The maintainer-hosted sync endpoint offered as the turnkey option. When
   # set, the "hosted" choice uses it and just asks the user for their token.
-  # Still /kala: the live hosted server routes under the old name — rename
-  # together with the server, not before.
-  @hosted_sync_url "https://sasha.don.ee/kala"
+  @hosted_sync_url "https://sasha.don.ee/laev"
 
   defp sync_menu do
     clear_screen()
@@ -812,11 +810,10 @@ defmodule Laev.CLI do
     save_setting("LAEV_SYNC_TOKEN", chosen)
   end
 
-  # A strong random token in the server's `kala_<base64url>` shape. The live
-  # server only auto-provisions kala_-prefixed tokens — rename together with
-  # the server, not before.
+  # A strong random token in the server's `laev_<base64url>` shape — the
+  # server auto-provisions any well-formed laev_-prefixed token.
   defp gen_sync_token do
-    "kala_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    "laev_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
   end
 
   # Sync is on — manage it.
@@ -842,6 +839,7 @@ defmodule Laev.CLI do
       {:live, "⚡ live-save each change (pin, watched, resume)  [#{if Laev.Sync.live?(), do: "on", else: "off"}]"},
       {:show, "👁  show my token (to set up another device)"},
       {:token, "paste a token (from another setup)"},
+      {:reset, "⟳ reset token — generate a fresh one"},
       {:url, "change endpoint URL"},
       {:off, "turn off (go back to local-only)"}
     ]
@@ -871,6 +869,10 @@ defmodule Laev.CLI do
         run_sync_now()
         sync_menu()
 
+      {:reset, _} ->
+        reset_sync_token()
+        sync_menu()
+
       {:now, _} ->
         run_sync_now()
         sync_menu()
@@ -880,6 +882,41 @@ defmodule Laev.CLI do
         Application.put_env(:laev_app, :sync_url, nil)
         IO.puts(:stderr, "  local-only.")
         sync_menu()
+    end
+  end
+
+  # Replace the token with a freshly generated one — the escape hatch when
+  # the saved token has the wrong shape for the server (e.g. an old kala_
+  # token after the laev rename) or the user wants a new identity. Local
+  # state is authoritative, so the next sync simply uploads everything under
+  # the new token; other devices just need the new token pasted in.
+  defp reset_sync_token do
+    fresh = gen_sync_token()
+
+    IO.puts(:stderr, "\n  Your new token (other devices will need it):")
+    IO.puts(:stderr, IO.ANSI.format(["    ", :bright, fresh, :reset, "\n"]))
+
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        :faint,
+        "  The old token stops mattering the moment this device syncs — your\n" <>
+          "  library here is the source of truth and uploads under the new token.\n",
+        :reset
+      ])
+    )
+
+    case IO.gets("  replace the current token? [Y/n] ") do
+      line when is_binary(line) ->
+        if String.trim(String.downcase(line)) in ["", "y", "yes"] do
+          save_setting("LAEV_SYNC_TOKEN", fresh)
+          run_sync_now()
+        else
+          IO.puts(:stderr, "  kept the current token.\n")
+        end
+
+      _ ->
+        IO.puts(:stderr, "  kept the current token.\n")
     end
   end
 
@@ -910,7 +947,8 @@ defmodule Laev.CLI do
             :yellow,
             "  ✗ the server rejected this token.\n",
             :reset,
-            "  Check the endpoint URL, or paste a token the server accepts.\n"
+            "  Check the endpoint URL, paste a token the server accepts, or use\n" <>
+              "  “reset token” to generate a fresh one.\n"
           ])
         )
 

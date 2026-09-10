@@ -14,11 +14,10 @@ defmodule Laev.Sync do
   `(token, doc-name)` pair and nothing more. laev owns *all* merge logic, so
   any client that speaks the same GET/PUT is automatically consistent. The
   token lives in the path; the last segment is a free-form doc name (laev
-  keeps everything in one doc — still named "kala" on the wire until the
-  server is renamed too):
+  keeps everything in one doc):
 
-      GET  <base>/<token>/kala   -> 200 {bundle} (+ ETag), or 404 when empty
-      PUT  <base>/<token>/kala   -> 200 (+ new ETag)
+      GET  <base>/<token>/laev   -> 200 {bundle} (+ ETag), or 404 when empty
+      PUT  <base>/<token>/laev   -> 200 (+ new ETag)
                  If-Match: "<etag>"   stale => 412 (no overwrite);
                  unknown token => 401; body > 5 MB => 413
 
@@ -45,10 +44,7 @@ defmodule Laev.Sync do
 
   # The whole bundle lives in one document per token. The server treats the
   # last path segment as a free-form doc name — `<base>/<token>/<doc>`.
-  # Still "kala" on the wire: the live server (sasha.don.ee) routes and
-  # stores under the old name, and existing devices sync against that doc.
-  # Rename together with the server, not before.
-  @doc_name "kala"
+  @doc_name "laev"
 
   # ── config ────────────────────────────────────────────────────────
 
