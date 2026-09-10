@@ -1,24 +1,24 @@
-defmodule Kala.MixProject do
+defmodule Laev.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :kala_app,
+      app: :laev_app,
       version: "1.0.0",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
-      escript: [main_module: Kala.CLI, path: "kala"],
+      escript: [main_module: Laev.CLI, path: "laev"],
       releases: releases(),
       deps: deps()
     ]
   end
 
-  # `MIX_ENV=prod mix release kala` → burrito_out/kala_linux_x86_64:
+  # `MIX_ENV=prod mix release laev` → burrito_out/laev_linux_x86_64:
   # a single self-contained binary (BEAM bundled, no Erlang needed on the
   # user's machine) — the artifact package managers ship.
   defp releases do
     [
-      kala: [
+      laev: [
         steps: [:assemble, &clean_stale_erts/1, &Burrito.wrap/1],
         burrito: [
           targets: [
@@ -44,7 +44,7 @@ defmodule Kala.MixProject do
 
   def application do
     [
-      mod: {Kala.Application, []},
+      mod: {Laev.Application, []},
       extra_applications: [:logger]
     ]
   end
