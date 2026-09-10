@@ -110,7 +110,12 @@ KALA_SKIP=ask
 # autoplay the next episode when one ends ("on" to enable — off by default;
 # --binge or the post-play menu's autoplay entry do it per session)
 KALA_AUTOPLAY=off
+# optional: scrobble anime to MyAnimeList (owner-provided app id; then `kala mal login`)
+#MAL_CLIENT_ID=...
 # optional: Jackett/Prowlarr (more indexers), OpenSubtitles, Jimaku
+# optional: cross-device sync to a server you run (see "Sync across devices")
+#KALA_SYNC_URL=https://your-server.example/kala
+#KALA_SYNC_TOKEN=...
 ```
 
 `kala config` shows which keys are set.
@@ -127,9 +132,52 @@ KALA_AUTOPLAY=off
 | `kala play <magnet\|url>` | resolve and launch mpv directly |
 | `kala setup` | first-run wizard: keys in, validated live |
 | `kala doctor` | health-check binaries, keys, and services |
+| `kala mal login` | link MyAnimeList (anime scrobbling) |
+| `kala sync` | sync watch state now (`kala sync status` shows config) |
 | `kala config` | show config status |
 
 `kala watch --raw "<text>"` skips TMDB and searches indexers by text.
+
+## Sync across devices (optional)
+
+By default kala is **local-first**: your watchlist, history, resume points and
+watched flags live only in `~/.kala` and never leave the machine. Nothing is
+sent anywhere until you turn sync on.
+
+Open **Settings → 🔌 Integrations → 🔄 Cross-device sync** and pick one:
+
+- **📁 Local only** *(default)* — nothing leaves this machine.
+- **☁ Kala hosted server** — point kala at the maintainer's endpoint (needs an
+  access token). *(Only when a public server exists.)*
+- **🖥 My own server** — a sync server you run yourself, for full control of
+  your data.
+
+Once on, kala pulls-merges-pushes on startup and after each episode (or run
+`kala sync` manually). Merging is **last-write-wins per item with tombstones**,
+so pins, un-pins, positions and watched flags from every device converge — pick
+up on your laptop exactly where the phone left off. Your **API keys and
+MyAnimeList login are never synced**, only user state.
+
+### Running your own server
+
+The server is deliberately tiny: it stores **one opaque JSON document per
+access token** and exposes just `GET` (pull) and `PUT` (push, with an `ETag` /
+`If-Match` guard). All the merge logic lives in kala, so the server never has
+to understand the data.
+
+It supports two storage backends behind the **exact same HTTP API** — pick
+whichever you trust; kala can't tell the difference, and you can switch later
+without touching any client:
+
+- **Postgres** *(recommended if you already run one)* — a single table, e.g.
+  `kala_sync(token text primary key, document jsonb, etag text, updated_at timestamptz)`.
+- **Local files** — one JSON file per token under a data directory. No database
+  needed; ideal for a single box.
+
+Select the backend with an env var on the server (e.g. `KALA_STORE=postgres`
++ `DATABASE_URL=…`, or `KALA_STORE=file` + `KALA_STORE_DIR=…`). Put it behind
+HTTPS (a reverse proxy, Tailscale, or a Cloudflare Tunnel), then in kala set
+the endpoint URL and a long random token.
 
 ## Notes
 

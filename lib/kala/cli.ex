@@ -22,10 +22,13 @@ defmodule Kala.CLI do
       ["resume" | _] -> resume()
       ["resolve" | rest] -> resolve(rest)
       ["play" | rest] -> play(rest)
+      ["colors" | _] -> debug_colors()
       ["config" | _] -> config()
       ["setup" | _] -> setup()
       ["doctor" | _] -> doctor()
       ["update" | _] -> update()
+      ["mal" | rest] -> mal(rest)
+      ["sync" | rest] -> sync_cmd(rest)
       ["help" | _] -> usage(0)
       ["--help" | _] -> usage(0)
       [] -> if tty?(), do: main_menu(), else: usage(1)
@@ -195,39 +198,270 @@ defmodule Kala.CLI do
 
   # Marquee endpoints from the LIVE terminal palette (color 1 = red, 3 =
   # yellow) via an OSC-4 query — so the gradient is interpolated through
-  # *this theme's* red and yellow and re-tints when omarchy switches
-  # themes. Falls back to a fixed red→gold ramp if the terminal is silent.
+  # *this theme's* colors and re-tints when omarchy switches themes. Falls
+  # back to a fixed red→gold ramp if the terminal doesn't answer.
+  #
+  # Accent gradient: query the theme's 6 main palette colors and gradient
+  # between its two most-saturated, most-different-hue ones — so the fish
+  # takes on the theme's dominant hues (cool theme → cool fish, warm → warm)
+  # instead of a forced red→gold. Monochrome/greyscale themes fall back.
   defp ramp_anchors do
-    case {query_color(1), query_color(3)} do
-      {{_, _, _} = red, {_, _, _} = yellow} -> {red, yellow}
-      _ -> @ramp_fallback
+    case logo_override() do
+      {_, _} = pair -> pair
+      _ -> auto_ramp_anchors()
     end
   end
 
-  defp query_color(index) do
-    osc = "\e]4;#{index};?\e\\"
-
-    script =
-      "old=$(stty -g </dev/tty); stty raw -echo min 0 time 1 </dev/tty; " <>
-        "printf %s #{inspect(osc)} >/dev/tty; head -c 40 </dev/tty; stty \"$old\" </dev/tty"
-
-    case System.cmd("sh", ["-c", script], stderr_to_stdout: true) do
-      {out, 0} -> parse_osc_color(out)
+  # KALA_LOGO_COLORS="#rrggbb,#rrggbb" forces the gradient endpoints — a
+  # reliable manual path when the terminal won't answer the palette query.
+  defp logo_override do
+    with s when is_binary(s) <- Application.get_env(:kala_app, :logo_colors),
+         [a, b] <- s |> String.split(",", parts: 2) |> Enum.map(&parse_hex/1),
+         true <- a != nil and b != nil do
+      {a, b}
+    else
       _ -> nil
+    end
+  end
+
+  defp parse_hex(s) do
+    case s |> String.trim() |> String.trim_leading("#") do
+      <<r::binary-2, g::binary-2, b::binary-2>> ->
+        with {rr, ""} <- Integer.parse(r, 16),
+             {gg, ""} <- Integer.parse(g, 16),
+             {bb, ""} <- Integer.parse(b, 16),
+             do: {rr, gg, bb},
+             else: (_ -> nil)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp auto_ramp_anchors do
+    # Prefer the terminal's config file (reliable, re-themes when the config
+    # symlink repoints — e.g. omarchy theme switching); fall back to the live
+    # OSC-4 query for terminals we don't parse.
+    palette = case config_palette() do
+      p when map_size(p) >= 2 -> p
+      _ -> query_palette()
+    end
+
+    saturated =
+      palette
+      |> Map.values()
+      |> Enum.filter(fn rgb -> saturation(rgb) >= 0.25 end)
+      |> Enum.sort_by(&saturation/1, :desc)
+
+    case saturated do
+      [] ->
+        @ramp_fallback
+
+      [only] ->
+        # One saturated hue: gradient from a darker to brighter shade of it.
+        {scale(only, 0.65), only}
+
+      [a | rest] ->
+        b = Enum.max_by(rest, &hue_distance(a, &1))
+        {a, b}
     end
   rescue
-    _ -> nil
+    _ -> @ramp_fallback
   end
 
-  # Response: ESC ]4;N;rgb:RRRR/GGGG/BBBB ST — 16-bit channels, take hi byte.
-  defp parse_osc_color(out) do
-    case Regex.run(~r/rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/, out) do
-      [_, r, g, b] -> {hi8(r), hi8(g), hi8(b)}
-      _ -> nil
+  # The theme's palette read from the terminal's own config file — reliable
+  # and no tty round-trip (the OSC-4 query can't be read back from a BEAM
+  # child). Tries the config-file terminals that exist; the one matching the
+  # current terminal ($TERM/$TERM_PROGRAM) is tried first. Re-read each
+  # launch, so a theme switch (e.g. omarchy repointing foot's include) is
+  # picked up automatically. %{1..6 => {r,g,b}}.
+  #
+  # Covered: foot, kitty, ghostty, alacritty, wezterm (Linux + macOS, same
+  # ~/.config files). Not auto-readable: macOS Terminal/iTerm2, Windows
+  # Terminal — those use KALA_LOGO_COLORS or the red→gold fallback.
+  defp config_palette do
+    Enum.find_value(terminal_sources(), %{}, fn read ->
+      case read.() do
+        p when map_size(p) >= 2 -> p
+        _ -> nil
+      end
+    end)
+  rescue
+    _ -> %{}
+  end
+
+  # Config readers, ordered with the active terminal first.
+  defp terminal_sources do
+    cfg = System.get_env("XDG_CONFIG_HOME") || Path.join(System.user_home!(), ".config")
+    term = String.downcase((System.get_env("TERM") || "") <> " " <> (System.get_env("TERM_PROGRAM") || ""))
+
+    all = [
+      {"foot", fn -> palette_ini_kv(Path.join([cfg, "foot", "foot.ini"]), ~r/(?:regular|color)/) end},
+      {"kitty", fn -> palette_kitty(Path.join([cfg, "kitty", "kitty.conf"])) end},
+      {"ghostty", fn -> palette_ghostty(Path.join([cfg, "ghostty", "config"])) end},
+      {"alacritty", fn -> palette_alacritty(cfg) end},
+      {"wezterm", fn -> palette_alacritty(cfg) end}
+    ]
+
+    {active, rest} = Enum.split_with(all, fn {name, _} -> String.contains?(term, name) end)
+    Enum.map(active ++ rest, fn {_name, read} -> read end)
+  end
+
+  # foot-style INI: `regularN = #rrggbb` / `colorN = rrggbb`, following include=.
+  defp palette_ini_kv(base, prefix) do
+    [base | ini_includes(base)]
+    |> Enum.flat_map(fn path ->
+      case File.read(path) do
+        {:ok, body} ->
+          for [_, n, hex] <- Regex.scan(~r/^\s*#{Regex.source(prefix)}([1-6])\s*=\s*#?([0-9a-fA-F]{6})/m, body),
+              rgb = parse_hex(hex),
+              rgb != nil,
+              do: {String.to_integer(n), rgb}
+
+        _ ->
+          []
+      end
+    end)
+    |> Map.new()
+  end
+
+  # kitty: `color1 #rrggbb`, following `include`.
+  defp palette_kitty(base) do
+    includes =
+      case File.read(base) do
+        {:ok, body} ->
+          Regex.scan(~r/^\s*include\s+(.+)$/m, body)
+          |> Enum.map(fn [_, p] -> Path.expand(expand_path(String.trim(p)), Path.dirname(base)) end)
+
+        _ ->
+          []
+      end
+
+    [base | includes]
+    |> Enum.flat_map(fn path ->
+      case File.read(path) do
+        {:ok, body} ->
+          for [_, n, hex] <- Regex.scan(~r/^\s*color([1-6])\s+#?([0-9a-fA-F]{6})/m, body),
+              rgb = parse_hex(hex),
+              rgb != nil,
+              do: {String.to_integer(n), rgb}
+
+        _ ->
+          []
+      end
+    end)
+    |> Map.new()
+  end
+
+  # ghostty: `palette = 1=#rrggbb`.
+  defp palette_ghostty(path) do
+    case File.read(path) do
+      {:ok, body} ->
+        for [_, n, hex] <- Regex.scan(~r/palette\s*=\s*([1-6])=#?([0-9a-fA-F]{6})/m, body),
+            rgb = parse_hex(hex),
+            rgb != nil,
+            into: %{},
+            do: {String.to_integer(n), rgb}
+
+      _ ->
+        %{}
     end
+  end
+
+  # alacritty (TOML/YAML) & wezterm: named normal colors under a colors block.
+  defp palette_alacritty(cfg) do
+    names = %{"red" => 1, "green" => 2, "yellow" => 3, "blue" => 4, "magenta" => 5, "cyan" => 6}
+
+    paths =
+      [
+        Path.join([cfg, "alacritty", "alacritty.toml"]),
+        Path.join([cfg, "alacritty", "alacritty.yml"]),
+        Path.join([cfg, "wezterm", "wezterm.lua"])
+      ]
+
+    Enum.reduce(paths, %{}, fn path, acc ->
+      case File.read(path) do
+        {:ok, body} ->
+          found =
+            for {name, n} <- names,
+                [_, hex] <- Regex.scan(~r/#{name}\s*[:=]\s*["']#?([0-9a-fA-F]{6})["']/i, body),
+                rgb = parse_hex(hex),
+                rgb != nil,
+                into: %{},
+                do: {n, rgb}
+
+          Map.merge(found, acc)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp ini_includes(path) do
+    case File.read(path) do
+      {:ok, body} ->
+        Regex.scan(~r/^\s*include\s*=\s*(.+)$/m, body)
+        |> Enum.map(fn [_, p] -> expand_path(String.trim(p)) end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp expand_path(p) do
+    p
+    |> String.replace_prefix("~", System.user_home!())
+    |> String.replace("$HOME", System.user_home!())
+  end
+
+  # One combined OSC-4 query for palette colors 1..6 (red green yellow blue
+  # magenta cyan) — a single terminal round-trip. %{index => {r,g,b}}.
+  defp query_palette do
+    osc = "\e]4;1;?;2;?;3;?;4;?;5;?;6;?\e\\"
+
+    # Send the query, let the terminal's reply land in the tty buffer, then
+    # read it. `dd` with min 0/time does one bounded read of whatever arrived
+    # — unlike `head`, which quits on the first (pre-reply) empty read.
+    script =
+      "old=$(stty -g </dev/tty) || exit 1; " <>
+        "stty raw -echo min 0 time 4 </dev/tty; " <>
+        "printf %s #{inspect(osc)} >/dev/tty; " <>
+        "sleep 0.2; " <>
+        "dd bs=1024 count=1 </dev/tty 2>/dev/null; " <>
+        "stty \"$old\" </dev/tty"
+
+    case System.cmd("sh", ["-c", script], stderr_to_stdout: true) do
+      {out, 0} -> parse_palette(out)
+      _ -> %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  # Each response: ESC ]4;N;rgb:RRRR/GGGG/BBBB ST — 16-bit channels, hi byte.
+  defp parse_palette(out) do
+    ~r/\]4;(\d+);rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/
+    |> Regex.scan(out)
+    |> Map.new(fn [_, n, r, g, b] -> {String.to_integer(n), {hi8(r), hi8(g), hi8(b)}} end)
   end
 
   defp hi8(hex), do: hex |> String.pad_trailing(2, "0") |> String.slice(0, 2) |> String.to_integer(16)
+
+  # Saturation of an RGB (0..1): how far from grey it is.
+  defp saturation({r, g, b}) do
+    mx = Enum.max([r, g, b])
+    mn = Enum.min([r, g, b])
+    if mx == 0, do: 0.0, else: (mx - mn) / mx
+  end
+
+  # A crude hue distance so the two anchors read as different colors, not two
+  # near-identical shades — compares the ordering/ratios of the channels.
+  defp hue_distance({r1, g1, b1}, {r2, g2, b2}) do
+    abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2)
+  end
+
+  defp scale({r, g, b}, f), do: {round(r * f), round(g * f), round(b * f)}
 
   defp main_menu do
     # First run with no keys: go straight into the wizard instead of letting
@@ -236,6 +470,8 @@ defmodule Kala.CLI do
       IO.puts(:stderr, "\n  missing keys — let's set you up first")
       setup()
     end
+
+    maybe_startup_sync()
 
     clear_screen()
     print_banner()
@@ -285,13 +521,27 @@ defmodule Kala.CLI do
   defp settings_menu(selected \\ 0) do
     clear_screen()
 
+    sync_status = if Kala.Sync.enabled?(), do: "on", else: "local only"
+
     items =
       Enum.map(@settings, fn {key, label, kind} -> {:setting, key, label, kind} end) ++
-        [{:keys, nil, "🔑 API keys — rerun the setup wizard", nil}]
+        [
+          {:sync, nil, "🔄 Cross-device sync — watchlist & progress  [#{sync_status}]", nil},
+          {:integrations, nil, "🔌 Integrations — optional API keys & services", nil},
+          {:keys, nil, "🔑 Core keys (RD / TorBox / TMDB) — rerun setup wizard", nil}
+        ]
 
     case pick(items, &describe_setting/1, "enter toggles or edits · esc goes back", nil, selected) do
       nil ->
         main_menu()
+
+      {:sync, _, _, _} = item ->
+        sync_menu()
+        settings_menu(Enum.find_index(items, &(&1 == item)) || 0)
+
+      {:integrations, _, _, _} = item ->
+        integrations_menu()
+        settings_menu(Enum.find_index(items, &(&1 == item)) || 0)
 
       {:keys, _, _, _} = item ->
         setup()
@@ -303,7 +553,450 @@ defmodule Kala.CLI do
     end
   end
 
+  # ── integrations (optional API keys & services) ──────────────────
+
+  # Text-key providers: {id, label, blurb, [{ENV_KEY, prompt}]}. MAL is
+  # special (OAuth) and handled on its own.
+  @integrations [
+    {:mal, "🌸 MyAnimeList", "anime scrobbling, ratings & page links"},
+    {:opensubs, "💬 OpenSubtitles", "external subtitles fallback",
+     [
+       {"OPENSUBTITLES_API_KEY", "API key"},
+       {"OPENSUBTITLES_USERNAME", "username (for downloads)"},
+       {"OPENSUBTITLES_PASSWORD", "password (for downloads)"}
+     ]},
+    {:jimaku, "🇯🇵 Jimaku", "anime subtitles", [{"JIMAKU_API_KEY", "API key"}]},
+    {:jackett, "🔎 Jackett / Prowlarr", "extra torrent indexers",
+     [
+       {"JACKETT_URL", "URL (e.g. http://localhost:9117)"},
+       {"JACKETT_API_KEY", "API key"},
+       {"JACKETT_INDEXER", "indexer id (optional; blank = all)"}
+     ]}
+  ]
+
+  defp integrations_menu(selected \\ 0) do
+    clear_screen()
+
+    case pick(@integrations, &describe_integration/1, "configure an integration · esc goes back", nil, selected) do
+      nil ->
+        :ok
+
+      {:mal, _, _} = item ->
+        mal_integration_menu()
+        integrations_menu(Enum.find_index(@integrations, &(&1 == item)) || 0)
+
+      {_id, _label, _blurb, keys} = item ->
+        configure_keys(keys)
+        integrations_menu(Enum.find_index(@integrations, &(&1 == item)) || 0)
+    end
+  end
+
+  defp describe_integration({:mal, label, blurb}) do
+    status =
+      cond do
+        not Kala.MAL.configured?() -> "needs MAL_CLIENT_ID"
+        Kala.MAL.authenticated?() -> "linked ✓"
+        true -> "not linked"
+      end
+
+    "#{String.pad_trailing(label, 20)} #{String.pad_trailing(blurb, 40)} [#{status}]"
+  end
+
+  defp describe_integration({_id, label, blurb, keys}) do
+    set = Enum.count(keys, fn {k, _} -> configured_key?(k) end)
+    status = if set > 0, do: "#{set}/#{length(keys)} set", else: "not set"
+    "#{String.pad_trailing(label, 20)} #{String.pad_trailing(blurb, 40)} [#{status}]"
+  end
+
+  defp configured_key?(env_key) do
+    app_key = Map.fetch!(Config.keys(), env_key)
+    Application.get_env(:kala_app, app_key) not in [nil, ""]
+  end
+
+  # Prompt for each key in turn (current value shown masked, enter keeps),
+  # writing straight to the config file — no hand-editing needed.
+  defp configure_keys(keys) do
+    for {env_key, prompt} <- keys do
+      current = Application.get_env(:kala_app, Map.fetch!(Config.keys(), env_key))
+      hint = if current in [nil, ""], do: "", else: " [#{mask(current)}]"
+
+      case IO.gets("  #{prompt}#{hint} — enter to keep, or type a value: ") do
+        line when is_binary(line) ->
+          case String.trim(line) do
+            "" -> :ok
+            value -> save_setting(env_key, value)
+          end
+
+        _ ->
+          :ok
+      end
+    end
+
+    IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ saved\n", :reset]))
+  end
+
+  defp mal_integration_menu do
+    clear_screen()
+
+    IO.puts(:stderr, IO.ANSI.format(["\n  🌸 ", :bright, "MyAnimeList", :reset, "\n"]))
+
+    actions =
+      cond do
+        not Kala.MAL.configured?() ->
+          IO.puts(:stderr, "  Not configured. Set the app Client ID (create one at\n" <>
+            "  https://myanimelist.net/apiconfig, redirect http://localhost:8723/callback):\n")
+          [{:set_id, "set MAL_CLIENT_ID"}, {:set_secret, "set MAL_CLIENT_SECRET (optional)"}]
+
+        Kala.MAL.authenticated?() ->
+          IO.puts(:stderr, "  Linked as #{Kala.MAL.username() || "?"}.\n")
+          [
+            {:scrobble, "⚡ auto-scrobble progress  [#{if Config.mal_scrobble?(), do: "on", else: "off"}]"},
+            {:logout, "unlink MyAnimeList"},
+            {:set_id, "change MAL_CLIENT_ID"}
+          ]
+
+        true ->
+          IO.puts(:stderr, "  Client ID is set but not linked.\n")
+          [{:login, "log in (opens browser)"}, {:set_id, "change MAL_CLIENT_ID"}]
+      end
+
+    case pick(actions, &elem(&1, 1), "enter selects · esc goes back") do
+      nil ->
+        :ok
+
+      {:set_id, _} ->
+        prompt_and_save("MAL_CLIENT_ID", "MAL Client ID")
+        mal_integration_menu()
+
+      {:set_secret, _} ->
+        prompt_and_save("MAL_CLIENT_SECRET", "MAL Client Secret")
+        mal_integration_menu()
+
+      {:login, _} ->
+        mal(["login"])
+        mal_integration_menu()
+
+      {:logout, _} ->
+        Kala.MAL.logout()
+        IO.puts(:stderr, "  unlinked.")
+        mal_integration_menu()
+
+      {:scrobble, _} ->
+        save_setting("KALA_MAL_SCROBBLE", if(Config.mal_scrobble?(), do: "off", else: "on"))
+        mal_integration_menu()
+    end
+  end
+
+  # ── cross-device sync ─────────────────────────────────────────────
+
+  # The maintainer-hosted sync endpoint offered as the turnkey option. When
+  # set, the "hosted" choice uses it and just asks the user for their token.
+  @hosted_sync_url "https://sasha.don.ee/kala"
+
+  defp sync_menu do
+    clear_screen()
+    IO.puts(:stderr, IO.ANSI.format(["\n  🔄 ", :bright, "Cross-device sync", :reset, "\n"]))
+
+    if Kala.Sync.enabled?(),
+      do: sync_active_menu(),
+      else: sync_chooser_menu()
+  end
+
+  # Sync is off — offer the three storage tiers, Local being the default.
+  defp sync_chooser_menu do
+    IO.puts(:stderr, "  Where should your watch data live?")
+
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        :faint,
+        "  Watchlist, history, resume points & watched flags. Never your keys.\n",
+        :reset
+      ])
+    )
+
+    options = [
+      {:local, "📁 Local only — keep everything on this machine  (default)"},
+      {:hosted, "☁  Kala hosted server — the maintainer's endpoint"},
+      {:custom, "🖥  My own server — a URL I run (full control)"}
+    ]
+
+    case pick(options, &elem(&1, 1), "enter selects · esc goes back") do
+      nil ->
+        :ok
+
+      {:local, _} ->
+        IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ already local-only — nothing leaves this machine.\n", :reset]))
+
+      {:hosted, _} ->
+        enable_hosted_sync()
+
+      {:custom, _} ->
+        enable_custom_sync()
+    end
+  end
+
+  defp enable_hosted_sync do
+    case @hosted_sync_url do
+      url when is_binary(url) and url != "" ->
+        save_setting("KALA_SYNC_URL", url)
+        IO.puts(:stderr, "  Using the hosted server at #{url}.\n")
+        configure_sync_token()
+        run_sync_now()
+        sync_menu()
+
+      _ ->
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :yellow,
+            "  The hosted server isn't available yet.\n",
+            :reset,
+            "  Use “My own server” to point kala at a box you run.\n"
+          ])
+        )
+    end
+  end
+
+  defp enable_custom_sync do
+    prompt_and_save("KALA_SYNC_URL", "endpoint URL (e.g. https://myserver.example/kala)")
+
+    if Kala.Sync.url() do
+      configure_sync_token()
+      run_sync_now()
+    end
+
+    sync_menu()
+  end
+
+  # Ask for the sync token, but never leave a fresh device stuck with nothing
+  # to paste: offer a value (the one already configured, or a freshly generated
+  # one) that the user can accept with a single enter, or override by pasting a
+  # token they already use on another device.
+  defp configure_sync_token do
+    {suggested, source} =
+      case Kala.Sync.token() do
+        nil -> {gen_sync_token(), :new}
+        existing -> {existing, :current}
+      end
+
+    label =
+      case source do
+        :current -> "  Your current token (press enter to keep it):"
+        :new -> "  Suggested new token (press enter to use it):"
+      end
+
+    IO.puts(:stderr, label)
+    IO.puts(:stderr, IO.ANSI.format(["    ", :bright, suggested, :reset, "\n"]))
+
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        :faint,
+        "  This token is your identity — the same token on another device shows\n" <>
+          "  the same library. Keep it private.\n",
+        :reset
+      ])
+    )
+
+    chosen =
+      case IO.gets("  Already have a token from another setup? paste it, or press enter: ") do
+        line when is_binary(line) ->
+          case String.trim(line) do
+            "" -> suggested
+            pasted -> pasted
+          end
+
+        _ ->
+          suggested
+      end
+
+    save_setting("KALA_SYNC_TOKEN", chosen)
+  end
+
+  # A strong random token in the server's `kala_<base64url>` shape.
+  defp gen_sync_token do
+    "kala_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+  end
+
+  # Sync is on — manage it.
+  defp sync_active_menu do
+    IO.puts(:stderr, "  Syncing to #{Kala.Sync.url()}")
+
+    token_line =
+      case Kala.Sync.token() do
+        nil -> "  token: (none)"
+        t -> "  token: #{mask(t)}"
+      end
+
+    IO.puts(:stderr, IO.ANSI.format([:faint, token_line, :reset]))
+
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([:faint, "  Watchlist, history, resume points & watched flags — not your keys.\n", :reset])
+    )
+
+    actions = [
+      {:now, "↻ sync now — pull the latest from the server"},
+      {:auto, "⚙ auto-sync on launch & after episodes  [#{if Kala.Sync.auto?(), do: "on", else: "off"}]"},
+      {:live, "⚡ live-save each change (pin, watched, resume)  [#{if Kala.Sync.live?(), do: "on", else: "off"}]"},
+      {:show, "👁  show my token (to set up another device)"},
+      {:token, "paste a token (from another setup)"},
+      {:url, "change endpoint URL"},
+      {:off, "turn off (go back to local-only)"}
+    ]
+
+    case pick(actions, &elem(&1, 1), "enter selects · esc goes back") do
+      nil ->
+        :ok
+
+      {:auto, _} ->
+        save_setting("KALA_SYNC_AUTO", if(Kala.Sync.auto?(), do: "off", else: "on"))
+        sync_menu()
+
+      {:live, _} ->
+        save_setting("KALA_SYNC_LIVE", if(Kala.Sync.live?(), do: "off", else: "on"))
+        sync_menu()
+
+      {:show, _} ->
+        show_sync_token()
+        sync_menu()
+
+      {:url, _} ->
+        prompt_and_save("KALA_SYNC_URL", "endpoint URL (e.g. https://myserver.example/kala)")
+        sync_menu()
+
+      {:token, _} ->
+        prompt_and_save("KALA_SYNC_TOKEN", "access token")
+        run_sync_now()
+        sync_menu()
+
+      {:now, _} ->
+        run_sync_now()
+        sync_menu()
+
+      {:off, _} ->
+        save_setting("KALA_SYNC_URL", "")
+        Application.put_env(:kala_app, :sync_url, nil)
+        IO.puts(:stderr, "  local-only.")
+        sync_menu()
+    end
+  end
+
+  # Print the full token + endpoint so it can be copied to another machine.
+  defp show_sync_token do
+    clear_screen()
+    IO.puts(:stderr, IO.ANSI.format(["\n  🔑 ", :bright, "Your sync credentials", :reset, "\n"]))
+    IO.puts(:stderr, "  Enter these two on your other device (Settings → Integrations →")
+    IO.puts(:stderr, "  Cross-device sync) to see the same library.\n")
+    IO.puts(:stderr, IO.ANSI.format(["  endpoint  ", :bright, Kala.Sync.url() || "(none)", :reset]))
+    IO.puts(:stderr, IO.ANSI.format(["  token     ", :bright, Kala.Sync.token() || "(none)", :reset]))
+    IO.gets("\n  press enter to go back… ")
+  end
+
+  defp run_sync_now do
+    IO.puts(:stderr, "  syncing…")
+
+    case Kala.Sync.sync() do
+      {:ok, summary} ->
+        IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ synced · #{Kala.Sync.url()}", :reset]))
+        Enum.each(sync_summary_lines(summary), &IO.puts(:stderr, "  " <> &1))
+        IO.puts(:stderr, "")
+
+      {:error, {:http, 401, _}} ->
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :yellow,
+            "  ✗ the server rejected this token.\n",
+            :reset,
+            "  Check the endpoint URL, or paste a token the server accepts.\n"
+          ])
+        )
+
+      {:error, reason} ->
+        IO.puts(:stderr, IO.ANSI.format([:red, "  ✗ #{inspect(reason)}\n", :reset]))
+
+      :disabled ->
+        IO.puts(:stderr, "  no endpoint set.\n")
+    end
+
+    # The caller re-renders (and clears) the menu right after, so hold the
+    # result on screen until the user acknowledges it.
+    IO.gets("  press enter to continue… ")
+  end
+
+  # Startup pull-merge-push, once per session, before the menu reads state.
+  # Only when the user opted into auto-sync; otherwise sync is manual.
+  defp maybe_startup_sync do
+    if Kala.Sync.enabled?() and Kala.Sync.auto?() and not Process.get(:kala_synced, false) do
+      Process.put(:kala_synced, true)
+      Kala.Sync.sync_quiet("synced")
+    end
+  end
+
+  # `kala sync` — one-shot sync from the CLI; `kala sync status` shows config.
+  defp sync_cmd(["status" | _]) do
+    if Kala.Sync.enabled?() do
+      IO.puts("sync:  on  → #{Kala.Sync.url()}")
+      IO.puts("token: #{if Kala.Sync.token(), do: "set", else: "none"}")
+      IO.puts("auto:  #{if Kala.Sync.auto?(), do: "on (syncs on launch & after episodes)", else: "off (manual — run `kala sync`)"}")
+      IO.puts("live:  #{if Kala.Sync.live?(), do: "on (each change pushed as a delta)", else: "off"}")
+    else
+      IO.puts("sync:  local only (set KALA_SYNC_URL to enable)")
+    end
+  end
+
+  defp sync_cmd(_) do
+    case Kala.Sync.sync() do
+      {:ok, summary} ->
+        IO.puts("synced · #{Kala.Sync.url()}")
+        Enum.each(sync_summary_lines(summary), &IO.puts("  " <> &1))
+
+      {:error, reason} ->
+        die("sync failed: #{inspect(reason)}")
+
+      :disabled ->
+        die("sync is not configured — set KALA_SYNC_URL (see: kala sync status)")
+    end
+  end
+
+  # Human-readable per-collection lines: what's in your library and what
+  # moved this sync (↓ pulled from server, ↑ pushed up).
+  defp sync_summary_lines(summary) do
+    labels = [watchlist: "watchlist", resume: "history", positions: "positions", tracks: "track prefs"]
+
+    for {coll, label} <- labels do
+      s = summary[coll] || %{pulled: 0, pushed: 0, total: 0, local: 0, server: 0}
+
+      moved =
+        [s.pulled > 0 && "↓#{s.pulled}", s.pushed > 0 && "↑#{s.pushed}"]
+        |> Enum.filter(& &1)
+        |> Enum.join(" ")
+
+      moved = if moved == "", do: "up to date", else: moved
+
+      "#{String.pad_trailing(label, 12)} #{String.pad_leading("#{s.total}", 4)} items  " <>
+        "(local #{s.local} · server #{s.server})   #{moved}"
+    end
+  end
+
+  defp prompt_and_save(env_key, label) do
+    case IO.gets("  #{label}: ") do
+      line when is_binary(line) ->
+        case String.trim(line) do
+          "" -> :ok
+          value -> save_setting(env_key, value)
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
   defp describe_setting({:keys, _, label, _}), do: label
+  defp describe_setting({:sync, _, label, _}), do: label
+  defp describe_setting({:integrations, _, label, _}), do: label
 
   defp describe_setting({:setting, key, label, _kind}),
     do: "#{String.pad_trailing(label, 34)}  [#{setting_value(key)}]"
@@ -344,19 +1037,7 @@ defmodule Kala.CLI do
     write_config_keys([{key, value}])
     # Env vars beat the file, so a shell-exported key won't budge — put the
     # new value straight into the app env so the change applies either way.
-    Application.put_env(:kala_app, Map.fetch!(config_app_keys(), key), value)
-  end
-
-  defp config_app_keys do
-    %{
-      "KALA_AUTOPLAY" => :autoplay,
-      "KALA_SKIP" => :skip,
-      "KALA_POSTERS" => :posters,
-      "KALA_LANG" => :lang,
-      "KALA_SUBS" => :subs_lang,
-      "KALA_DOWNLOAD_DIR" => :download_dir,
-      "KALA_MPV_ARGS" => :mpv_args
-    }
+    Application.put_env(:kala_app, Map.fetch!(Config.keys(), key), value)
   end
 
   # The smart first row: if the most recent thing was an episode watched to
@@ -720,6 +1401,7 @@ defmodule Kala.CLI do
 
         {"ctrl-d", entry} ->
           Kala.Watchlist.remove(entry["type"], entry["tmdb_id"])
+          Kala.Sync.live_push()
           index = Enum.find_index(entries, &(&1 == entry)) || 1
           watchlist_menu(max(index - 1, 0))
 
@@ -1470,6 +2152,7 @@ defmodule Kala.CLI do
           })
         end
 
+        Kala.Sync.live_push()
         pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
 
       {nil, item} ->
@@ -1538,6 +2221,7 @@ defmodule Kala.CLI do
       {"ctrl-w", ep} ->
         ctx = ctx_of.(ep)
         Kala.Position.set_watched(ctx, not Kala.Position.watched?(ctx, rt_of.(ep)))
+        Kala.Sync.live_push()
         reopen_episodes(items, describe, header, ctx_of, rt_of, ep)
 
       {"alt-w", ep} ->
@@ -1546,6 +2230,7 @@ defmodule Kala.CLI do
         for e <- Enum.take(items, index + 1),
             do: Kala.Position.set_watched(ctx_of.(e), true)
 
+        Kala.Sync.live_push()
         reopen_episodes(items, describe, header, ctx_of, rt_of, ep)
 
       {nil, ep} ->
@@ -1746,6 +2431,14 @@ defmodule Kala.CLI do
         )
 
         save_resume(ctx, source)
+        start_mal_scrobbler(ctx)
+
+        cond do
+          Kala.Sync.auto?() -> Kala.Sync.sync_quiet("saved")
+          Kala.Sync.live?() -> Kala.Sync.live_push()
+          true -> :ok
+        end
+
         IO.puts(:stderr, "playing in mpv: #{stream.filename}")
 
         binge? = Process.get(:kala_binge) || Config.autoplay?()
@@ -1876,7 +2569,11 @@ defmodule Kala.CLI do
           if(next, do: [{:next, "⏭  #{next.label}"}], else: []),
           if(next, do: [{:binge, "⚡  autoplay — chain next episodes"}], else: []),
           {:replay, "↻  replay"},
-          {:imdb, "★  rate on IMDb — open in browser"},
+          if(ctx[:anime],
+            do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
+            else: [{:imdb, "★  rate on IMDb — open in browser"}]
+          ),
+          if(ctx[:anime] and Kala.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           if(episodic?,
@@ -1897,6 +2594,12 @@ defmodule Kala.CLI do
         {:select, _} -> reselect(ctx)
         {:imdb, _} ->
           open_imdb(ctx)
+          post_play_menu(ctx, stream)
+        {:mal_open, _} ->
+          open_mal(ctx)
+          post_play_menu(ctx, stream)
+        {:mal_rate, _} ->
+          rate_on_mal(ctx)
           post_play_menu(ctx, stream)
         _ -> System.halt(0)
       end
@@ -2078,6 +2781,19 @@ defmodule Kala.CLI do
         "https://www.imdb.com/title/#{imdb}/"
       else
         _ -> "https://www.imdb.com/find/?q=#{URI.encode_www_form(ctx.title || "")}"
+      end
+
+    browser_open(url)
+    IO.puts(:stderr, "opened in browser: #{url}")
+  end
+
+  # Anime → its MyAnimeList page (or a MAL search when the id is unknown),
+  # the anime-native equivalent of the IMDb page for movies/shows.
+  defp open_mal(ctx) do
+    url =
+      case mal_id_for(ctx) do
+        id when is_integer(id) -> "https://myanimelist.net/anime/#{id}"
+        _ -> "https://myanimelist.net/anime.php?q=#{URI.encode_www_form(ctx[:search_title] || ctx.title || "")}"
       end
 
     browser_open(url)
@@ -2866,6 +3582,173 @@ defmodule Kala.CLI do
 
   # ── config ────────────────────────────────────────────────────────
 
+  # `kala colors` — prints the raw terminal palette query + what kala derived,
+  # so a theme-aware-logo issue can be diagnosed on the real terminal.
+  defp debug_colors do
+    cfg = config_palette()
+    osc = if map_size(cfg) >= 2, do: %{}, else: query_palette()
+    palette = Map.merge(osc, cfg)
+
+    source =
+      cond do
+        logo_override() -> "KALA_LOGO_COLORS override"
+        map_size(cfg) >= 2 -> "terminal config file"
+        map_size(osc) >= 2 -> "live OSC-4 query"
+        true -> "fallback (red to gold)"
+      end
+
+    IO.puts(:stderr, "palette source: #{source} (#{map_size(palette)} colors)")
+
+    for {i, {r, g, b}} <- Enum.sort(palette) do
+      IO.puts(:stderr, "  color #{i}: rgb(#{r},#{g},#{b}) sat=#{Float.round(saturation({r, g, b}), 2)}")
+    end
+
+    case ramp_anchors() do
+      {{r0, g0, b0}, {r1, g1, b1}} ->
+        IO.puts(:stderr, "logo gradient: rgb(#{r0},#{g0},#{b0}) -> rgb(#{r1},#{g1},#{b1})")
+    end
+
+    if map_size(palette) < 2 and logo_override() == nil do
+      IO.puts(:stderr, "\n(could not read the theme palette — set " <>
+        "KALA_LOGO_COLORS to two hex colors to pick the gradient manually.)")
+    end
+  end
+
+  # ── MyAnimeList ───────────────────────────────────────────────────
+
+  defp mal(["login" | _]) do
+    unless Kala.MAL.configured?() do
+      die("MAL_CLIENT_ID is not set — the app owner configures it in #{Config.path()}")
+    end
+
+    unless tty?(), do: die("mal login is interactive — run it at a terminal")
+
+    IO.puts(:stderr, "opening MyAnimeList in your browser — approve access, then come back…")
+    IO.puts(:stderr, IO.ANSI.format([:faint, "(redirect: #{Kala.MAL.redirect_uri()})", :reset]))
+
+    case Kala.MAL.login(&browser_open/1) do
+      {:ok, user} ->
+        IO.puts(:stderr, IO.ANSI.format([:green, "✓ linked to MyAnimeList as #{user}", :reset]))
+        IO.puts(:stderr, "anime you watch will now scrobble to your list automatically.")
+
+      {:error, reason} ->
+        die("MAL login failed: #{inspect(reason)}")
+    end
+  end
+
+  defp mal(["logout" | _]) do
+    Kala.MAL.logout()
+    IO.puts(:stderr, "unlinked from MyAnimeList.")
+  end
+
+  defp mal(_) do
+    cond do
+      not Kala.MAL.configured?() ->
+        IO.puts(:stderr, "MyAnimeList: not configured (owner sets MAL_CLIENT_ID). ")
+
+      Kala.MAL.authenticated?() ->
+        IO.puts(:stderr, "MyAnimeList: linked as #{Kala.MAL.username() || "?"} — kala mal logout to unlink")
+
+      true ->
+        IO.puts(:stderr, "MyAnimeList: not linked — run: kala mal login")
+    end
+  end
+
+  # Fire-and-forget scrobbler: watches the position file for THIS episode and,
+  # the moment it's marked watched (85%/eof), pushes progress to MAL. Exits
+  # when it scrobbles, or when mpv is gone (episode abandoned early). Anime +
+  # logged-in only. Never blocks the menu.
+  defp start_mal_scrobbler(ctx) do
+    if ctx && ctx[:anime] && is_integer(ctx.episode) && Kala.MAL.authenticated?() &&
+         Config.mal_scrobble?() do
+      spawn(fn -> mal_scrobble_loop(ctx, System.os_time(:second)) end)
+    end
+
+    :ok
+  end
+
+  defp mal_scrobble_loop(ctx, started) do
+    Process.sleep(5_000)
+
+    cond do
+      Kala.Position.finished?(ctx) ->
+        scrobble_mal(ctx)
+
+      mal_scrobble_stale?(ctx, started) ->
+        :ok
+
+      true ->
+        mal_scrobble_loop(ctx, started)
+    end
+  end
+
+  defp mal_scrobble_stale?(ctx, started) do
+    now = System.os_time(:second)
+
+    case Kala.Position.last_saved_at(ctx) do
+      nil -> now - started > 90
+      mtime -> now - mtime > 30
+    end
+  end
+
+  defp scrobble_mal(ctx) do
+    with mal_id when is_integer(mal_id) <- mal_id_for(ctx) do
+      total = anime_episode_count(ctx[:search_title] || ctx.title)
+
+      case Kala.MAL.set_progress(mal_id, ctx.episode, total) do
+        :ok -> IO.puts(:stderr, IO.ANSI.format([:faint, "  ↑ MAL: #{ctx.title} ep #{ctx.episode}", :reset]))
+        _ -> :ok
+      end
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp rate_on_mal(ctx) do
+    with mal_id when is_integer(mal_id) <- mal_id_for(ctx),
+         line when is_binary(line) <- IO.gets("  score on MyAnimeList (1–10, enter to skip): "),
+         {score, _} <- Integer.parse(String.trim(line)),
+         true <- score in 1..10 do
+      case Kala.MAL.rate(mal_id, score) do
+        :ok -> IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ rated #{score}/10 on MAL", :reset]))
+        _ -> IO.puts(:stderr, "  couldn't submit the rating")
+      end
+    else
+      _ -> :ok
+    end
+  end
+
+  # Resolve a MAL id for an anime ctx from its title (AniList idMal), cached.
+  defp mal_id_for(ctx) do
+    title = ctx[:search_title] || ctx[:title]
+    key = {:mal_id, title}
+
+    case Process.get(key, :miss) do
+      :miss ->
+        id = anilist_mal_id(title)
+        Process.put(key, id)
+        id
+
+      cached ->
+        cached
+    end
+  end
+
+  defp anilist_mal_id(nil), do: nil
+
+  defp anilist_mal_id(title) do
+    case Req.post("https://graphql.anilist.co",
+           json: %{query: "query($s:String){Media(search:$s,type:ANIME){idMal}}", variables: %{s: title}},
+           retry: false,
+           receive_timeout: 8_000
+         ) do
+      {:ok, %{status: 200, body: %{"data" => %{"Media" => %{"idMal" => mal}}}}} when is_integer(mal) -> mal
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
   defp config do
     IO.puts(Jason.encode!(%{config_file: Config.path(), keys: Config.status()}))
   end
@@ -3205,6 +4088,7 @@ defmodule Kala.CLI do
       kala doctor            check binaries, keys, and every service kala talks to
       kala config
       kala update            self-update the standalone binary to the latest release
+      kala mal [login|logout] link MyAnimeList to scrobble anime progress
 
     watch is interactive: pick the title (TMDB), for shows the season and
     episode, then a source — it resolves on your debrid account and plays

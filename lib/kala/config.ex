@@ -20,14 +20,25 @@ defmodule Kala.Config do
     "KALA_SKIP" => :skip,
     "KALA_AUTOPLAY" => :autoplay,
     "KALA_DOWNLOAD_DIR" => :download_dir,
+    "KALA_LOGO_COLORS" => :logo_colors,
     "OPENSUBTITLES_API_KEY" => :opensubtitles_api_key,
     "OPENSUBTITLES_USERNAME" => :opensubtitles_username,
     "OPENSUBTITLES_PASSWORD" => :opensubtitles_password,
     "JACKETT_URL" => :jackett_url,
     "JACKETT_API_KEY" => :jackett_api_key,
     "JACKETT_INDEXER" => :jackett_indexer,
-    "JIMAKU_API_KEY" => :jimaku_api_key
+    "JIMAKU_API_KEY" => :jimaku_api_key,
+    "MAL_CLIENT_ID" => :mal_client_id,
+    "MAL_CLIENT_SECRET" => :mal_client_secret,
+    "KALA_MAL_SCROBBLE" => :mal_scrobble,
+    "KALA_SYNC_URL" => :sync_url,
+    "KALA_SYNC_TOKEN" => :sync_token,
+    "KALA_SYNC_AUTO" => :sync_auto,
+    "KALA_SYNC_LIVE" => :sync_live
   }
+
+  @doc "The ENV_KEY => app-env-atom map for every configurable key."
+  def keys, do: @keys
 
   def path do
     config_home = System.get_env("XDG_CONFIG_HOME") || Path.join(System.user_home!(), ".config")
@@ -117,6 +128,14 @@ defmodule Kala.Config do
 
       _ ->
         false
+    end
+  end
+
+  @doc "Whether finishing an anime episode scrobbles to MyAnimeList (KALA_MAL_SCROBBLE, default on)."
+  def mal_scrobble? do
+    case Application.get_env(:kala_app, :mal_scrobble) do
+      value when is_binary(value) -> String.downcase(String.trim(value)) not in ["off", "false", "no", "0"]
+      _ -> true
     end
   end
 
