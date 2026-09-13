@@ -398,6 +398,13 @@ defmodule Laev.Sync do
     write_json_map(Path.join(data_dir(), "resume.json"), live(merged, :resume))
     apply_dir(Path.join(data_dir(), "positions"), merged[:positions] || %{})
     apply_dir(Path.join(data_dir(), "tracks"), merged[:tracks] || %{})
+
+    # Watchlist and resume are cached in ETS at boot — without a reload the
+    # continue page keeps showing pre-sync state, and the next put/persist
+    # would write that stale table back over the synced files (turning the
+    # pulled records into tombstones on the sync after that).
+    Laev.Resume.reload()
+    Laev.Watchlist.reload()
     :ok
   end
 

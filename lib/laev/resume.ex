@@ -25,6 +25,18 @@ defmodule Laev.Resume do
     end
   end
 
+  @doc """
+  Drop the cache and re-read resume.json — for when something other than
+  `put/3` rewrote the file (a sync pull). Without this the stale table would
+  not only show old history but clobber the synced file on the next persist.
+  """
+  def reload do
+    init()
+    :ets.delete_all_objects(@table)
+    load()
+    :ok
+  end
+
   def key(type, tmdb_id), do: "#{type}:#{tmdb_id}"
 
   @doc "The resume entry for a title, or nil."

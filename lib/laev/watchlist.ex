@@ -23,6 +23,17 @@ defmodule Laev.Watchlist do
     end
   end
 
+  @doc """
+  Drop the cache and re-read watchlist.json — for when something other than
+  this module rewrote the file (a sync pull).
+  """
+  def reload do
+    init()
+    :ets.delete_all_objects(@table)
+    load()
+    :ok
+  end
+
   def key(type, tmdb_id), do: "#{type}:#{tmdb_id}"
 
   def has?(type, tmdb_id), do: :ets.member(@table, key(type, tmdb_id))
