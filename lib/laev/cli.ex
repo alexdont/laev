@@ -487,7 +487,7 @@ defmodule Laev.CLI do
 
     case pick(items, &menu_label/1, "↑↓ to move · enter to select · esc to quit", nil, nil, [], :abort) do
       :resized -> main_menu()
-      nil -> System.halt(0)
+      nil -> quit_laev()
       {:up_next, entry} -> play_next_episode(entry)
       {:resume_last, entry} -> continue_entry(entry)
       {:continue, _} -> continue()
@@ -962,6 +962,14 @@ defmodule Laev.CLI do
     # The caller re-renders (and clears) the menu right after, so hold the
     # result on screen until the user acknowledges it.
     IO.gets("  press enter to continue… ")
+  end
+
+  # Interactive quit: with auto-sync on, push whatever this session changed
+  # (a position mid-episode, post-play toggles) before the process dies —
+  # the playback watcher dies with us and can't do it after.
+  defp quit_laev do
+    if Laev.Sync.auto?(), do: Laev.Sync.sync_quiet("exit")
+    System.halt(0)
   end
 
   # Startup pull-merge-push, once per session, before the menu reads state.
@@ -2471,11 +2479,18 @@ defmodule Laev.CLI do
         save_resume(ctx, source)
         start_mal_scrobbler(ctx)
 
+        # Push the fresh resume entry (title + torrent source) right away, so
+        # another device can already continue this title mid-playback…
         cond do
           Laev.Sync.auto?() -> Laev.Sync.sync_quiet("saved")
           Laev.Sync.live?() -> Laev.Sync.live_push()
           true -> :ok
         end
+
+        # …and push again when playback actually ends: mpv runs detached, so
+        # the sync above happens at launch and never sees this session's
+        # final position or watched flag.
+        start_sync_watcher(ctx)
 
         IO.puts(:stderr, "playing in mpv: #{stream.filename}")
 
@@ -2639,7 +2654,7 @@ defmodule Laev.CLI do
         {:mal_rate, _} ->
           rate_on_mal(ctx)
           post_play_menu(ctx, stream)
-        _ -> System.halt(0)
+        _ -> quit_laev()
       end
     end
   end
@@ -3726,6 +3741,33 @@ defmodule Laev.CLI do
     case Laev.Position.last_saved_at(ctx) do
       nil -> now - started > 90
       mtime -> now - mtime > 30
+    end
+  end
+
+  # Companion to the MAL scrobbler, but for sync: waits until this session's
+  # playback is over — the episode finished, or the position went stale (mpv
+  # closed mid-episode) — then pushes the final position + watched flag to
+  # the endpoint. Dies silently with the CLI process; the exit-time sync and
+  # the next launch's startup sync are the safety nets.
+  defp start_sync_watcher(ctx) do
+    if ctx && Laev.Sync.enabled?() and (Laev.Sync.auto?() or Laev.Sync.live?()) do
+      spawn(fn -> sync_watch_loop(ctx, System.os_time(:second)) end)
+    end
+
+    :ok
+  end
+
+  defp sync_watch_loop(ctx, started) do
+    Process.sleep(5_000)
+
+    cond do
+      Laev.Position.finished?(ctx) or mal_scrobble_stale?(ctx, started) ->
+        if Laev.Sync.auto?(),
+          do: Laev.Sync.sync_quiet("watched"),
+          else: Laev.Sync.live_push()
+
+      true ->
+        sync_watch_loop(ctx, started)
     end
   end
 
