@@ -1596,33 +1596,40 @@ defmodule Laev.CLI do
   end
 
   # The search prompt, with the last searches listed under it, newest first.
-  # ↑↓ walk that list: each step highlights a row *and* puts it in the bar,
-  # where it can be edited before enter runs it (a typo stays in the list —
-  # walk to it, fix it, and both versions are kept). ↑ past the top clears the
-  # bar again. Enter searches exactly what the bar holds, or the highlighted
-  # row when the bar is empty.
+  # Typing narrows the list; ↑↓ then walk what's left, each step highlighting a
+  # row *and* putting it in the bar — so typing a few letters and pressing ↓
+  # completes to the full title, which can still be edited before enter runs it
+  # (a typo stays in the list: walk to it, fix it, and both versions are kept).
+  # ↑ past the top clears the bar and restores the full list.
   #
-  # `--disabled` is what makes that possible: normally the bar is fzf's filter,
-  # so recalling a search into it hides every other row, and the workarounds
-  # are worse — search() keeps the list but strands the highlight, and
-  # re-syncing the highlight with pos() races fzf's asynchronous search.
-  # Disabled, the bar is a plain text field, the list is always whole, and the
-  # highlight, the bar and the choice can't disagree. The cost is that typing
-  # no longer filters the list, which at 20 rows is no loss.
+  # The catch is that the bar is also fzf's filter, so filling it from the list
+  # would re-filter by the full title and drop the sibling matches. Starting the
+  # walk therefore turns the search off (`disable-search`), which freezes the
+  # matches as they are and leaves the bar as a plain text field; ↑ back to the
+  # top turns it on again. The alternatives are all worse: search() keeps the
+  # list but strands the highlight, and re-syncing the highlight with pos()
+  # races fzf's asynchronous search.
   defp menu_search_fzf do
     hist = search_history_path()
     prune_search_history(hist)
 
-    header = "↑↓ recalls a past search (edit it, or enter to run it) · ctrl-d forgets · esc backs out"
+    header = "type to narrow · ↑↓ recalls (edit it, or enter to run it) · ctrl-d forgets · esc backs out"
 
     # fzf always parks its cursor on a row, so "nothing selected yet" is drawn
     # by hiding the pointer (--pointer=) and neutralising the current-line
     # colors: until ↓ is pressed the list is just a list. The pointer doubles
     # as the "is a walk in progress" flag — empty means not walking, so the
     # first ↓ takes the top row instead of stepping past it, and that holds
-    # even if something was typed first.
-    down = ~s[test -n "$FZF_POINTER" && echo "down+replace-query" || echo "replace-query+change-pointer(▌)"]
-    up = ~s[test "$FZF_POS" -le 1 && echo "clear-query+change-pointer()" || echo "up+replace-query"]
+    # even if something was typed first. With nothing matching what was typed
+    # there is nothing to walk to, so ↓ leaves the bar alone.
+    down =
+      ~s[test "$FZF_MATCH_COUNT" -gt 0 || exit; ] <>
+        ~s[test -n "$FZF_POINTER" && echo "down+replace-query" ] <>
+        ~s[|| echo "disable-search+replace-query+change-pointer(▌)"]
+
+    up =
+      ~s[test "$FZF_POS" -le 1 && echo "enable-search+clear-query+change-pointer()" ] <>
+        ~s[|| echo "up+replace-query"]
 
     # No --history: laev owns this file, so ctrl-d can edit it in place (with
     # --history fzf rewrites the file from its own in-memory copy on exit and
@@ -1630,7 +1637,7 @@ defmodule Laev.CLI do
     # bind shell as an env var — the outer sh's positional args don't exist
     # there.
     fzf =
-      ~s(fzf --disabled --print-query --tac --no-multi --reverse --height=~60% ) <>
+      ~s(fzf --print-query --tac --no-multi --reverse --height=~60% ) <>
         ~s(--pointer= --color=current-fg:-1,current-bg:-1,current-hl:-1 ) <>
         ~s(--prompt='search for: ' --header="$2" ) <>
         ~s[--bind 'down:transform:#{down}' ] <>
