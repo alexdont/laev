@@ -1595,59 +1595,67 @@ defmodule Laev.CLI do
     end
   end
 
-  # The search prompt, with the last #{@search_history_max} searches listed
-  # under it, newest first: ↓ walks down that list into the editable bar (fzf's
-  # own query history) and ↑ walks back up toward an empty bar — the readline
-  # convention is inverted on purpose so the keys follow the list as it's
-  # drawn. Each recall is paired with `search()` (an empty search) so the bar
-  # fills without the recalled text filtering the list away: the whole list
-  # stays on screen while walking it, which is how you see how far down the
-  # one you want is. Typing still filters; tab copies the highlighted row into
-  # the bar. A mistyped search stays in the list — recall it, fix it, and both
-  # versions are kept.
+  # The search prompt, with the last searches listed under it, newest first.
+  # ↑↓ move the highlight through that list — plain cursor movement, so the
+  # whole list stays on screen and the highlighted row is always where you
+  # are. Enter searches the highlighted row; tab copies it into the bar to be
+  # edited first (a typo stays in the list — walk to it, tab, fix it, enter,
+  # and both versions are kept). Typing filters the list as usual, and then
+  # enter searches exactly what the bar holds.
+  #
+  # Recall deliberately moves the cursor rather than filling the bar: fzf's
+  # prev-history fills the bar, but the bar is also the filter, so the rest of
+  # the list disappears as you walk it. Pairing it with search() keeps the
+  # list but leaves the highlight behind, and re-syncing the highlight with
+  # pos() races the asynchronous search. Moving the cursor is the one
+  # mechanism where the list, the highlight and the choice cannot disagree.
   defp menu_search_fzf do
     hist = search_history_path()
-    forget = hist <> ".forget"
-
     prune_search_history(hist)
-    File.write(forget, "")
 
-    header = "↓ recalls your past searches · tab fills from the list · ctrl-d forgets · esc backs out"
+    header = "↑↓ picks a past search · tab edits it first · ctrl-d forgets · esc backs out"
 
-    # fzf owns the history file while it runs (it appends each submitted query
-    # and rewrites the file on exit), so a ctrl-d deletion can't touch it
-    # directly — it's staged in a sidecar and applied once fzf is gone. The
-    # paths reach fzf's own bind shell as env vars: the outer sh's positional
-    # args don't exist there.
+    # No --history: laev owns this file, so ctrl-d can edit it in place (with
+    # --history fzf rewrites the file from its own in-memory copy on exit and
+    # silently resurrects whatever was deleted). The path reaches fzf's own
+    # bind shell as an env var — the outer sh's positional args don't exist
+    # there.
     fzf =
       ~s(fzf --print-query --tac --no-multi --reverse --height=~60% ) <>
-        ~s(--history="$1" --history-size=#{@search_history_max} ) <>
         ~s(--prompt='search for: ' --header="$2" ) <>
-        ~s[--bind 'down:prev-history+search(),up:next-history+search()' ] <>
         ~s(--bind 'tab:replace-query' ) <>
-        ~s[--bind 'ctrl-d:execute-silent(printf "%s\\n" {} >> "$LAEV_FORGET")] <>
-        ~s[+reload(grep -vxF -f "$LAEV_FORGET" "$LAEV_HIST" || true)' ] <>
+        ~s[--bind 'ctrl-d:execute-silent(grep -vxF -- {} "$LAEV_HIST" > "$LAEV_HIST.tmp"; ] <>
+        ~s[mv "$LAEV_HIST.tmp" "$LAEV_HIST")+reload(cat "$LAEV_HIST")' ] <>
         ~s(< "$1")
 
-    result =
-      System.cmd("sh", ["-c", fzf, "sh", hist, header],
-        env: [{"LAEV_HIST", hist}, {"LAEV_FORGET", forget}]
-      )
-
-    apply_forgotten_searches(hist, forget)
+    result = System.cmd("sh", ["-c", fzf, "sh", hist, header], env: [{"LAEV_HIST", hist}])
 
     case result do
       # 0 = a row was chosen, 1 = the typed query matched nothing (still a
       # search). Anything else is esc/ctrl-c.
       {out, code} when code in [0, 1] ->
         case String.trim(search_choice(out, code)) do
-          "" -> back()
-          query -> watch([query])
+          "" ->
+            back()
+
+          query ->
+            remember_search(hist, query)
+            watch([query])
         end
 
       _ ->
         back()
     end
+  end
+
+  # Move a search to the top of the list (newest), whether it's new or one
+  # that was picked out of the list again, and hold the file at its cap.
+  defp remember_search(path, query) do
+    kept = path |> search_history_lines() |> Enum.reject(&(&1 == query))
+
+    write_search_history(path, Enum.take(kept ++ [query], -@search_history_max))
+  rescue
+    _ -> :ok
   end
 
   # --print-query prints the typed query first, then the highlighted row (when
@@ -1684,27 +1692,6 @@ defmodule Laev.CLI do
 
     if pruned != entries or not File.exists?(path), do: write_search_history(path, pruned)
     :ok
-  end
-
-  # Drop the entries ctrl-d staged, now that fzf has finished rewriting.
-  defp apply_forgotten_searches(path, forget) do
-    case search_history_lines(forget) do
-      [] ->
-        :ok
-
-      dropped ->
-        set = MapSet.new(dropped)
-
-        path
-        |> search_history_lines()
-        |> Enum.reject(&MapSet.member?(set, &1))
-        |> then(&write_search_history(path, &1))
-    end
-
-    File.rm(forget)
-    :ok
-  rescue
-    _ -> :ok
   end
 
   defp search_history_lines(path) do

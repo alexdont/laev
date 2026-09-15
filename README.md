@@ -25,8 +25,8 @@ widget library.)
 - **Title-first search** via TMDB: movies and shows, season/episode pickers,
   spelling-variant matching ("gray" finds "Grey"), year hints
   (`laev watch "heat 1995"`). The search box remembers your last 20 searches —
-  ↓ walks down them into the bar to fix a typo and run it again, tab fills the
-  bar from the list, ctrl-d forgets an entry.
+  ↑↓ picks one (the highlight shows where you are), tab drops it into the bar
+  to fix a typo before running it, ctrl-d forgets an entry.
 - **Only playable sources are offered.** Every source is actually resolved on
   your debrid provider before it reaches the picker — dead torrents, DMCA'd
   files, and 0-seeder stalls are filtered out with the reason shown.
