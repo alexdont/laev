@@ -1595,10 +1595,12 @@ defmodule Laev.CLI do
     end
   end
 
-  # The search prompt, with every past search listed under it: ↑↓ recall one
-  # into the editable bar (fzf's own query history), typing filters the list,
-  # tab copies the highlighted row into the bar. A mistyped search stays in
-  # the list — recall it, fix it, and both versions are kept.
+  # The search prompt, with every past search listed under it, newest first:
+  # ↓ walks down that list into the editable bar (fzf's own query history) and
+  # ↑ walks back up toward an empty bar — the readline convention is inverted
+  # on purpose so the keys follow the list as it's drawn. Typing filters the
+  # list, tab copies the highlighted row into the bar. A mistyped search stays
+  # in the list — recall it, fix it, and both versions are kept.
   defp menu_search_fzf do
     hist = search_history_path()
     forget = hist <> ".forget"
@@ -1606,7 +1608,7 @@ defmodule Laev.CLI do
     prune_search_history(hist)
     File.write(forget, "")
 
-    header = "↑↓ recalls · tab fills from the list · ctrl-d forgets · esc backs out"
+    header = "↓ recalls your past searches · tab fills from the list · ctrl-d forgets · esc backs out"
 
     # fzf owns the history file while it runs (it appends each submitted query
     # and rewrites the file on exit), so a ctrl-d deletion can't touch it
@@ -1617,7 +1619,7 @@ defmodule Laev.CLI do
       ~s(fzf --print-query --tac --no-multi --reverse --height=~60% ) <>
         ~s(--history="$1" --history-size=#{@search_history_max} ) <>
         ~s(--prompt='search for: ' --header="$2" ) <>
-        ~s(--bind 'up:prev-history,down:next-history' ) <>
+        ~s(--bind 'down:prev-history,up:next-history' ) <>
         ~s(--bind 'tab:replace-query' ) <>
         ~s[--bind 'ctrl-d:execute-silent(printf "%s\\n" {} >> "$LAEV_FORGET")] <>
         ~s[+reload(grep -vxF -f "$LAEV_FORGET" "$LAEV_HIST" || true)' ] <>
