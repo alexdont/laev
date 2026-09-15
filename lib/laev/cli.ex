@@ -1605,10 +1605,10 @@ defmodule Laev.CLI do
   # The catch is that the bar is also fzf's filter, so filling it from the list
   # would re-filter by the full title and drop the sibling matches. Starting the
   # walk therefore turns the search off (`disable-search`), which freezes the
-  # matches as they are and leaves the bar as a plain text field; ↑ back to the
-  # top turns it on again. The alternatives are all worse: search() keeps the
-  # list but strands the highlight, and re-syncing the highlight with pos()
-  # races fzf's asynchronous search.
+  # matches as they are and leaves the bar as a plain text field; editing the
+  # bar, or ↑ back past the top, turns it on again. The alternatives are all
+  # worse: search() keeps the list but strands the highlight, and re-syncing
+  # the highlight with pos() races fzf's asynchronous search.
   defp menu_search_fzf do
     hist = search_history_path()
     prune_search_history(hist)
@@ -1631,6 +1631,14 @@ defmodule Laev.CLI do
       ~s[test "$FZF_POS" -le 1 && echo "enable-search+clear-query+change-pointer()" ] <>
         ~s[|| echo "up+replace-query"]
 
+    # Editing a recalled title has to start filtering again, but the walk edits
+    # the bar too, so the two are told apart by what the bar holds: a walk step
+    # leaves it exactly equal to the row it just took, while typing or deleting
+    # makes it differ. Any such edit drops back to "nothing selected", with the
+    # list narrowed to the new text, so the next ↓ walks those matches instead
+    # of the frozen ones.
+    change = ~s[test "$FZF_QUERY" = "$FZF_CURRENT_ITEM" || echo "enable-search+change-pointer()"]
+
     # No --history: laev owns this file, so ctrl-d can edit it in place (with
     # --history fzf rewrites the file from its own in-memory copy on exit and
     # silently resurrects whatever was deleted). The path reaches fzf's own
@@ -1642,6 +1650,7 @@ defmodule Laev.CLI do
         ~s(--prompt='search for: ' --header="$2" ) <>
         ~s[--bind 'down:transform:#{down}' ] <>
         ~s[--bind 'up:transform:#{up}' ] <>
+        ~s[--bind 'change:transform:#{change}' ] <>
         ~s[--bind 'ctrl-d:execute-silent(grep -vxF -- {} "$LAEV_HIST" > "$LAEV_HIST.tmp"; ] <>
         ~s[mv "$LAEV_HIST.tmp" "$LAEV_HIST")+reload(cat "$LAEV_HIST")' ] <>
         ~s(< "$1")
