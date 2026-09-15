@@ -2771,13 +2771,14 @@ defmodule Laev.CLI do
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           if(episodic?,
-            do: [{:select, "☰  episodes — choose another"}],
+            do: [{:select, "☰  episodes — choose another"}, {:search, "⌕  search — find something else"}],
             else: [{:select, "⌕  search — find something else"}]
           ),
+          {:home, "⌂  home — back to the menu (keeps playing)"},
           {:quit, "✕  quit"}
         ])
 
-      case pick(items, &elem(&1, 1), "what next?") do
+      case pick(items, &elem(&1, 1), "what next? · esc goes back to the menu") do
         {:next, _} -> play_to(ctx, next)
         {:binge, _} ->
           Process.put(:laev_binge, true)
@@ -2795,7 +2796,13 @@ defmodule Laev.CLI do
         {:mal_rate, _} ->
           rate_on_mal(ctx)
           post_play_menu(ctx, stream)
-        _ -> quit_laev()
+        {:search, _} -> menu_search()
+        {:home, _} -> back()
+        {:quit, _} -> quit_laev()
+        # Esc backs out a level here like it does everywhere else, rather than
+        # ending the session — mpv is detached, so the main menu is usable
+        # (search something, queue what's next) while the current thing plays.
+        _ -> back()
       end
     end
   end
