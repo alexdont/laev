@@ -1596,24 +1596,29 @@ defmodule Laev.CLI do
   end
 
   # The search prompt, with the last searches listed under it, newest first.
-  # ↑↓ move the highlight through that list — plain cursor movement, so the
-  # whole list stays on screen and the highlighted row is always where you
-  # are. Enter searches the highlighted row; tab copies it into the bar to be
-  # edited first (a typo stays in the list — walk to it, tab, fix it, enter,
-  # and both versions are kept). Typing filters the list as usual, and then
-  # enter searches exactly what the bar holds.
+  # ↑↓ walk that list: each step highlights a row *and* puts it in the bar,
+  # where it can be edited before enter runs it (a typo stays in the list —
+  # walk to it, fix it, and both versions are kept). ↑ past the top clears the
+  # bar again. Enter searches exactly what the bar holds, or the highlighted
+  # row when the bar is empty.
   #
-  # Recall deliberately moves the cursor rather than filling the bar: fzf's
-  # prev-history fills the bar, but the bar is also the filter, so the rest of
-  # the list disappears as you walk it. Pairing it with search() keeps the
-  # list but leaves the highlight behind, and re-syncing the highlight with
-  # pos() races the asynchronous search. Moving the cursor is the one
-  # mechanism where the list, the highlight and the choice cannot disagree.
+  # `--disabled` is what makes that possible: normally the bar is fzf's filter,
+  # so recalling a search into it hides every other row, and the workarounds
+  # are worse — search() keeps the list but strands the highlight, and
+  # re-syncing the highlight with pos() races fzf's asynchronous search.
+  # Disabled, the bar is a plain text field, the list is always whole, and the
+  # highlight, the bar and the choice can't disagree. The cost is that typing
+  # no longer filters the list, which at 20 rows is no loss.
   defp menu_search_fzf do
     hist = search_history_path()
     prune_search_history(hist)
 
-    header = "↑↓ picks a past search · tab edits it first · ctrl-d forgets · esc backs out"
+    header = "↑↓ recalls a past search (edit it, or enter to run it) · ctrl-d forgets · esc backs out"
+
+    # An empty bar means the walk hasn't started, so the first ↓ takes the top
+    # row rather than stepping past it.
+    down = ~s[test -n "$FZF_QUERY" && echo "down+replace-query" || echo "replace-query"]
+    up = ~s[test "$FZF_POS" -le 1 && echo "clear-query" || echo "up+replace-query"]
 
     # No --history: laev owns this file, so ctrl-d can edit it in place (with
     # --history fzf rewrites the file from its own in-memory copy on exit and
@@ -1621,9 +1626,10 @@ defmodule Laev.CLI do
     # bind shell as an env var — the outer sh's positional args don't exist
     # there.
     fzf =
-      ~s(fzf --print-query --tac --no-multi --reverse --height=~60% ) <>
+      ~s(fzf --disabled --print-query --tac --no-multi --reverse --height=~60% ) <>
         ~s(--prompt='search for: ' --header="$2" ) <>
-        ~s(--bind 'tab:replace-query' ) <>
+        ~s[--bind 'down:transform:#{down}' ] <>
+        ~s[--bind 'up:transform:#{up}' ] <>
         ~s[--bind 'ctrl-d:execute-silent(grep -vxF -- {} "$LAEV_HIST" > "$LAEV_HIST.tmp"; ] <>
         ~s[mv "$LAEV_HIST.tmp" "$LAEV_HIST")+reload(cat "$LAEV_HIST")' ] <>
         ~s(< "$1")
@@ -1658,11 +1664,11 @@ defmodule Laev.CLI do
     _ -> :ok
   end
 
-  # --print-query prints the typed query first, then the highlighted row (when
-  # one matched). The bar wins: enter searches exactly what it shows, so a
-  # typed query is never silently swapped for a longer past search that merely
-  # fuzzy-matched it ("dune" → "dune part two"). Tab is how a row is adopted.
-  # An empty bar falls back to the row, so enter on an untouched list works.
+  # --print-query prints the bar first, then the highlighted row. The bar wins:
+  # it is what the user is looking at and editing, and with search disabled the
+  # highlight is unrelated to what they typed — preferring the row would search
+  # some leftover past title instead of the words in front of them. An empty bar
+  # falls back to the row, which is how enter on a freshly opened list works.
   defp search_choice(out, 0) do
     case String.split(out, "\n", parts: 2) do
       [query, chosen] -> if String.trim(query) == "", do: chosen, else: query
