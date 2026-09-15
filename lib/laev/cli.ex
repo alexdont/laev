@@ -1576,7 +1576,7 @@ defmodule Laev.CLI do
   end
 
   # How many past searches to keep (and show).
-  @search_history_max 20
+  @search_history_max 100
 
   defp menu_search do
     if System.find_executable("fzf"), do: menu_search_fzf(), else: menu_search_plain()

@@ -24,7 +24,7 @@ widget library.)
 
 - **Title-first search** via TMDB: movies and shows, season/episode pickers,
   spelling-variant matching ("gray" finds "Grey"), year hints
-  (`laev watch "heat 1995"`). The search box remembers your last 20 searches —
+  (`laev watch "heat 1995"`). The search box remembers your last 100 searches —
   type a few letters to narrow them, then ↑↓ walks the matches into the search
   bar (completing to the full title, still editable); ctrl-d forgets an entry.
 - **Only playable sources are offered.** Every source is actually resolved on
