@@ -1615,10 +1615,14 @@ defmodule Laev.CLI do
 
     header = "↑↓ recalls a past search (edit it, or enter to run it) · ctrl-d forgets · esc backs out"
 
-    # An empty bar means the walk hasn't started, so the first ↓ takes the top
-    # row rather than stepping past it.
-    down = ~s[test -n "$FZF_QUERY" && echo "down+replace-query" || echo "replace-query"]
-    up = ~s[test "$FZF_POS" -le 1 && echo "clear-query" || echo "up+replace-query"]
+    # fzf always parks its cursor on a row, so "nothing selected yet" is drawn
+    # by hiding the pointer (--pointer=) and neutralising the current-line
+    # colors: until ↓ is pressed the list is just a list. The pointer doubles
+    # as the "is a walk in progress" flag — empty means not walking, so the
+    # first ↓ takes the top row instead of stepping past it, and that holds
+    # even if something was typed first.
+    down = ~s[test -n "$FZF_POINTER" && echo "down+replace-query" || echo "replace-query+change-pointer(▌)"]
+    up = ~s[test "$FZF_POS" -le 1 && echo "clear-query+change-pointer()" || echo "up+replace-query"]
 
     # No --history: laev owns this file, so ctrl-d can edit it in place (with
     # --history fzf rewrites the file from its own in-memory copy on exit and
@@ -1627,6 +1631,7 @@ defmodule Laev.CLI do
     # there.
     fzf =
       ~s(fzf --disabled --print-query --tac --no-multi --reverse --height=~60% ) <>
+        ~s(--pointer= --color=current-fg:-1,current-bg:-1,current-hl:-1 ) <>
         ~s(--prompt='search for: ' --header="$2" ) <>
         ~s[--bind 'down:transform:#{down}' ] <>
         ~s[--bind 'up:transform:#{up}' ] <>
@@ -1637,10 +1642,10 @@ defmodule Laev.CLI do
     result = System.cmd("sh", ["-c", fzf, "sh", hist, header], env: [{"LAEV_HIST", hist}])
 
     case result do
-      # 0 = a row was chosen, 1 = the typed query matched nothing (still a
-      # search). Anything else is esc/ctrl-c.
+      # 0 and 1 both mean the prompt was accepted (1 = the list was empty or
+      # nothing matched). Anything else is esc/ctrl-c.
       {out, code} when code in [0, 1] ->
-        case String.trim(search_choice(out, code)) do
+        case String.trim(search_choice(out)) do
           "" ->
             back()
 
@@ -1664,19 +1669,13 @@ defmodule Laev.CLI do
     _ -> :ok
   end
 
-  # --print-query prints the bar first, then the highlighted row. The bar wins:
-  # it is what the user is looking at and editing, and with search disabled the
-  # highlight is unrelated to what they typed — preferring the row would search
-  # some leftover past title instead of the words in front of them. An empty bar
-  # falls back to the row, which is how enter on a freshly opened list works.
-  defp search_choice(out, 0) do
-    case String.split(out, "\n", parts: 2) do
-      [query, chosen] -> if String.trim(query) == "", do: chosen, else: query
-      [only] -> only
-    end
-  end
-
-  defp search_choice(out, _code), do: out
+  # --print-query prints the bar first, then the highlighted row. Only the bar
+  # counts: it is what the user is looking at and editing, walking the list
+  # fills it, and with search disabled the highlighted row is unrelated to
+  # freshly typed text. An empty bar therefore means nothing was picked — no
+  # walk, nothing typed — which is why enter on an untouched prompt backs out
+  # rather than quietly running whatever fzf happened to park its cursor on.
+  defp search_choice(out), do: out |> String.split("\n", parts: 2) |> hd()
 
   defp search_history_path do
     dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
