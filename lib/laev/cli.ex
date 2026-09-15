@@ -1576,7 +1576,7 @@ defmodule Laev.CLI do
   end
 
   # How many past searches to keep (and show).
-  @search_history_max 200
+  @search_history_max 20
 
   defp menu_search do
     if System.find_executable("fzf"), do: menu_search_fzf(), else: menu_search_plain()
@@ -1595,12 +1595,16 @@ defmodule Laev.CLI do
     end
   end
 
-  # The search prompt, with every past search listed under it, newest first:
-  # ↓ walks down that list into the editable bar (fzf's own query history) and
-  # ↑ walks back up toward an empty bar — the readline convention is inverted
-  # on purpose so the keys follow the list as it's drawn. Typing filters the
-  # list, tab copies the highlighted row into the bar. A mistyped search stays
-  # in the list — recall it, fix it, and both versions are kept.
+  # The search prompt, with the last #{@search_history_max} searches listed
+  # under it, newest first: ↓ walks down that list into the editable bar (fzf's
+  # own query history) and ↑ walks back up toward an empty bar — the readline
+  # convention is inverted on purpose so the keys follow the list as it's
+  # drawn. Each recall is paired with `search()` (an empty search) so the bar
+  # fills without the recalled text filtering the list away: the whole list
+  # stays on screen while walking it, which is how you see how far down the
+  # one you want is. Typing still filters; tab copies the highlighted row into
+  # the bar. A mistyped search stays in the list — recall it, fix it, and both
+  # versions are kept.
   defp menu_search_fzf do
     hist = search_history_path()
     forget = hist <> ".forget"
@@ -1619,7 +1623,7 @@ defmodule Laev.CLI do
       ~s(fzf --print-query --tac --no-multi --reverse --height=~60% ) <>
         ~s(--history="$1" --history-size=#{@search_history_max} ) <>
         ~s(--prompt='search for: ' --header="$2" ) <>
-        ~s(--bind 'down:prev-history,up:next-history' ) <>
+        ~s[--bind 'down:prev-history+search(),up:next-history+search()' ] <>
         ~s(--bind 'tab:replace-query' ) <>
         ~s[--bind 'ctrl-d:execute-silent(printf "%s\\n" {} >> "$LAEV_FORGET")] <>
         ~s[+reload(grep -vxF -f "$LAEV_FORGET" "$LAEV_HIST" || true)' ] <>
