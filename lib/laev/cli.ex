@@ -1575,7 +1575,14 @@ defmodule Laev.CLI do
     ])
   end
 
+  # How many past searches to keep (and show).
+  @search_history_max 200
+
   defp menu_search do
+    if System.find_executable("fzf"), do: menu_search_fzf(), else: menu_search_plain()
+  end
+
+  defp menu_search_plain do
     case IO.gets("search for: ") do
       :eof ->
         back()
@@ -1586,6 +1593,126 @@ defmodule Laev.CLI do
           query -> watch([query])
         end
     end
+  end
+
+  # The search prompt, with every past search listed under it: ↑↓ recall one
+  # into the editable bar (fzf's own query history), typing filters the list,
+  # tab copies the highlighted row into the bar. A mistyped search stays in
+  # the list — recall it, fix it, and both versions are kept.
+  defp menu_search_fzf do
+    hist = search_history_path()
+    forget = hist <> ".forget"
+
+    prune_search_history(hist)
+    File.write(forget, "")
+
+    header = "↑↓ recalls · tab fills from the list · ctrl-d forgets · esc backs out"
+
+    # fzf owns the history file while it runs (it appends each submitted query
+    # and rewrites the file on exit), so a ctrl-d deletion can't touch it
+    # directly — it's staged in a sidecar and applied once fzf is gone. The
+    # paths reach fzf's own bind shell as env vars: the outer sh's positional
+    # args don't exist there.
+    fzf =
+      ~s(fzf --print-query --tac --no-multi --reverse --height=~60% ) <>
+        ~s(--history="$1" --history-size=#{@search_history_max} ) <>
+        ~s(--prompt='search for: ' --header="$2" ) <>
+        ~s(--bind 'up:prev-history,down:next-history' ) <>
+        ~s(--bind 'tab:replace-query' ) <>
+        ~s[--bind 'ctrl-d:execute-silent(printf "%s\\n" {} >> "$LAEV_FORGET")] <>
+        ~s[+reload(grep -vxF -f "$LAEV_FORGET" "$LAEV_HIST" || true)' ] <>
+        ~s(< "$1")
+
+    result =
+      System.cmd("sh", ["-c", fzf, "sh", hist, header],
+        env: [{"LAEV_HIST", hist}, {"LAEV_FORGET", forget}]
+      )
+
+    apply_forgotten_searches(hist, forget)
+
+    case result do
+      # 0 = a row was chosen, 1 = the typed query matched nothing (still a
+      # search). Anything else is esc/ctrl-c.
+      {out, code} when code in [0, 1] ->
+        case String.trim(search_choice(out, code)) do
+          "" -> back()
+          query -> watch([query])
+        end
+
+      _ ->
+        back()
+    end
+  end
+
+  # --print-query prints the typed query first, then the highlighted row (when
+  # one matched). The bar wins: enter searches exactly what it shows, so a
+  # typed query is never silently swapped for a longer past search that merely
+  # fuzzy-matched it ("dune" → "dune part two"). Tab is how a row is adopted.
+  # An empty bar falls back to the row, so enter on an untouched list works.
+  defp search_choice(out, 0) do
+    case String.split(out, "\n", parts: 2) do
+      [query, chosen] -> if String.trim(query) == "", do: chosen, else: query
+      [only] -> only
+    end
+  end
+
+  defp search_choice(out, _code), do: out
+
+  defp search_history_path do
+    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    Path.join(dir, "search_history")
+  end
+
+  # Collapse repeats (keeping each query's most recent position) and cap the
+  # file, so the list doesn't fill with the same title typed five times. Also
+  # guarantees the file exists — fzf reads it as its list.
+  defp prune_search_history(path) do
+    entries = search_history_lines(path)
+
+    pruned =
+      entries
+      |> Enum.reverse()
+      |> Enum.uniq()
+      |> Enum.take(@search_history_max)
+      |> Enum.reverse()
+
+    if pruned != entries or not File.exists?(path), do: write_search_history(path, pruned)
+    :ok
+  end
+
+  # Drop the entries ctrl-d staged, now that fzf has finished rewriting.
+  defp apply_forgotten_searches(path, forget) do
+    case search_history_lines(forget) do
+      [] ->
+        :ok
+
+      dropped ->
+        set = MapSet.new(dropped)
+
+        path
+        |> search_history_lines()
+        |> Enum.reject(&MapSet.member?(set, &1))
+        |> then(&write_search_history(path, &1))
+    end
+
+    File.rm(forget)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp search_history_lines(path) do
+    case File.read(path) do
+      {:ok, body} -> body |> String.split("\n") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      _ -> []
+    end
+  end
+
+  defp write_search_history(path, lines) do
+    File.mkdir_p!(Path.dirname(path))
+    File.write(path, Enum.map_join(lines, "", &(&1 <> "\n")))
+  rescue
+    _ -> :ok
   end
 
   # True when stdout is a terminal (a human), false when piped (a frontend).
