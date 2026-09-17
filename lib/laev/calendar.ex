@@ -32,6 +32,7 @@ defmodule Laev.Calendar do
 
     all =
       Watchlist.all()
+      |> Enum.reject(&pinned_list?/1)
       |> Task.async_stream(&entry_events/1,
         max_concurrency: 4,
         timeout: 20_000,
@@ -263,6 +264,7 @@ defmodule Laev.Calendar do
     fresh_after = System.os_time(:second) - @cache_ttl_s
 
     Watchlist.all()
+    |> Enum.reject(&pinned_list?/1)
     |> Enum.flat_map(fn entry ->
       path = cache_path("#{entry["type"]}-#{entry["tmdb_id"]}")
 
@@ -293,6 +295,9 @@ defmodule Laev.Calendar do
   rescue
     _ -> []
   end
+
+  # A pinned franchise is a list, not a title — it has no air dates of its own.
+  defp pinned_list?(entry), do: entry["type"] in ["franchise", "collection"]
 
   defp cache_path(cache_key) do
     dir = Path.join(System.tmp_dir!(), "laev-calendar")

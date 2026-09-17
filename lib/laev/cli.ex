@@ -1546,6 +1546,9 @@ defmodule Laev.CLI do
         nil ->
           main_menu()
 
+        {"ctrl-o", %{"type" => type} = entry} when type in ["franchise", "collection"] ->
+          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
+
         {"ctrl-o", entry} ->
           open_media_page(entry["type"], entry["tmdb_id"], entry["title"])
           watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
@@ -1555,6 +1558,10 @@ defmodule Laev.CLI do
           Laev.Sync.live_push()
           index = Enum.find_index(entries, &(&1 == entry)) || 1
           watchlist_menu(max(index - 1, 0))
+
+        {nil, %{"type" => type} = entry} when type in ["franchise", "collection"] ->
+          index = Enum.find_index(entries, &(&1 == entry)) || 0
+          open_pinned_franchise(entry, fn -> watchlist_menu(index) end)
 
         {nil, entry} ->
           play_title(%{
@@ -1585,6 +1592,42 @@ defmodule Laev.CLI do
         season: nil,
         episode: nil
       })
+  end
+
+  # Reopen a pinned list: curated ones by name, TMDB's own by collection id.
+  # A curated franchise that has since been renamed simply won't be found, so
+  # say so rather than leaving a row that does nothing.
+  defp open_pinned_franchise(entry, on_back) do
+    franchise =
+      case entry["type"] do
+        "franchise" -> Laev.Franchises.by_name(entry["tmdb_id"])
+        "collection" -> tmdb_collection(entry["tmdb_id"])
+      end
+
+    case franchise do
+      nil ->
+        IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  that list isn't available any more.\n", :reset]))
+        IO.gets("  press enter to go back… ")
+        on_back.()
+
+      franchise ->
+        case franchise_screen(franchise, on_back) do
+          title when is_map(title) -> play_title(title)
+          other -> other
+        end
+    end
+  end
+
+  defp describe_watchlist(%{"type" => type} = entry) when type in ["franchise", "collection"] do
+    IO.ANSI.format([
+      :bright,
+      "🎬 #{entry["title"]}",
+      :reset,
+      :faint,
+      "  #{if type == "franchise", do: "curated list", else: "the series"}",
+      :reset
+    ])
+    |> IO.iodata_to_binary()
   end
 
   defp describe_watchlist(entry) do
@@ -2392,7 +2435,7 @@ defmodule Laev.CLI do
 
         case pick_with_save(items, header) do
           :more -> pick_title(q, year, page + 1, titles)
-          {:franchise, franchise} -> franchise_screen(franchise, q, year, page, titles)
+          {:franchise, franchise} -> franchise_screen(franchise, fn -> pick_title(q, year, page, titles) end)
           other -> other
         end
     end
@@ -2452,36 +2495,52 @@ defmodule Laev.CLI do
   # franchise with the same shape, and the rest of the flow can't tell the
   # difference. It keys off the films rather than the query, which is what
   # makes searching "dead man's chest" offer Pirates of the Caribbean.
+  defp tmdb_collection(collection_id) do
+    case Tmdb.collection(collection_id) do
+      {:ok, %{"parts" => parts, "name" => name}} when length(parts) > 1 ->
+        collection_franchise(collection_id, name, parts)
+
+      _ ->
+        nil
+    end
+  end
+
   defp tmdb_collection_franchise(titles) do
-    with collection_id when is_integer(collection_id) <- likeliest_collection(titles),
-         {:ok, %{"parts" => parts, "name" => name}} when length(parts) > 1 <- Tmdb.collection(collection_id) do
-      %{
-        name: String.replace(name, ~r/ Collection$/, ""),
-        source: :tmdb,
-        tiers: [],
-        entries:
-          parts
-          |> Enum.map(
-            &%{
-              type: "movie",
-              tmdb_id: &1["id"],
-              season: nil,
-              title: &1["title"],
-              date: &1["release_date"] || "",
-              tiers: []
-            }
-          )
-          |> Enum.sort_by(&if(&1.date in [nil, ""], do: "9999", else: &1.date))
-      }
+    with collection_id when is_integer(collection_id) <- likeliest_collection(titles) do
+      tmdb_collection(collection_id)
     else
       _ -> nil
     end
   end
 
+  # One of TMDB's collections, in the shape of a curated franchise, so the row,
+  # the list and the pinning are all the same code.
+  defp collection_franchise(collection_id, name, parts) do
+    %{
+      name: String.replace(name, ~r/ Collection$/, ""),
+      source: :tmdb,
+      id: collection_id,
+      tiers: [],
+      entries:
+        parts
+        |> Enum.map(
+          &%{
+            type: "movie",
+            tmdb_id: &1["id"],
+            season: nil,
+            title: &1["title"],
+            date: &1["release_date"] || "",
+            tiers: []
+          }
+        )
+        |> Enum.sort_by(&if(&1.date in [nil, ""], do: "9999", else: &1.date))
+    }
+  end
+
   # The curated franchise behind a search result. A franchise big enough to have
   # tiers asks which list first — sixty-odd Marvel titles is not something to
   # open flat on someone — and everything else goes straight to the list.
-  defp franchise_screen(franchise, q, year, page, acc) do
+  defp franchise_screen(franchise, on_back) do
     if Laev.Franchises.tiered?(franchise) do
       options =
         Enum.map(franchise.tiers, fn tier ->
@@ -2490,18 +2549,18 @@ defmodule Laev.CLI do
         end)
 
       case pick(options, &elem(&1, 1), "#{franchise.name} — which list?") do
-        nil -> pick_title(q, year, page, acc)
-        {tier, _} -> franchise_list(franchise, tier, q, year, page, acc)
+        nil -> on_back.()
+        {tier, _} -> franchise_list(franchise, tier, on_back)
       end
     else
-      franchise_list(franchise, "all", q, year, page, acc)
+      franchise_list(franchise, "all", on_back)
     end
   end
 
   # Titles are taken from TMDB so the list looks like every other picker — same
   # posters, same years — while the curated file decides only membership, order
   # and which tier a title belongs to.
-  defp franchise_list(franchise, tier, q, year, page, acc) do
+  defp franchise_list(franchise, tier, on_back) do
     titles =
       franchise
       |> Laev.Franchises.entries(tier)
@@ -2522,11 +2581,11 @@ defmodule Laev.CLI do
       # the search results where there isn't.
       nil ->
         if Laev.Franchises.tiered?(franchise),
-          do: franchise_screen(franchise, q, year, page, acc),
-          else: pick_title(q, year, page, acc)
+          do: franchise_screen(franchise, on_back),
+          else: on_back.()
 
       {:franchise, _} ->
-        franchise_list(franchise, tier, q, year, page, acc)
+        franchise_list(franchise, tier, on_back)
 
       chosen ->
         chosen
@@ -2624,8 +2683,15 @@ defmodule Laev.CLI do
       {"ctrl-o", :more} ->
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
 
-      {key, {:franchise, _} = row} when key in ["ctrl-s", "ctrl-o"] ->
-        # Pinning or opening a page only means something for a title.
+      {"ctrl-s", {:franchise, franchise} = row} ->
+        # Pinning a franchise pins the list, not a title: it comes back on the
+        # watchlist as one row that reopens the whole thing.
+        Laev.Watchlist.toggle(franchise_pin(franchise))
+        Laev.Sync.live_push()
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
+
+      {"ctrl-o", {:franchise, _} = row} ->
+        # Opening a reference page only means something for a title.
         pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
 
       {"ctrl-o", title} ->
@@ -2651,7 +2717,19 @@ defmodule Laev.CLI do
     end
   end
 
-  defp pin_mark({:franchise, _}), do: ""
+  defp pin_mark({:franchise, f}) do
+    pin = franchise_pin(f)
+    if Laev.Watchlist.has?(pin.type, pin.id), do: "≡ ", else: ""
+  end
+
+  # A curated franchise is remembered by name; one of TMDB's own collections by
+  # its id, since there is nothing in the file to look it up in later.
+  defp franchise_pin(franchise) do
+    case Map.get(franchise, :source) do
+      :tmdb -> %{type: "collection", id: franchise.id, title: franchise.name, year: nil, poster: nil}
+      _ -> %{type: "franchise", id: franchise.name, title: franchise.name, year: nil, poster: nil}
+    end
+  end
 
   defp pin_mark(t),
     do: if(Laev.Watchlist.has?(t.type, t.id), do: "≡ ", else: "")

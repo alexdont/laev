@@ -66,6 +66,9 @@ defmodule Laev.Franchises do
   @doc "Every curated franchise."
   def all, do: @franchises
 
+  @doc "A curated franchise by name — how a pinned one is found again."
+  def by_name(name), do: Enum.find(@franchises, &(&1.name == name))
+
   @doc """
   Whether a franchise offers more than one way to watch it. Only the big ones
   need it — a catalogue of sixty-odd titles is not something to hand someone
