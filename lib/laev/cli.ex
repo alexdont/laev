@@ -1162,7 +1162,7 @@ defmodule Laev.CLI do
         pick(
           events,
           &describe_event/1,
-          "⧉ enter watches · ctrl-r refreshes · ctrl-o imdb · esc backs out",
+          "⧉ enter watches · ctrl-r refreshes · ctrl-o info · esc backs out",
           nil,
           initial,
           ["ctrl-r", "ctrl-o"],
@@ -1177,7 +1177,7 @@ defmodule Laev.CLI do
           main_menu()
 
         {"ctrl-o", event} ->
-          open_imdb_for(event["type"], event["tmdb_id"], event["title"])
+          open_media_page(event["type"], event["tmdb_id"], event["title"])
           calendar_screen(events, Enum.find_index(events, &(&1 == event)) || 0)
 
         {"ctrl-r", _} ->
@@ -1439,7 +1439,7 @@ defmodule Laev.CLI do
         pick(
           entries,
           &describe_watchlist/1,
-          "≡ watchlist · enter watches · ctrl-d removes · ctrl-o imdb",
+          "≡ watchlist · enter watches · ctrl-d removes · ctrl-o info",
           & &1["poster"],
           initial,
           ["ctrl-d", "ctrl-o"]
@@ -1450,7 +1450,7 @@ defmodule Laev.CLI do
           main_menu()
 
         {"ctrl-o", entry} ->
-          open_imdb_for(entry["type"], entry["tmdb_id"], entry["title"])
+          open_media_page(entry["type"], entry["tmdb_id"], entry["title"])
           watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-d", entry} ->
@@ -2323,7 +2323,7 @@ defmodule Laev.CLI do
       pick(
         items,
         describe,
-        header <> " · ctrl-s pins · ctrl-o imdb",
+        header <> " · ctrl-s pins · ctrl-o info",
         &title_poster/1,
         initial,
         ["ctrl-s", "ctrl-o"]
@@ -2340,7 +2340,7 @@ defmodule Laev.CLI do
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
 
       {"ctrl-o", title} ->
-        open_imdb_for(title.type, title.id, title.title)
+        open_media_page(title.type, title.id, title.title)
         pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
 
       {"ctrl-s", title} ->
@@ -2990,37 +2990,58 @@ defmodule Laev.CLI do
   # Open the title's IMDb page in the browser (the user rates and logs
   # watched titles there). The IMDb id comes from TMDB's external ids; with
   # no match, fall back to an IMDb search for the title.
-  defp open_imdb(ctx), do: open_imdb_for(ctx.type, ctx.tmdb_id, ctx.title)
+  defp open_imdb(ctx) do
+    details = title_details(ctx.type, ctx.tmdb_id)
+    browse(imdb_url(details, ctx.title))
+  end
 
-  # The IMDb page for a title on any of the list screens — search results,
-  # featured, watchlist, calendar and history all carry a type, a TMDB id and
-  # a title, just under different key shapes. Falls back to an IMDb search
-  # when TMDB has no external id for it.
-  defp open_imdb_for(type, tmdb_id, title) do
-    url =
-      with {:ok, details} <- fetch_details(%{type: type, id: tmdb_id}),
-           imdb when is_binary(imdb) <- Tmdb.imdb_id(details) do
-        "https://www.imdb.com/title/#{imdb}/"
-      else
-        _ -> "https://www.imdb.com/find/?q=#{URI.encode_www_form(title || "")}"
-      end
+  # The reference page for a title on any of the list screens — search results,
+  # featured, watchlist, calendar and history all carry a type, a TMDB id and a
+  # title, just under different key shapes. Anime goes to MyAnimeList and
+  # everything else to IMDb, the same split the post-play menu makes; which one
+  # it is falls out of the TMDB details already fetched for the IMDb id, so the
+  # branch costs no extra request.
+  #
+  # Neither page needs a MAL key. The anime id comes from AniList's public API
+  # and the fallback is a plain MAL search url — MAL_CLIENT_ID is only ever for
+  # scrobbling, so this works on an install that never logged in.
+  defp open_media_page(type, tmdb_id, title) do
+    details = title_details(type, tmdb_id)
 
+    if anime?(details),
+      do: browse(mal_url(title)),
+      else: browse(imdb_url(details, title))
+  end
+
+  defp title_details(type, tmdb_id) do
+    case fetch_details(%{type: type, id: tmdb_id}) do
+      {:ok, details} -> details
+      _ -> %{}
+    end
+  end
+
+  defp imdb_url(details, title) do
+    case Tmdb.imdb_id(details) do
+      imdb when is_binary(imdb) -> "https://www.imdb.com/title/#{imdb}/"
+      _ -> "https://www.imdb.com/find/?q=#{URI.encode_www_form(title || "")}"
+    end
+  end
+
+  defp mal_url(title) do
+    case mal_id_for(%{title: title}) do
+      id when is_integer(id) -> "https://myanimelist.net/anime/#{id}"
+      _ -> "https://myanimelist.net/anime.php?q=#{URI.encode_www_form(title || "")}"
+    end
+  end
+
+  defp browse(url) do
     browser_open(url)
     IO.puts(:stderr, "opened in browser: #{url}")
   end
 
   # Anime → its MyAnimeList page (or a MAL search when the id is unknown),
   # the anime-native equivalent of the IMDb page for movies/shows.
-  defp open_mal(ctx) do
-    url =
-      case mal_id_for(ctx) do
-        id when is_integer(id) -> "https://myanimelist.net/anime/#{id}"
-        _ -> "https://myanimelist.net/anime.php?q=#{URI.encode_www_form(ctx[:search_title] || ctx.title || "")}"
-      end
-
-    browser_open(url)
-    IO.puts(:stderr, "opened in browser: #{url}")
-  end
+  defp open_mal(ctx), do: browse(mal_url(ctx[:search_title] || ctx.title))
 
   # Detached, like the mpv launch — the browser must outlive laev.
   defp browser_open(url) do
@@ -3236,12 +3257,12 @@ defmodule Laev.CLI do
         nothing_here("Nothing in your history yet — watch something and it shows up here.")
 
       entries ->
-        case pick(entries, &describe_resume/1, "continue watching · ctrl-o imdb", nil, initial, ["ctrl-o"]) do
+        case pick(entries, &describe_resume/1, "continue watching · ctrl-o info", nil, initial, ["ctrl-o"]) do
           nil ->
             back()
 
           {"ctrl-o", entry} ->
-            open_imdb_for(entry["type"], entry["tmdb_id"], entry["title"])
+            open_media_page(entry["type"], entry["tmdb_id"], entry["title"])
             continue(Enum.find_index(entries, &(&1 == entry)) || 0)
 
           {nil, entry} ->
