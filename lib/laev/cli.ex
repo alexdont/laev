@@ -3210,11 +3210,28 @@ defmodule Laev.CLI do
       die("no debrid provider configured (RD_TOKEN or TORBOX_API_KEY) — run: laev setup")
     end
 
-    entries = Laev.Resume.all()
-    if entries == [], do: die("nothing to continue — play something with laev watch first")
+    case Laev.Resume.all() do
+      [] ->
+        nothing_here("Nothing in your history yet — watch something and it shows up here.")
 
-    entry = pick(entries, &describe_resume/1, "continue watching") || back()
-    continue_entry(entry)
+      entries ->
+        entry = pick(entries, &describe_resume/1, "continue watching") || back()
+        continue_entry(entry)
+    end
+  end
+
+  # An empty shelf is not a failure: in the menu say so and go back, rather
+  # than halting the whole app the way a real error does. Piped and scripted
+  # runs still get the JSON error and a non-zero exit, so a frontend driving
+  # `laev continue` can still tell that there was nothing to play.
+  defp nothing_here(message) do
+    if tty?() do
+      IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  #{message}\n", :reset]))
+      IO.gets("  press enter to go back… ")
+      back()
+    else
+      die(message)
+    end
   end
 
   # `laev resume`: straight back into the most recent thing — no picker.
@@ -3225,7 +3242,7 @@ defmodule Laev.CLI do
 
     case Laev.Resume.all() do
       [] ->
-        die("nothing to resume — play something with laev watch first")
+        nothing_here("Nothing in your history yet — watch something and it shows up here.")
 
       [entry | _] ->
         at =
