@@ -1,0 +1,63 @@
+{
+  "_comment": [
+    "Franchises TMDB groups badly, curated by hand. Only exceptions belong here:",
+    "anything TMDB's own collection gets right is grouped automatically and needs",
+    "no entry. Every id below was resolved from TMDB rather than typed.",
+    "",
+    "Entries are matched by tmdb_id, so a search for any member offers the whole",
+    "franchise. title and date are for reading this file; the app takes both from",
+    "TMDB at render time, so they can drift without breaking anything.",
+    "",
+    "Why each of these is here:",
+    "  Alien        four TMDB collections (Alien, Prometheus, Romulus, AVP), plus a",
+    "               TV series TMDB files under no franchise at all",
+    "  Middle-earth The Hobbit is a separate collection from The Lord of the Rings,",
+    "               and War of the Rohirrim sits outside both",
+    "  Harry Potter TMDB gets this one right; kept as the worked example from the",
+    "               spec, and harmless because curated entries merge with TMDB"
+  ],
+
+  "franchises": [
+    {
+      "name": "Alien",
+      "entries": [
+        { "type": "movie", "tmdb_id": 348,     "title": "Alien",                       "date": "1979-05-25" },
+        { "type": "movie", "tmdb_id": 679,     "title": "Aliens",                      "date": "1986-07-18" },
+        { "type": "movie", "tmdb_id": 8077,    "title": "Alien³",                      "date": "1992-05-22" },
+        { "type": "movie", "tmdb_id": 8078,    "title": "Alien Resurrection",          "date": "1997-11-12" },
+        { "type": "movie", "tmdb_id": 395,     "title": "AVP: Alien vs. Predator",     "date": "2004-08-12" },
+        { "type": "movie", "tmdb_id": 440,     "title": "Aliens vs Predator: Requiem", "date": "2007-12-25" },
+        { "type": "movie", "tmdb_id": 70981,   "title": "Prometheus",                  "date": "2012-05-30" },
+        { "type": "movie", "tmdb_id": 126889,  "title": "Alien: Covenant",             "date": "2017-05-09" },
+        { "type": "movie", "tmdb_id": 945961,  "title": "Alien: Romulus",              "date": "2024-08-13" },
+        { "type": "tv",    "tmdb_id": 157239,  "title": "Alien: Earth",                "date": "2025-08-12" },
+        { "type": "movie", "tmdb_id": 1434936, "title": "Alien: Romulus sequel",       "date": "" }
+      ]
+    },
+    {
+      "name": "Middle-earth",
+      "entries": [
+        { "type": "movie", "tmdb_id": 120,    "title": "The Fellowship of the Ring",     "date": "2001-12-18" },
+        { "type": "movie", "tmdb_id": 121,    "title": "The Two Towers",                 "date": "2002-12-18" },
+        { "type": "movie", "tmdb_id": 122,    "title": "The Return of the King",         "date": "2003-12-17" },
+        { "type": "movie", "tmdb_id": 49051,  "title": "The Hobbit: An Unexpected Journey",   "date": "2012-12-12" },
+        { "type": "movie", "tmdb_id": 57158,  "title": "The Hobbit: The Desolation of Smaug", "date": "2013-12-11" },
+        { "type": "movie", "tmdb_id": 122917, "title": "The Hobbit: The Battle of the Five Armies", "date": "2014-12-10" },
+        { "type": "movie", "tmdb_id": 839033, "title": "The War of the Rohirrim",        "date": "2024-12-05" }
+      ]
+    },
+    {
+      "name": "Harry Potter",
+      "entries": [
+        { "type": "movie", "tmdb_id": 671,   "title": "Harry Potter and the Philosopher's Stone",   "date": "2001-11-16" },
+        { "type": "movie", "tmdb_id": 672,   "title": "Harry Potter and the Chamber of Secrets",    "date": "2002-11-13" },
+        { "type": "movie", "tmdb_id": 673,   "title": "Harry Potter and the Prisoner of Azkaban",   "date": "2004-05-31" },
+        { "type": "movie", "tmdb_id": 674,   "title": "Harry Potter and the Goblet of Fire",        "date": "2005-11-16" },
+        { "type": "movie", "tmdb_id": 675,   "title": "Harry Potter and the Order of the Phoenix",  "date": "2007-07-08" },
+        { "type": "movie", "tmdb_id": 767,   "title": "Harry Potter and the Half-Blood Prince",     "date": "2009-07-15" },
+        { "type": "movie", "tmdb_id": 12444, "title": "Harry Potter and the Deathly Hallows: Part 1", "date": "2010-11-17" },
+        { "type": "movie", "tmdb_id": 12445, "title": "Harry Potter and the Deathly Hallows: Part 2", "date": "2011-07-12" }
+      ]
+    }
+  ]
+}

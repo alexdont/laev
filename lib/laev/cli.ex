@@ -2369,18 +2369,79 @@ defmodule Laev.CLI do
         titles = rank_titles(titles, q, year)
         items = if more?, do: titles ++ [:more], else: titles
 
+        # Any result being part of a curated franchise puts the whole franchise
+        # at the top, above the ordinary results. Matching is by TMDB id rather
+        # than by what was typed, so searching one film offers its franchise:
+        # "order of the phoenix" surfaces Harry Potter just as "harry potter"
+        # does, with the film itself still the first ordinary result.
+        items =
+          case Laev.Franchises.detect(titles) do
+            nil -> items
+            franchise -> [{:franchise, franchise} | items]
+          end
+
         header =
           "what to watch? (#{length(titles)} results" <>
             if(more?, do: ", more available)", else: ", all shown)")
 
         case pick_with_save(items, header) do
           :more -> pick_title(q, year, page + 1, titles)
+          {:franchise, franchise} -> franchise_screen(franchise, q, year, page, titles)
           other -> other
         end
     end
   end
 
+  # The curated franchise behind a search result. Titles are taken from TMDB so
+  # the list looks like every other picker — same posters, same years — while
+  # the curated file decides only membership and order.
+  defp franchise_screen(franchise, q, year, page, acc) do
+    titles =
+      franchise.entries
+      |> Task.async_stream(&franchise_title/1, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
+      |> Enum.flat_map(fn
+        {:ok, title} when is_map(title) -> [title]
+        _ -> []
+      end)
+
+    case pick_with_save(titles, "#{franchise.name} — #{length(titles)} titles, in release order") do
+      nil -> pick_title(q, year, page, acc)
+      {:franchise, _} -> franchise_screen(franchise, q, year, page, acc)
+      chosen -> chosen
+    end
+  end
+
+  defp franchise_title(entry) do
+    case fetch_details(%{type: entry.type, id: entry.tmdb_id}) do
+      {:ok, details} ->
+        %{
+          id: entry.tmdb_id,
+          type: entry.type,
+          title: details["title"] || details["name"] || entry.title,
+          year: Tmdb.year(details["release_date"] || details["first_air_date"]),
+          poster: Tmdb.poster_url(details["poster_path"], "w342"),
+          overview: details["overview"],
+          vote: details["vote_average"],
+          popularity: details["popularity"]
+        }
+
+      _ ->
+        # TMDB unreachable for this one — the curated file still knows what it is.
+        %{
+          id: entry.tmdb_id,
+          type: entry.type,
+          title: entry.title,
+          year: Tmdb.year(entry.date),
+          poster: nil,
+          overview: nil,
+          vote: nil,
+          popularity: nil
+        }
+    end
+  end
+
   defp title_poster(:more), do: nil
+  defp title_poster({:franchise, _}), do: nil
   defp title_poster(title), do: title.poster
 
   # Exact-title matches first (newest first — a remake outranks the original),
@@ -2436,6 +2497,10 @@ defmodule Laev.CLI do
       {"ctrl-o", :more} ->
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
 
+      {key, {:franchise, _} = row} when key in ["ctrl-s", "ctrl-o"] ->
+        # Pinning or opening a page only means something for a title.
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
+
       {"ctrl-o", title} ->
         open_media_page(title.type, title.id, title.title)
         pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
@@ -2459,10 +2524,28 @@ defmodule Laev.CLI do
     end
   end
 
+  defp pin_mark({:franchise, _}), do: ""
+
   defp pin_mark(t),
     do: if(Laev.Watchlist.has?(t.type, t.id), do: "≡ ", else: "")
 
   defp describe_title_item(:more), do: "⋯ more results"
+
+  defp describe_title_item({:franchise, f}) do
+    films = Enum.count(f.entries, &(&1.type == "movie"))
+    shows = length(f.entries) - films
+
+    IO.ANSI.format([
+      :bright,
+      "🎬 #{f.name} — curated list",
+      :reset,
+      :faint,
+      "  #{films} films#{if shows > 0, do: " · #{shows} TV", else: ""} · in release order",
+      :reset
+    ])
+    |> IO.iodata_to_binary()
+  end
+
   defp describe_title_item(title), do: describe_title(title)
 
   defp fetch_details(%{type: "movie", id: id}), do: Tmdb.movie(id)
