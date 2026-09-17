@@ -4206,11 +4206,30 @@ defmodule Laev.CLI do
       {:restore, "⇄  I already have a laev key from another device"}
     ]
 
-    case pick(options, &elem(&1, 1), "enter selects") do
+    case pick(options, &elem(&1, 1), "enter selects · esc backs out") do
       {:restore, _} -> restore_from_laev_key()
-      _ -> fresh_setup()
+      {:fresh, _} -> fresh_setup()
+      _ -> cancel_setup()
     end
   end
+
+  # Leaving the wizard. Backing out to the menu is only useful if laev can
+  # actually run — with no keys the menu sends you straight back here, so a
+  # first-run cancel has to end the session instead of looping.
+  defp cancel_setup do
+    IO.puts(:stderr, IO.ANSI.format([:faint, "\n  setup cancelled.\n", :reset]))
+
+    if Providers.any_configured?() and Tmdb.configured?(),
+      do: back(),
+      else: System.halt(0)
+  end
+
+  # Esc can't interrupt IO.gets — the terminal is in line mode, so it just
+  # lands in the buffer as \e and the line comes back with escape sequences in
+  # it. Reading that as "cancel" is what the keypress meant, and stops the
+  # wizard from trying to validate the gibberish and asking again.
+  defp cancelled?(line) when is_binary(line), do: String.contains?(line, "\e")
+  defp cancelled?(_), do: false
 
   # The one-paste path: a laev key carries the endpoint's contents, so the
   # machine ends up configured exactly like the one the key came from — keys
@@ -4222,14 +4241,19 @@ defmodule Laev.CLI do
       "\n  On your other device: Settings → 🔄 Cross-device sync → show my laev key.\n"
     )
 
-    key = IO.gets("  laev key: ") |> to_string() |> String.trim()
+    entered = IO.gets("  laev key: ") |> to_string()
+    if cancelled?(entered), do: cancel_setup()
+    key = String.trim(entered)
 
     if key == "" do
       IO.puts(:stderr, IO.ANSI.format([:faint, "  nothing pasted — setting up from scratch instead.\n", :reset]))
       fresh_setup()
     else
+      typed = IO.gets("  endpoint [#{@hosted_sync_url}]: ") |> to_string()
+      if cancelled?(typed), do: cancel_setup()
+
       url =
-        case IO.gets("  endpoint [#{@hosted_sync_url}]: ") |> to_string() |> String.trim() do
+        case String.trim(typed) do
           "" -> @hosted_sync_url
           entered -> entered
         end
@@ -4352,9 +4376,11 @@ defmodule Laev.CLI do
 
     case IO.gets("  > ") do
       :eof ->
-        die("setup cancelled")
+        cancel_setup()
 
-      line ->
+      line when is_binary(line) and byte_size(line) > 0 ->
+        if cancelled?(line), do: cancel_setup()
+
         case {String.trim(line), existing} do
           {"", nil} ->
             IO.puts(:stderr, IO.ANSI.format([:yellow, "  a key is required\n", :reset]))
@@ -4406,7 +4432,9 @@ defmodule Laev.CLI do
       :eof ->
         existing
 
-      line ->
+      line when is_binary(line) and byte_size(line) > 0 ->
+        if cancelled?(line), do: cancel_setup()
+
         case {String.trim(line), existing} do
           {"", nil} ->
             IO.puts(:stderr, IO.ANSI.format([:faint, "  skipped\n", :reset]))
