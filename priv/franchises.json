@@ -2,61 +2,594 @@
   "_comment": [
     "Franchises TMDB groups badly, curated by hand. Only exceptions belong here:",
     "anything TMDB's own collection gets right is grouped automatically and needs",
-    "no entry. Every id below was resolved from TMDB rather than typed.",
+    "no entry. Every id below was resolved from TMDB rather than typed, and the",
+    "candidates came from tools/detect_franchises.py, which flags franchises whose",
+    "films land in more than one collection or sit outside the one they belong to.",
     "",
     "Entries are matched by tmdb_id, so a search for any member offers the whole",
     "franchise. title and date are for reading this file; the app takes both from",
     "TMDB at render time, so they can drift without breaking anything.",
     "",
-    "Why each of these is here:",
-    "  Alien        four TMDB collections (Alien, Prometheus, Romulus, AVP), plus a",
-    "               TV series TMDB files under no franchise at all",
-    "  Middle-earth The Hobbit is a separate collection from The Lord of the Rings,",
-    "               and War of the Rohirrim sits outside both",
-    "  Harry Potter TMDB gets this one right; kept as the worked example from the",
-    "               spec, and harmless because curated entries merge with TMDB"
+    "Why each of these is here, and where a judgement call was made:",
+    "  Alien            four TMDB collections (Alien, Prometheus, Romulus, AVP), plus",
+    "                   a TV series TMDB files under no franchise at all",
+    "  Middle-earth     The Hobbit is a separate collection from The Lord of the Rings,",
+    "                   and War of the Rohirrim sits outside both",
+    "  Spider-Man       four collections (Raimi, Amazing, MCU, Spider-Verse). Sony's",
+    "                   Venom/Morbius films are left out: no Spider-Man in them",
+    "  Batman           five collections. Live-action, Batman-led films only — the",
+    "                   DCEU ensembles are not Batman films, and the animated canon",
+    "                   is a different and much larger thing",
+    "  X-Men            X-Men and Wolverine are separate collections; Deadpool sits",
+    "                   outside both. The whole Fox run, ending with the MCU crossover",
+    "  The Hunger Games split into the original collection and a 'New Trilogy' one",
+    "  Star Wars        The Clone Wars, Rogue One and Solo sit outside the collection.",
+    "                   Live-action series included (they interleave by release date);",
+    "                   the animated series are left out to keep the list watchable",
+    "  Harry Potter     TMDB gets this one right; kept as the worked example from the",
+    "                   spec, and harmless because curated entries merge with TMDB"
   ],
-
   "franchises": [
     {
       "name": "Alien",
       "entries": [
-        { "type": "movie", "tmdb_id": 348,     "title": "Alien",                       "date": "1979-05-25" },
-        { "type": "movie", "tmdb_id": 679,     "title": "Aliens",                      "date": "1986-07-18" },
-        { "type": "movie", "tmdb_id": 8077,    "title": "Alien³",                      "date": "1992-05-22" },
-        { "type": "movie", "tmdb_id": 8078,    "title": "Alien Resurrection",          "date": "1997-11-12" },
-        { "type": "movie", "tmdb_id": 395,     "title": "AVP: Alien vs. Predator",     "date": "2004-08-12" },
-        { "type": "movie", "tmdb_id": 440,     "title": "Aliens vs Predator: Requiem", "date": "2007-12-25" },
-        { "type": "movie", "tmdb_id": 70981,   "title": "Prometheus",                  "date": "2012-05-30" },
-        { "type": "movie", "tmdb_id": 126889,  "title": "Alien: Covenant",             "date": "2017-05-09" },
-        { "type": "movie", "tmdb_id": 945961,  "title": "Alien: Romulus",              "date": "2024-08-13" },
-        { "type": "tv",    "tmdb_id": 157239,  "title": "Alien: Earth",                "date": "2025-08-12" },
-        { "type": "movie", "tmdb_id": 1434936, "title": "Alien: Romulus sequel",       "date": "" }
+        {
+          "type": "movie",
+          "tmdb_id": 348,
+          "title": "Alien",
+          "date": "1979-05-25"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 679,
+          "title": "Aliens",
+          "date": "1986-07-18"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 8077,
+          "title": "Alien³",
+          "date": "1992-05-22"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 8078,
+          "title": "Alien Resurrection",
+          "date": "1997-11-12"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 395,
+          "title": "AVP: Alien vs. Predator",
+          "date": "2004-08-12"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 440,
+          "title": "Aliens vs Predator: Requiem",
+          "date": "2007-12-25"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 70981,
+          "title": "Prometheus",
+          "date": "2012-05-30"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 126889,
+          "title": "Alien: Covenant",
+          "date": "2017-05-09"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 945961,
+          "title": "Alien: Romulus",
+          "date": "2024-08-13"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 157239,
+          "title": "Alien: Earth",
+          "date": "2025-08-12"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1434936,
+          "title": "Alien: Romulus sequel",
+          "date": ""
+        }
       ]
     },
     {
       "name": "Middle-earth",
       "entries": [
-        { "type": "movie", "tmdb_id": 120,    "title": "The Fellowship of the Ring",     "date": "2001-12-18" },
-        { "type": "movie", "tmdb_id": 121,    "title": "The Two Towers",                 "date": "2002-12-18" },
-        { "type": "movie", "tmdb_id": 122,    "title": "The Return of the King",         "date": "2003-12-17" },
-        { "type": "movie", "tmdb_id": 49051,  "title": "The Hobbit: An Unexpected Journey",   "date": "2012-12-12" },
-        { "type": "movie", "tmdb_id": 57158,  "title": "The Hobbit: The Desolation of Smaug", "date": "2013-12-11" },
-        { "type": "movie", "tmdb_id": 122917, "title": "The Hobbit: The Battle of the Five Armies", "date": "2014-12-10" },
-        { "type": "movie", "tmdb_id": 839033, "title": "The War of the Rohirrim",        "date": "2024-12-05" }
+        {
+          "type": "movie",
+          "tmdb_id": 120,
+          "title": "The Fellowship of the Ring",
+          "date": "2001-12-18"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 121,
+          "title": "The Two Towers",
+          "date": "2002-12-18"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 122,
+          "title": "The Return of the King",
+          "date": "2003-12-17"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 49051,
+          "title": "The Hobbit: An Unexpected Journey",
+          "date": "2012-12-12"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 57158,
+          "title": "The Hobbit: The Desolation of Smaug",
+          "date": "2013-12-11"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 122917,
+          "title": "The Hobbit: The Battle of the Five Armies",
+          "date": "2014-12-10"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 839033,
+          "title": "The War of the Rohirrim",
+          "date": "2024-12-05"
+        }
+      ]
+    },
+    {
+      "name": "Spider-Man",
+      "entries": [
+        {
+          "type": "movie",
+          "tmdb_id": 557,
+          "title": "Spider-Man",
+          "date": "2002-05-01"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 558,
+          "title": "Spider-Man 2",
+          "date": "2004-06-25"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 559,
+          "title": "Spider-Man 3",
+          "date": "2007-05-01"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1930,
+          "title": "The Amazing Spider-Man",
+          "date": "2012-06-23"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 102382,
+          "title": "The Amazing Spider-Man 2",
+          "date": "2014-04-16"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 315635,
+          "title": "Spider-Man: Homecoming",
+          "date": "2017-07-05"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 324857,
+          "title": "Spider-Man: Into the Spider-Verse",
+          "date": "2018-12-06"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 429617,
+          "title": "Spider-Man: Far From Home",
+          "date": "2019-06-28"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 634649,
+          "title": "Spider-Man: No Way Home",
+          "date": "2021-12-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 569094,
+          "title": "Spider-Man: Across the Spider-Verse",
+          "date": "2023-05-31"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 969681,
+          "title": "Spider-Man: Brand New Day",
+          "date": "2026-07-29"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 911916,
+          "title": "Spider-Man: Beyond the Spider-Verse",
+          "date": "2027-06-17"
+        }
+      ]
+    },
+    {
+      "name": "Batman",
+      "entries": [
+        {
+          "type": "movie",
+          "tmdb_id": 2661,
+          "title": "Batman",
+          "date": "1966-07-30"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 268,
+          "title": "Batman",
+          "date": "1989-06-21"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 364,
+          "title": "Batman Returns",
+          "date": "1992-06-19"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 414,
+          "title": "Batman Forever",
+          "date": "1995-06-16"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 415,
+          "title": "Batman & Robin",
+          "date": "1997-06-20"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 272,
+          "title": "Batman Begins",
+          "date": "2005-06-10"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 155,
+          "title": "The Dark Knight",
+          "date": "2008-07-16"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 49026,
+          "title": "The Dark Knight Rises",
+          "date": "2012-07-17"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 414906,
+          "title": "The Batman",
+          "date": "2022-03-01"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 806704,
+          "title": "The Batman: Part II",
+          "date": "2028-02-17"
+        }
+      ]
+    },
+    {
+      "name": "X-Men",
+      "entries": [
+        {
+          "type": "movie",
+          "tmdb_id": 36657,
+          "title": "X-Men",
+          "date": "2000-07-13"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 36658,
+          "title": "X2",
+          "date": "2003-04-27"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 36668,
+          "title": "X-Men: The Last Stand",
+          "date": "2006-05-24"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 2080,
+          "title": "X-Men Origins: Wolverine",
+          "date": "2009-04-28"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 49538,
+          "title": "X-Men: First Class",
+          "date": "2011-06-01"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 76170,
+          "title": "The Wolverine",
+          "date": "2013-07-21"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 127585,
+          "title": "X-Men: Days of Future Past",
+          "date": "2014-05-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 293660,
+          "title": "Deadpool",
+          "date": "2016-02-09"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 246655,
+          "title": "X-Men: Apocalypse",
+          "date": "2016-05-18"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 263115,
+          "title": "Logan",
+          "date": "2017-02-28"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 383498,
+          "title": "Deadpool 2",
+          "date": "2018-05-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 320288,
+          "title": "Dark Phoenix",
+          "date": "2019-06-05"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 340102,
+          "title": "The New Mutants",
+          "date": "2020-08-26"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 533535,
+          "title": "Deadpool & Wolverine",
+          "date": "2024-07-24"
+        }
+      ]
+    },
+    {
+      "name": "The Hunger Games",
+      "entries": [
+        {
+          "type": "movie",
+          "tmdb_id": 70160,
+          "title": "The Hunger Games",
+          "date": "2012-03-12"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 101299,
+          "title": "The Hunger Games: Catching Fire",
+          "date": "2013-11-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 131631,
+          "title": "The Hunger Games: Mockingjay - Part 1",
+          "date": "2014-11-19"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 131634,
+          "title": "The Hunger Games: Mockingjay - Part 2",
+          "date": "2015-11-18"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 695721,
+          "title": "The Hunger Games: The Ballad of Songbirds & Snakes",
+          "date": "2023-11-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1300968,
+          "title": "The Hunger Games: Sunrise on the Reaping",
+          "date": "2026-11-18"
+        }
+      ]
+    },
+    {
+      "name": "Star Wars",
+      "entries": [
+        {
+          "type": "movie",
+          "tmdb_id": 11,
+          "title": "Star Wars",
+          "date": "1977-05-25"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1891,
+          "title": "The Empire Strikes Back",
+          "date": "1980-05-20"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1892,
+          "title": "Return of the Jedi",
+          "date": "1983-05-25"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1893,
+          "title": "Star Wars: Episode I - The Phantom Menace",
+          "date": "1999-05-19"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1894,
+          "title": "Star Wars: Episode II - Attack of the Clones",
+          "date": "2002-05-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1895,
+          "title": "Star Wars: Episode III - Revenge of the Sith",
+          "date": "2005-05-17"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 12180,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2008-08-05"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 140607,
+          "title": "Star Wars: The Force Awakens",
+          "date": "2015-12-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 330459,
+          "title": "Rogue One: A Star Wars Story",
+          "date": "2016-12-14"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 181808,
+          "title": "Star Wars: The Last Jedi",
+          "date": "2017-12-13"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 348350,
+          "title": "Solo: A Star Wars Story",
+          "date": "2018-05-15"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 82856,
+          "title": "The Mandalorian",
+          "date": "2019-11-12"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 181812,
+          "title": "Star Wars: The Rise of Skywalker",
+          "date": "2019-12-18"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 115036,
+          "title": "The Book of Boba Fett",
+          "date": "2021-12-29"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 92830,
+          "title": "Obi-Wan Kenobi",
+          "date": "2022-05-26"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 83867,
+          "title": "Andor",
+          "date": "2022-09-21"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 114461,
+          "title": "Ahsoka",
+          "date": "2023-08-22"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 114479,
+          "title": "The Acolyte",
+          "date": "2024-06-04"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 202879,
+          "title": "Star Wars: Skeleton Crew",
+          "date": "2024-12-02"
+        }
       ]
     },
     {
       "name": "Harry Potter",
       "entries": [
-        { "type": "movie", "tmdb_id": 671,   "title": "Harry Potter and the Philosopher's Stone",   "date": "2001-11-16" },
-        { "type": "movie", "tmdb_id": 672,   "title": "Harry Potter and the Chamber of Secrets",    "date": "2002-11-13" },
-        { "type": "movie", "tmdb_id": 673,   "title": "Harry Potter and the Prisoner of Azkaban",   "date": "2004-05-31" },
-        { "type": "movie", "tmdb_id": 674,   "title": "Harry Potter and the Goblet of Fire",        "date": "2005-11-16" },
-        { "type": "movie", "tmdb_id": 675,   "title": "Harry Potter and the Order of the Phoenix",  "date": "2007-07-08" },
-        { "type": "movie", "tmdb_id": 767,   "title": "Harry Potter and the Half-Blood Prince",     "date": "2009-07-15" },
-        { "type": "movie", "tmdb_id": 12444, "title": "Harry Potter and the Deathly Hallows: Part 1", "date": "2010-11-17" },
-        { "type": "movie", "tmdb_id": 12445, "title": "Harry Potter and the Deathly Hallows: Part 2", "date": "2011-07-12" }
+        {
+          "type": "movie",
+          "tmdb_id": 671,
+          "title": "Harry Potter and the Philosopher's Stone",
+          "date": "2001-11-16"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 672,
+          "title": "Harry Potter and the Chamber of Secrets",
+          "date": "2002-11-13"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 673,
+          "title": "Harry Potter and the Prisoner of Azkaban",
+          "date": "2004-05-31"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 674,
+          "title": "Harry Potter and the Goblet of Fire",
+          "date": "2005-11-16"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 675,
+          "title": "Harry Potter and the Order of the Phoenix",
+          "date": "2007-07-08"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 767,
+          "title": "Harry Potter and the Half-Blood Prince",
+          "date": "2009-07-15"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 12444,
+          "title": "Harry Potter and the Deathly Hallows: Part 1",
+          "date": "2010-11-17"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 12445,
+          "title": "Harry Potter and the Deathly Hallows: Part 2",
+          "date": "2011-07-12"
+        }
       ]
     }
   ]
