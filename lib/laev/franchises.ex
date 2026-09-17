@@ -28,9 +28,18 @@ defmodule Laev.Franchises do
               |> Enum.map(fn f ->
                 %{
                   name: f["name"],
+                  tiers: Enum.map(f["tiers"] || [], &%{key: &1["key"], label: &1["label"], blurb: &1["blurb"]}),
                   entries:
                     f["entries"]
-                    |> Enum.map(&%{type: &1["type"], tmdb_id: &1["tmdb_id"], title: &1["title"], date: &1["date"]})
+                    |> Enum.map(
+                      &%{
+                        type: &1["type"],
+                        tmdb_id: &1["tmdb_id"],
+                        title: &1["title"],
+                        date: &1["date"],
+                        tiers: &1["tiers"] || []
+                      }
+                    )
                     # release order, with the not-yet-dated last
                     |> Enum.sort_by(&if(&1.date in [nil, ""], do: "9999", else: &1.date))
                 }
@@ -44,6 +53,29 @@ defmodule Laev.Franchises do
 
   @doc "Every curated franchise."
   def all, do: @franchises
+
+  @doc """
+  Whether a franchise offers more than one way to watch it. Only the big ones
+  need it — a catalogue of sixty-odd titles is not something to hand someone
+  flat, while seven Middle-earth films are.
+  """
+  def tiered?(%{tiers: tiers}), do: tiers != []
+
+  @doc ~S"""
+  The entries in one tier, in release order. `"all"` — and any franchise
+  without tiers — is everything.
+  """
+  def entries(franchise, tier \\ "all")
+  def entries(%{entries: entries}, "all"), do: entries
+  def entries(%{entries: entries}, tier), do: Enum.filter(entries, &(tier in &1.tiers))
+
+  @doc "A tier's label, for a header."
+  def tier_label(%{tiers: tiers}, key) do
+    case Enum.find(tiers, &(&1.key == key)) do
+      nil -> nil
+      tier -> tier.label
+    end
+  end
 
   @doc """
   The franchise a title belongs to, or `nil`. Takes the shapes the pickers

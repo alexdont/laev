@@ -2392,22 +2392,58 @@ defmodule Laev.CLI do
     end
   end
 
-  # The curated franchise behind a search result. Titles are taken from TMDB so
-  # the list looks like every other picker — same posters, same years — while
-  # the curated file decides only membership and order.
+  # The curated franchise behind a search result. A franchise big enough to have
+  # tiers asks which list first — sixty-odd Marvel titles is not something to
+  # open flat on someone — and everything else goes straight to the list.
   defp franchise_screen(franchise, q, year, page, acc) do
+    if Laev.Franchises.tiered?(franchise) do
+      options =
+        Enum.map(franchise.tiers, fn tier ->
+          count = length(Laev.Franchises.entries(franchise, tier.key))
+          {tier.key, "#{tier.label} — #{count} titles" <> if(tier.blurb, do: " · #{tier.blurb}", else: "")}
+        end)
+
+      case pick(options, &elem(&1, 1), "#{franchise.name} — which list?") do
+        nil -> pick_title(q, year, page, acc)
+        {tier, _} -> franchise_list(franchise, tier, q, year, page, acc)
+      end
+    else
+      franchise_list(franchise, "all", q, year, page, acc)
+    end
+  end
+
+  # Titles are taken from TMDB so the list looks like every other picker — same
+  # posters, same years — while the curated file decides only membership, order
+  # and which tier a title belongs to.
+  defp franchise_list(franchise, tier, q, year, page, acc) do
     titles =
-      franchise.entries
+      franchise
+      |> Laev.Franchises.entries(tier)
       |> Task.async_stream(&franchise_title/1, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
       |> Enum.flat_map(fn
         {:ok, title} when is_map(title) -> [title]
         _ -> []
       end)
 
-    case pick_with_save(titles, "#{franchise.name} — #{length(titles)} titles, in release order") do
-      nil -> pick_title(q, year, page, acc)
-      {:franchise, _} -> franchise_screen(franchise, q, year, page, acc)
-      chosen -> chosen
+    label =
+      case Laev.Franchises.tier_label(franchise, tier) do
+        nil -> franchise.name
+        name -> "#{franchise.name} · #{name}"
+      end
+
+    case pick_with_save(titles, "#{label} — #{length(titles)} titles, in release order") do
+      # Esc goes back a level: to the tier chooser where there is one, and to
+      # the search results where there isn't.
+      nil ->
+        if Laev.Franchises.tiered?(franchise),
+          do: franchise_screen(franchise, q, year, page, acc),
+          else: pick_title(q, year, page, acc)
+
+      {:franchise, _} ->
+        franchise_list(franchise, tier, q, year, page, acc)
+
+      chosen ->
+        chosen
     end
   end
 
