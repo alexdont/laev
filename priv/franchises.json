@@ -23,9 +23,11 @@
     "  X-Men            X-Men and Wolverine are separate collections; Deadpool sits",
     "                   outside both. The whole Fox run, ending with the MCU crossover",
     "  The Hunger Games split into the original collection and a 'New Trilogy' one",
-    "  Star Wars        The Clone Wars, Rogue One and Solo sit outside the collection.",
-    "                   Live-action series included (they interleave by release date);",
-    "                   the animated series are left out to keep the list watchable",
+    "  Star Wars        The Clone Wars, Rogue One and Solo sit outside the collection,",
+    "                   and the series are in no collection at all. This one is the",
+    "                   whole canon rather than a shortlist — films and every series,",
+    "                   animated included, down to the 1978 Holiday Special and the",
+    "                   Ewok films — so someone new to it has one list in release order",
     "  Harry Potter     TMDB gets this one right; kept as the worked example from the",
     "                   spec, and harmless because curated entries merge with TMDB"
   ],
@@ -431,6 +433,12 @@
         },
         {
           "type": "movie",
+          "tmdb_id": 74849,
+          "title": "The Star Wars Holiday Special",
+          "date": "1978-11-17"
+        },
+        {
+          "type": "movie",
           "tmdb_id": 1891,
           "title": "The Empire Strikes Back",
           "date": "1980-05-20"
@@ -440,6 +448,30 @@
           "tmdb_id": 1892,
           "title": "Return of the Jedi",
           "date": "1983-05-25"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1884,
+          "title": "The Ewok Adventure",
+          "date": "1984-12-21"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 25,
+          "title": "Star Wars: Droids",
+          "date": "1985-09-07"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 3478,
+          "title": "Ewoks",
+          "date": "1985-09-07"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 10372,
+          "title": "Ewoks: The Battle for Endor",
+          "date": "1985-11-24"
         },
         {
           "type": "movie",
@@ -454,6 +486,12 @@
           "date": "2002-05-15"
         },
         {
+          "type": "tv",
+          "tmdb_id": 3122,
+          "title": "Star Wars: Clone Wars",
+          "date": "2003-11-07"
+        },
+        {
           "type": "movie",
           "tmdb_id": 1895,
           "title": "Star Wars: Episode III - Revenge of the Sith",
@@ -464,6 +502,18 @@
           "tmdb_id": 12180,
           "title": "Star Wars: The Clone Wars",
           "date": "2008-08-05"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 4194,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2008-10-03"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 60554,
+          "title": "Star Wars Rebels",
+          "date": "2014-10-13"
         },
         {
           "type": "movie",
@@ -491,6 +541,12 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 79093,
+          "title": "Star Wars Resistance",
+          "date": "2018-10-07"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 82856,
           "title": "The Mandalorian",
           "date": "2019-11-12"
@@ -500,6 +556,18 @@
           "tmdb_id": 181812,
           "title": "Star Wars: The Rise of Skywalker",
           "date": "2019-12-18"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 105971,
+          "title": "Star Wars: The Bad Batch",
+          "date": "2021-05-04"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 114478,
+          "title": "Star Wars: Visions",
+          "date": "2021-09-22"
         },
         {
           "type": "tv",
@@ -521,9 +589,27 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 203085,
+          "title": "Star Wars: Tales of the Jedi",
+          "date": "2022-10-26"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 202998,
+          "title": "Star Wars: Young Jedi Adventures",
+          "date": "2023-05-04"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 114461,
           "title": "Ahsoka",
           "date": "2023-08-22"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 251091,
+          "title": "Star Wars: Tales of the Empire",
+          "date": "2024-05-04"
         },
         {
           "type": "tv",
@@ -536,6 +622,12 @@
           "tmdb_id": 202879,
           "title": "Star Wars: Skeleton Crew",
           "date": "2024-12-02"
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1228710,
+          "title": "The Mandalorian and Grogu",
+          "date": "2026-05-20"
         }
       ]
     },
