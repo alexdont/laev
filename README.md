@@ -26,6 +26,13 @@ a project.
   (`laev watch "heat 1995"`). The search box remembers your last 100 searches —
   type a few letters to narrow them, then ↑↓ walks the matches into the search
   bar (completing to the full title, still editable); ctrl-d forgets an entry.
+- **Franchises in one place.** Searching any film of a series offers the whole
+  thing at the top of the results — every Alien, all of Middle-earth, the 207
+  Marvel titles with Essentials / Everything / Prepare for Doomsday to choose
+  between — in release order, with long-running shows listed a season at a time
+  so they sit where they aired. Most series come straight from TMDB; the ones it
+  groups badly are curated in `priv/franchises.json`. `ctrl-s` pins a whole list
+  to your watchlist, not just a title.
 - **Only playable sources are offered.** Every source is actually resolved on
   your debrid provider before it reaches the picker — dead torrents, DMCA'd
   files, and 0-seeder stalls are filtered out with the reason shown.
@@ -157,8 +164,17 @@ Open **Settings → 🔌 Integrations → 🔄 Cross-device sync** and pick one:
 Once on, laev pulls-merges-pushes on startup and after each episode (or run
 `laev sync` manually). Merging is **last-write-wins per item with tombstones**,
 so pins, un-pins, positions and watched flags from every device converge — pick
-up on your laptop exactly where the phone left off. Your **API keys and
-MyAnimeList login are never synced**, only user state.
+up on your laptop exactly where the phone left off.
+
+Your **API keys can ride along too**, if you turn it on — Settings → 🔄
+Cross-device sync → "carry my API keys". A laev key is then
+`laev_<token>.<secret>`: only the token half is ever sent, and the secret half
+stays on your machine and encrypts the keys, so the server holds a blob it
+can't open. `laev setup` offers **"I already have a laev key"**, which sets a
+new machine up with nothing to re-enter. Off by default, and the key is then
+worth as much as the debrid account behind it. Your **MyAnimeList login is
+never synced** — its token rotates, and two machines sharing one would log
+each other out.
 
 ### Running your own server
 
