@@ -17,8 +17,7 @@ playing in mpv: In.the.Grey.2026.2160p.WEB-DL.mkv
 ```
 
 Laev is a **single binary** — not a library, not a service, nothing to add to
-a project. (Unrelated to the `kino` package on hex.pm, which is Livebook's
-widget library.)
+a project.
 
 ## What it does
 
