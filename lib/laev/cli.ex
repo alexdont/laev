@@ -2398,15 +2398,62 @@ defmodule Laev.CLI do
     end
   end
 
+  # Which series the results are really about. Reading only the top hit was
+  # wrong twice over: "pirate" led with Space Pirate Captain Harlock and
+  # offered that, while "pirates" led with a film in no collection at all and
+  # so offered nothing, even with five Pirates of the Caribbean films sitting
+  # in the results. Weighing the whole page settles it — the series most of
+  # the matches belong to wins, and the best-ranked one breaks a tie.
+  defp likeliest_collection(titles) do
+    titles
+    |> Enum.filter(&(&1.type == "movie"))
+    |> Enum.take(8)
+    |> Task.async_stream(&collection_id_of/1, max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {{:ok, {id, votes}}, rank} when is_integer(id) -> [{id, {rank, votes}}]
+      _ -> []
+    end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.max_by(fn {_id, hits} -> {length(hits), -best_rank(hits)} end, fn -> nil end)
+    |> case do
+      {id, hits} -> if convincing?(hits), do: id
+      nil -> nil
+    end
+  end
+
+  defp best_rank(hits), do: hits |> Enum.map(&elem(&1, 0)) |> Enum.min()
+
+  # Two films of one series among the results is evidence by itself. A single
+  # film is only evidence when it is the best result *and* a widely-seen one:
+  # searching "dead man's chest" should offer Pirates of the Caribbean, while
+  # "pirate" — which returns no Pirates films at all, just obscure films of
+  # that name — shouldn't have the one series among them dressed up as the
+  # answer. Vote count is the steadier measure of that; popularity moves daily.
+  @franchise_hint_votes 2_000
+
+  defp convincing?(hits) do
+    length(hits) > 1 or
+      Enum.any?(hits, fn {rank, votes} -> rank == 0 and votes >= @franchise_hint_votes end)
+  end
+
+  defp collection_id_of(%{id: id}) do
+    case fetch_details(%{type: "movie", id: id}) do
+      {:ok, %{"belongs_to_collection" => %{"id" => collection_id}} = details} ->
+        {collection_id, details["vote_count"] || 0}
+
+      _ ->
+        nil
+    end
+  end
+
   # TMDB files most series in a "collection" of its own, and for the ones it
-  # gets right that is as good as a curated list — so the top result's
-  # collection becomes a franchise with the same shape, and the rest of the
-  # flow can't tell the difference. Only the film matters, not the query: this
-  # is what makes searching "dead man's chest" offer Pirates of the Caribbean.
+  # gets right that is as good as a curated list — so the collection becomes a
+  # franchise with the same shape, and the rest of the flow can't tell the
+  # difference. It keys off the films rather than the query, which is what
+  # makes searching "dead man's chest" offer Pirates of the Caribbean.
   defp tmdb_collection_franchise(titles) do
-    with %{type: "movie", id: id} <- Enum.find(titles, &match?(%{type: "movie"}, &1)),
-         {:ok, %{"belongs_to_collection" => %{"id" => collection_id}}} when is_integer(collection_id) <-
-           fetch_details(%{type: "movie", id: id}),
+    with collection_id when is_integer(collection_id) <- likeliest_collection(titles),
          {:ok, %{"parts" => parts, "name" => name}} when length(parts) > 1 <- Tmdb.collection(collection_id) do
       %{
         name: String.replace(name, ~r/ Collection$/, ""),
