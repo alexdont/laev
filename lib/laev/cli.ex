@@ -2008,7 +2008,7 @@ defmodule Laev.CLI do
     {season, episode} =
       case title.type do
         "movie" -> {nil, nil}
-        "tv" -> pick_episode(details)
+        "tv" -> pick_episode(details, title[:season])
       end
 
     ctx =
@@ -2374,11 +2374,9 @@ defmodule Laev.CLI do
         # than by what was typed, so searching one film offers its franchise:
         # "order of the phoenix" surfaces Harry Potter just as "harry potter"
         # does, with the film itself still the first ordinary result.
-        items =
-          case Laev.Franchises.detect(titles) do
-            nil -> items
-            franchise -> [{:franchise, franchise} | items]
-          end
+        # A title is often in more than one list — Spider-Man is its own
+        # franchise and part of Marvel — so offer each, narrowest first.
+        items = Enum.map(Laev.Franchises.detect(titles), &{:franchise, &1}) ++ items
 
         header =
           "what to watch? (#{length(titles)} results" <>
@@ -2447,13 +2445,17 @@ defmodule Laev.CLI do
     end
   end
 
+  defp season_title(name, nil), do: name
+  defp season_title(name, season), do: "#{name} · Season #{season}"
+
   defp franchise_title(entry) do
     case fetch_details(%{type: entry.type, id: entry.tmdb_id}) do
       {:ok, details} ->
         %{
           id: entry.tmdb_id,
           type: entry.type,
-          title: details["title"] || details["name"] || entry.title,
+          season: entry.season,
+          title: season_title(details["title"] || details["name"] || entry.title, entry.season),
           year: Tmdb.year(details["release_date"] || details["first_air_date"]),
           poster: Tmdb.poster_url(details["poster_path"], "w342"),
           overview: details["overview"],
@@ -2466,7 +2468,8 @@ defmodule Laev.CLI do
         %{
           id: entry.tmdb_id,
           type: entry.type,
-          title: entry.title,
+          season: entry.season,
+          title: season_title(entry.title, entry.season),
           year: Tmdb.year(entry.date),
           poster: nil,
           overview: nil,
@@ -2587,12 +2590,18 @@ defmodule Laev.CLI do
   defp fetch_details(%{type: "movie", id: id}), do: Tmdb.movie(id)
   defp fetch_details(%{type: "tv", id: id}), do: Tmdb.tv(id)
 
-  defp pick_episode(details) do
+  defp pick_episode(details, preselect \\ nil) do
     seasons = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
     if seasons == [], do: die("TMDB lists no seasons for this show")
 
     show = details["name"] || details["title"] || ""
-    season = pick(seasons, &describe_season/1, "#{show} — which season?") || back()
+
+    # A franchise list names the season it means, so don't ask again.
+    season =
+      case preselect && Enum.find(seasons, &(&1["season_number"] == preselect)) do
+        nil -> pick(seasons, &describe_season/1, "#{show} — which season?") || back()
+        chosen -> chosen
+      end
     season_number = season["season_number"]
 
     episodes =

@@ -14,6 +14,12 @@ defmodule Laev.Franchises do
   franchise: "order of the phoenix" finds the Harry Potter list just as
   "harry potter" does.
 
+  A show that ran across several years is listed one season at a time, each
+  dated by when it aired. That is what keeps release order honest: Agents of
+  S.H.I.E.L.D. season 1 belongs between The Avengers and Iron Man 3, not as a
+  single 2013 row that would have someone watch seven seasons before returning
+  to the films of 2014.
+
   The data is read at compile time, so looking a title up costs nothing at
   runtime and works offline. Editing `priv/franchises.json` recompiles this
   module.
@@ -35,6 +41,7 @@ defmodule Laev.Franchises do
                       &%{
                         type: &1["type"],
                         tmdb_id: &1["tmdb_id"],
+                        season: &1["season"],
                         title: &1["title"],
                         date: &1["date"],
                         tiers: &1["tiers"] || []
@@ -54,7 +61,7 @@ defmodule Laev.Franchises do
   @index @franchises
          |> Enum.flat_map(fn f -> Enum.map(f.entries, &{{&1.type, &1.tmdb_id}, f}) end)
          |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-         |> Map.new(fn {key, franchises} -> {key, Enum.min_by(franchises, &length(&1.entries))} end)
+         |> Map.new(fn {key, franchises} -> {key, Enum.sort_by(franchises, &length(&1.entries))} end)
 
   @doc "Every curated franchise."
   def all, do: @franchises
@@ -83,24 +90,34 @@ defmodule Laev.Franchises do
   end
 
   @doc """
-  The franchise a title belongs to, or `nil`. Takes the shapes the pickers
-  already carry — a TMDB search result (`%{type:, id:}`) or a plain id pair.
+  Every curated franchise a title belongs to, smallest first. A film is often in
+  two — Spider-Man is both its own franchise and part of Marvel — and both are
+  worth offering: one is the eight films someone means, the other is the whole
+  universe around them.
   """
-  def for_title(%{type: type, id: id}), do: lookup(type, id)
-  def for_title(%{"type" => type, "tmdb_id" => id}), do: lookup(type, id)
-  def for_title(_), do: nil
+  def all_for_title(%{type: type, id: id}), do: lookup_all(type, id)
+  def all_for_title(%{"type" => type, "tmdb_id" => id}), do: lookup_all(type, id)
+  def all_for_title(_), do: []
 
-  def lookup(type, id) when is_binary(type) and is_integer(id), do: Map.get(@index, {type, id})
-  def lookup(_, _), do: nil
+  def lookup_all(type, id) when is_binary(type) and is_integer(id), do: Map.get(@index, {type, id}, [])
+  def lookup_all(_, _), do: []
+
+  @doc "The most specific franchise a title belongs to, or `nil`."
+  def for_title(title), do: List.first(all_for_title(title))
+
+  def lookup(type, id), do: List.first(lookup_all(type, id))
 
   @doc """
-  The first curated franchise any of these titles belongs to. Search results are
-  scanned rather than just the top hit, so a franchise is still offered when the
-  best match for the query happens to be something else.
+  Every curated franchise these titles belong to, smallest first. Search results
+  are scanned rather than just the top hit, so a franchise is still offered when
+  the best match for the query happens to be something else.
   """
   def detect(titles) when is_list(titles) do
-    Enum.find_value(titles, &for_title/1)
+    titles
+    |> Enum.flat_map(&all_for_title/1)
+    |> Enum.uniq_by(& &1.name)
+    |> Enum.sort_by(&length(&1.entries))
   end
 
-  def detect(_), do: nil
+  def detect(_), do: []
 end

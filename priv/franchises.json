@@ -81,9 +81,16 @@
         {
           "type": "tv",
           "tmdb_id": 6332,
+          "season": 1,
           "title": "The Incredible Hulk",
-          "date": "1996-09-08",
-          "tiers": []
+          "date": "1996-09-08"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 6332,
+          "season": 2,
+          "title": "The Incredible Hulk",
+          "date": "1997-09-21"
         },
         {
           "type": "tv",
@@ -116,16 +123,23 @@
         {
           "type": "tv",
           "tmdb_id": 668,
+          "season": 1,
           "title": "X-Men: Evolution",
-          "date": "2000-11-04",
-          "tiers": []
+          "date": "2000-11-04"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 668,
+          "season": 2,
+          "title": "X-Men: Evolution",
+          "date": "2001-09-29"
         },
         {
           "type": "tv",
           "tmdb_id": 1449,
+          "season": 1,
           "title": "Mutant X",
-          "date": "2001-10-06",
-          "tiers": []
+          "date": "2001-10-06"
         },
         {
           "type": "movie",
@@ -133,6 +147,20 @@
           "title": "Spider-Man",
           "date": "2002-05-01",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 668,
+          "season": 3,
+          "title": "X-Men: Evolution",
+          "date": "2002-09-14"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1449,
+          "season": 2,
+          "title": "Mutant X",
+          "date": "2002-10-05"
         },
         {
           "type": "movie",
@@ -161,6 +189,20 @@
           "title": "Spider-Man: The New Animated Series",
           "date": "2003-07-11",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 668,
+          "season": 4,
+          "title": "X-Men: Evolution",
+          "date": "2003-08-30"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1449,
+          "season": 3,
+          "title": "Mutant X",
+          "date": "2003-09-29"
         },
         {
           "type": "movie",
@@ -270,9 +312,9 @@
         {
           "type": "tv",
           "tmdb_id": 3854,
+          "season": 1,
           "title": "The Spectacular Spider-Man",
-          "date": "2008-03-08",
-          "tiers": []
+          "date": "2008-03-08"
         },
         {
           "type": "movie",
@@ -337,9 +379,9 @@
         {
           "type": "tv",
           "tmdb_id": 7330,
+          "season": 1,
           "title": "Iron Man: Armored Adventures",
-          "date": "2009-04-24",
-          "tiers": []
+          "date": "2009-04-24"
         },
         {
           "type": "movie",
@@ -347,6 +389,13 @@
           "title": "X-Men Origins: Wolverine",
           "date": "2009-04-28",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 3854,
+          "season": 2,
+          "title": "The Spectacular Spider-Man",
+          "date": "2009-06-22"
         },
         {
           "type": "movie",
@@ -360,9 +409,9 @@
         {
           "type": "tv",
           "tmdb_id": 33623,
+          "season": 1,
           "title": "The Avengers: Earth's Mightiest Heroes",
-          "date": "2010-10-20",
-          "tiers": []
+          "date": "2010-10-20"
         },
         {
           "type": "movie",
@@ -379,6 +428,13 @@
           "title": "X-Men: First Class",
           "date": "2011-06-01",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 7330,
+          "season": 2,
+          "title": "Iron Man: Armored Adventures",
+          "date": "2011-07-13"
         },
         {
           "type": "movie",
@@ -409,6 +465,13 @@
           "title": "Ghost Rider: Spirit of Vengeance",
           "date": "2011-12-10",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 33623,
+          "season": 2,
+          "title": "The Avengers: Earth's Mightiest Heroes",
+          "date": "2012-04-01"
         },
         {
           "type": "movie",
@@ -452,9 +515,9 @@
         {
           "type": "tv",
           "tmdb_id": 1403,
+          "season": 1,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2013-09-24",
-          "tiers": []
+          "date": "2013-09-24"
         },
         {
           "type": "movie",
@@ -507,7 +570,9 @@
           "tmdb_id": 127585,
           "title": "X-Men: Days of Future Past",
           "date": "2014-05-15",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -520,17 +585,27 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 1403,
+          "season": 2,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2014-09-23"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 61550,
+          "season": 1,
           "title": "Marvel's Agent Carter",
-          "date": "2015-01-06",
-          "tiers": []
+          "date": "2015-01-06"
         },
         {
           "type": "tv",
           "tmdb_id": 61889,
+          "season": 1,
           "title": "Marvel's Daredevil",
           "date": "2015-04-10",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -544,9 +619,9 @@
         {
           "type": "tv",
           "tmdb_id": 69069,
+          "season": 1,
           "title": "WHIH Newsfront",
-          "date": "2015-07-02",
-          "tiers": []
+          "date": "2015-07-02"
         },
         {
           "type": "movie",
@@ -566,17 +641,50 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 1403,
+          "season": 3,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2015-09-29"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 38472,
+          "season": 1,
           "title": "Marvel's Jessica Jones",
-          "date": "2015-11-20",
-          "tiers": []
+          "date": "2015-11-20"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 61550,
+          "season": 2,
+          "title": "Marvel's Agent Carter",
+          "date": "2016-01-19"
         },
         {
           "type": "movie",
           "tmdb_id": 293660,
           "title": "Deadpool",
           "date": "2016-02-09",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 61889,
+          "season": 2,
+          "title": "Marvel's Daredevil",
+          "date": "2016-03-18",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 69069,
+          "season": 2,
+          "title": "WHIH Newsfront",
+          "date": "2016-04-22"
         },
         {
           "type": "movie",
@@ -603,10 +711,17 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 1403,
+          "season": 4,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2016-09-20"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 62126,
+          "season": 1,
           "title": "Marvel's Luke Cage",
-          "date": "2016-09-30",
-          "tiers": []
+          "date": "2016-09-30"
         },
         {
           "type": "movie",
@@ -629,7 +744,9 @@
           "tmdb_id": 263115,
           "title": "Logan",
           "date": "2017-02-28",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -641,9 +758,9 @@
         {
           "type": "tv",
           "tmdb_id": 62127,
+          "season": 1,
           "title": "Marvel's Iron Fist",
-          "date": "2017-03-17",
-          "tiers": []
+          "date": "2017-03-17"
         },
         {
           "type": "movie",
@@ -689,16 +806,23 @@
         {
           "type": "tv",
           "tmdb_id": 67178,
+          "season": 1,
           "title": "Marvel's The Punisher",
-          "date": "2017-11-17",
-          "tiers": []
+          "date": "2017-11-17"
         },
         {
           "type": "tv",
           "tmdb_id": 67466,
+          "season": 1,
           "title": "Marvel's Runaways",
-          "date": "2017-11-21",
-          "tiers": []
+          "date": "2017-11-21"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1403,
+          "season": 5,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2017-12-01"
         },
         {
           "type": "movie",
@@ -717,6 +841,13 @@
           "tiers": []
         },
         {
+          "type": "tv",
+          "tmdb_id": 38472,
+          "season": 2,
+          "title": "Marvel's Jessica Jones",
+          "date": "2018-03-08"
+        },
+        {
           "type": "movie",
           "tmdb_id": 299536,
           "title": "Avengers: Infinity War",
@@ -731,14 +862,23 @@
           "tmdb_id": 383498,
           "title": "Deadpool 2",
           "date": "2018-05-15",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 66190,
+          "season": 1,
           "title": "Marvel's Cloak & Dagger",
-          "date": "2018-06-07",
-          "tiers": []
+          "date": "2018-06-07"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 62126,
+          "season": 2,
+          "title": "Marvel's Luke Cage",
+          "date": "2018-06-22"
         },
         {
           "type": "movie",
@@ -750,11 +890,28 @@
           ]
         },
         {
+          "type": "tv",
+          "tmdb_id": 62127,
+          "season": 2,
+          "title": "Marvel's Iron Fist",
+          "date": "2018-09-07"
+        },
+        {
           "type": "movie",
           "tmdb_id": 335983,
           "title": "Venom",
           "date": "2018-09-28",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 61889,
+          "season": 3,
+          "title": "Marvel's Daredevil",
+          "date": "2018-10-19",
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -769,6 +926,20 @@
           "title": "Once Upon a Deadpool",
           "date": "2018-12-11",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 67466,
+          "season": 2,
+          "title": "Marvel's Runaways",
+          "date": "2018-12-21"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 67178,
+          "season": 2,
+          "title": "Marvel's The Punisher",
+          "date": "2019-01-18"
         },
         {
           "type": "movie",
@@ -787,6 +958,13 @@
           "tiers": []
         },
         {
+          "type": "tv",
+          "tmdb_id": 66190,
+          "season": 2,
+          "title": "Marvel's Cloak & Dagger",
+          "date": "2019-04-04"
+        },
+        {
           "type": "movie",
           "tmdb_id": 299534,
           "title": "Avengers: Endgame",
@@ -797,11 +975,25 @@
           ]
         },
         {
+          "type": "tv",
+          "tmdb_id": 1403,
+          "season": 6,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2019-05-10"
+        },
+        {
           "type": "movie",
           "tmdb_id": 320288,
           "title": "Dark Phoenix",
           "date": "2019-06-05",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 38472,
+          "season": 3,
+          "title": "Marvel's Jessica Jones",
+          "date": "2019-06-14"
         },
         {
           "type": "movie",
@@ -818,6 +1010,20 @@
           "title": "Peter's To-Do List",
           "date": "2019-09-17",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 67466,
+          "season": 3,
+          "title": "Marvel's Runaways",
+          "date": "2019-12-13"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1403,
+          "season": 7,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2020-05-27"
         },
         {
           "type": "movie",
@@ -855,6 +1061,7 @@
         {
           "type": "tv",
           "tmdb_id": 84958,
+          "season": 1,
           "title": "Loki",
           "date": "2021-06-09",
           "tiers": [
@@ -874,13 +1081,14 @@
         {
           "type": "tv",
           "tmdb_id": 127635,
+          "season": 1,
           "title": "Spidey and His Amazing Friends",
-          "date": "2021-08-06",
-          "tiers": []
+          "date": "2021-08-06"
         },
         {
           "type": "tv",
           "tmdb_id": 91363,
+          "season": 1,
           "title": "What If...?",
           "date": "2021-08-11",
           "tiers": [
@@ -1028,9 +1236,9 @@
         {
           "type": "tv",
           "tmdb_id": 232125,
+          "season": 1,
           "title": "I Am Groot",
-          "date": "2022-08-10",
-          "tiers": []
+          "date": "2022-08-10"
         },
         {
           "type": "tv",
@@ -1042,11 +1250,20 @@
           ]
         },
         {
+          "type": "tv",
+          "tmdb_id": 127635,
+          "season": 2,
+          "title": "Spidey and His Amazing Friends",
+          "date": "2022-08-19"
+        },
+        {
           "type": "movie",
           "tmdb_id": 894205,
           "title": "Werewolf by Night",
           "date": "2022-09-25",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -1117,6 +1334,24 @@
           ]
         },
         {
+          "type": "tv",
+          "tmdb_id": 232125,
+          "season": 2,
+          "title": "I Am Groot",
+          "date": "2023-09-06"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 84958,
+          "season": 2,
+          "title": "Loki",
+          "date": "2023-10-05",
+          "tiers": [
+            "doomsday",
+            "essential"
+          ]
+        },
+        {
           "type": "movie",
           "tmdb_id": 1154598,
           "title": "LEGO Marvel Avengers: Code Red",
@@ -1135,6 +1370,24 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 91363,
+          "season": 2,
+          "title": "What If...?",
+          "date": "2023-12-22",
+          "tiers": [
+            "doomsday",
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 127635,
+          "season": 3,
+          "title": "Spidey and His Amazing Friends",
+          "date": "2024-01-08"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 122226,
           "title": "Echo",
           "date": "2024-01-09",
@@ -1145,9 +1398,9 @@
         {
           "type": "tv",
           "tmdb_id": 138502,
+          "season": 1,
           "title": "X-Men '97",
-          "date": "2024-03-20",
-          "tiers": []
+          "date": "2024-03-20"
         },
         {
           "type": "movie",
@@ -1185,6 +1438,17 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 91363,
+          "season": 3,
+          "title": "What If...?",
+          "date": "2024-12-22",
+          "tiers": [
+            "doomsday",
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
           "tmdb_id": 138503,
           "title": "Your Friendly Neighborhood Spider-Man",
           "date": "2025-01-29",
@@ -1206,6 +1470,7 @@
         {
           "type": "tv",
           "tmdb_id": 202555,
+          "season": 1,
           "title": "Daredevil: Born Again",
           "date": "2025-03-04",
           "tiers": [
@@ -1222,6 +1487,13 @@
             "doomsday",
             "essential"
           ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 127635,
+          "season": 4,
+          "title": "Spidey and His Amazing Friends",
+          "date": "2025-06-16"
         },
         {
           "type": "tv",
@@ -1306,11 +1578,36 @@
           "tiers": []
         },
         {
+          "type": "tv",
+          "tmdb_id": 202555,
+          "season": 2,
+          "title": "Daredevil: Born Again",
+          "date": "2026-03-24",
+          "tiers": [
+            "doomsday",
+            "essential"
+          ]
+        },
+        {
           "type": "movie",
           "tmdb_id": 1439930,
           "title": "The Punisher: One Last Kill",
           "date": "2026-05-12",
           "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 138502,
+          "season": 2,
+          "title": "X-Men '97",
+          "date": "2026-07-01"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 127635,
+          "season": 5,
+          "title": "Spidey and His Amazing Friends",
+          "date": "2026-07-13"
         },
         {
           "type": "movie",
@@ -1818,6 +2115,7 @@
         {
           "type": "tv",
           "tmdb_id": 3478,
+          "season": 1,
           "title": "Ewoks",
           "date": "1985-09-07"
         },
@@ -1826,6 +2124,13 @@
           "tmdb_id": 10372,
           "title": "Ewoks: The Battle for Endor",
           "date": "1985-11-24"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 3478,
+          "season": 2,
+          "title": "Ewoks",
+          "date": "1986-09-13"
         },
         {
           "type": "movie",
@@ -1842,8 +2147,23 @@
         {
           "type": "tv",
           "tmdb_id": 3122,
+          "season": 1,
           "title": "Star Wars: Clone Wars",
           "date": "2003-11-07"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 3122,
+          "season": 2,
+          "title": "Star Wars: Clone Wars",
+          "date": "2004-03-26"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 3122,
+          "season": 3,
+          "title": "Star Wars: Clone Wars",
+          "date": "2005-03-21"
         },
         {
           "type": "movie",
@@ -1860,14 +2180,58 @@
         {
           "type": "tv",
           "tmdb_id": 4194,
+          "season": 1,
           "title": "Star Wars: The Clone Wars",
           "date": "2008-10-03"
         },
         {
           "type": "tv",
+          "tmdb_id": 4194,
+          "season": 2,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2009-10-02"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 4194,
+          "season": 3,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2010-09-17"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 4194,
+          "season": 4,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2011-09-16"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 4194,
+          "season": 5,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2012-09-29"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 4194,
+          "season": 6,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2014-03-07"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 60554,
+          "season": 1,
           "title": "Star Wars Rebels",
           "date": "2014-10-13"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 60554,
+          "season": 2,
+          "title": "Star Wars Rebels",
+          "date": "2015-10-14"
         },
         {
           "type": "movie",
@@ -1876,10 +2240,24 @@
           "date": "2015-12-15"
         },
         {
+          "type": "tv",
+          "tmdb_id": 60554,
+          "season": 3,
+          "title": "Star Wars Rebels",
+          "date": "2016-09-24"
+        },
+        {
           "type": "movie",
           "tmdb_id": 330459,
           "title": "Rogue One: A Star Wars Story",
           "date": "2016-12-14"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 60554,
+          "season": 4,
+          "title": "Star Wars Rebels",
+          "date": "2017-10-16"
         },
         {
           "type": "movie",
@@ -1896,12 +2274,21 @@
         {
           "type": "tv",
           "tmdb_id": 79093,
+          "season": 1,
           "title": "Star Wars Resistance",
           "date": "2018-10-07"
         },
         {
           "type": "tv",
+          "tmdb_id": 79093,
+          "season": 2,
+          "title": "Star Wars Resistance",
+          "date": "2019-10-06"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 82856,
+          "season": 1,
           "title": "The Mandalorian",
           "date": "2019-11-12"
         },
@@ -1913,13 +2300,29 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 4194,
+          "season": 7,
+          "title": "Star Wars: The Clone Wars",
+          "date": "2020-02-21"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 82856,
+          "season": 2,
+          "title": "The Mandalorian",
+          "date": "2020-10-30"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 105971,
+          "season": 1,
           "title": "Star Wars: The Bad Batch",
           "date": "2021-05-04"
         },
         {
           "type": "tv",
           "tmdb_id": 114478,
+          "season": 1,
           "title": "Star Wars: Visions",
           "date": "2021-09-22"
         },
@@ -1938,6 +2341,7 @@
         {
           "type": "tv",
           "tmdb_id": 83867,
+          "season": 1,
           "title": "Andor",
           "date": "2022-09-21"
         },
@@ -1949,15 +2353,45 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 105971,
+          "season": 2,
+          "title": "Star Wars: The Bad Batch",
+          "date": "2023-01-04"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 82856,
+          "season": 3,
+          "title": "The Mandalorian",
+          "date": "2023-03-01"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 114478,
+          "season": 2,
+          "title": "Star Wars: Visions",
+          "date": "2023-05-04"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 202998,
+          "season": 1,
           "title": "Star Wars: Young Jedi Adventures",
           "date": "2023-05-04"
         },
         {
           "type": "tv",
           "tmdb_id": 114461,
+          "season": 1,
           "title": "Ahsoka",
           "date": "2023-08-22"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 105971,
+          "season": 3,
+          "title": "Star Wars: The Bad Batch",
+          "date": "2024-02-21"
         },
         {
           "type": "tv",
@@ -1973,15 +2407,50 @@
         },
         {
           "type": "tv",
+          "tmdb_id": 202998,
+          "season": 2,
+          "title": "Star Wars: Young Jedi Adventures",
+          "date": "2024-08-14"
+        },
+        {
+          "type": "tv",
           "tmdb_id": 202879,
           "title": "Star Wars: Skeleton Crew",
           "date": "2024-12-02"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 83867,
+          "season": 2,
+          "title": "Andor",
+          "date": "2025-04-22"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 114478,
+          "season": 3,
+          "title": "Star Wars: Visions",
+          "date": "2025-10-29"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 202998,
+          "season": 3,
+          "title": "Star Wars: Young Jedi Adventures",
+          "date": "2025-12-08"
         },
         {
           "type": "movie",
           "tmdb_id": 1228710,
           "title": "The Mandalorian and Grogu",
           "date": "2026-05-20"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 114461,
+          "season": 2,
+          "title": "Ahsoka",
+          "date": "2027-01-19"
         }
       ]
     },
