@@ -1162,10 +1162,10 @@ defmodule Laev.CLI do
         pick(
           events,
           &describe_event/1,
-          "⧉ enter watches · ctrl-r refreshes · esc backs out",
+          "⧉ enter watches · ctrl-r refreshes · ctrl-o imdb · esc backs out",
           nil,
           initial,
-          ["ctrl-r"],
+          ["ctrl-r", "ctrl-o"],
           :abort
         )
 
@@ -1175,6 +1175,10 @@ defmodule Laev.CLI do
 
         nil ->
           main_menu()
+
+        {"ctrl-o", event} ->
+          open_imdb_for(event["type"], event["tmdb_id"], event["title"])
+          calendar_screen(events, Enum.find_index(events, &(&1 == event)) || 0)
 
         {"ctrl-r", _} ->
           File.rm_rf(Path.join(System.tmp_dir!(), "laev-calendar"))
@@ -1435,15 +1439,19 @@ defmodule Laev.CLI do
         pick(
           entries,
           &describe_watchlist/1,
-          "≡ watchlist · enter watches · ctrl-d removes",
+          "≡ watchlist · enter watches · ctrl-d removes · ctrl-o imdb",
           & &1["poster"],
           initial,
-          ["ctrl-d"]
+          ["ctrl-d", "ctrl-o"]
         )
 
       case result do
         nil ->
           main_menu()
+
+        {"ctrl-o", entry} ->
+          open_imdb_for(entry["type"], entry["tmdb_id"], entry["title"])
+          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-d", entry} ->
           Laev.Watchlist.remove(entry["type"], entry["tmdb_id"])
@@ -2315,10 +2323,10 @@ defmodule Laev.CLI do
       pick(
         items,
         describe,
-        header <> " · ctrl-s pins",
+        header <> " · ctrl-s pins · ctrl-o imdb",
         &title_poster/1,
         initial,
-        ["ctrl-s"]
+        ["ctrl-s", "ctrl-o"]
       )
 
     case result do
@@ -2327,6 +2335,13 @@ defmodule Laev.CLI do
 
       {"ctrl-s", :more} ->
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
+
+      {"ctrl-o", :more} ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
+
+      {"ctrl-o", title} ->
+        open_imdb_for(title.type, title.id, title.title)
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
 
       {"ctrl-s", title} ->
         # Pinning pre-warms the calendar cache in the background, so the
@@ -2975,13 +2990,19 @@ defmodule Laev.CLI do
   # Open the title's IMDb page in the browser (the user rates and logs
   # watched titles there). The IMDb id comes from TMDB's external ids; with
   # no match, fall back to an IMDb search for the title.
-  defp open_imdb(ctx) do
+  defp open_imdb(ctx), do: open_imdb_for(ctx.type, ctx.tmdb_id, ctx.title)
+
+  # The IMDb page for a title on any of the list screens — search results,
+  # featured, watchlist, calendar and history all carry a type, a TMDB id and
+  # a title, just under different key shapes. Falls back to an IMDb search
+  # when TMDB has no external id for it.
+  defp open_imdb_for(type, tmdb_id, title) do
     url =
-      with {:ok, details} <- fetch_details(%{type: ctx.type, id: ctx.tmdb_id}),
+      with {:ok, details} <- fetch_details(%{type: type, id: tmdb_id}),
            imdb when is_binary(imdb) <- Tmdb.imdb_id(details) do
         "https://www.imdb.com/title/#{imdb}/"
       else
-        _ -> "https://www.imdb.com/find/?q=#{URI.encode_www_form(ctx.title || "")}"
+        _ -> "https://www.imdb.com/find/?q=#{URI.encode_www_form(title || "")}"
       end
 
     browser_open(url)
@@ -3205,7 +3226,7 @@ defmodule Laev.CLI do
 
   # ── continue watching ─────────────────────────────────────────────
 
-  defp continue do
+  defp continue(initial \\ 0) do
     unless Providers.any_configured?() do
       die("no debrid provider configured (RD_TOKEN or TORBOX_API_KEY) — run: laev setup")
     end
@@ -3215,8 +3236,17 @@ defmodule Laev.CLI do
         nothing_here("Nothing in your history yet — watch something and it shows up here.")
 
       entries ->
-        entry = pick(entries, &describe_resume/1, "continue watching") || back()
-        continue_entry(entry)
+        case pick(entries, &describe_resume/1, "continue watching · ctrl-o imdb", nil, initial, ["ctrl-o"]) do
+          nil ->
+            back()
+
+          {"ctrl-o", entry} ->
+            open_imdb_for(entry["type"], entry["tmdb_id"], entry["title"])
+            continue(Enum.find_index(entries, &(&1 == entry)) || 0)
+
+          {nil, entry} ->
+            continue_entry(entry)
+        end
     end
   end
 
