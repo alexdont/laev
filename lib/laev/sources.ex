@@ -101,6 +101,16 @@ defmodule Laev.Sources do
     "#{anime_title(title)} #{pad(episode)}"
   end
 
+  @doc """
+  Query for an anime episode in `Title S01E02` form. The streaming-rip groups
+  (ToonsHub, AnoZu, Yameii...) name episodes that way, and a bare `Title 02`
+  query barely matches them — for a show carried by those groups this is the
+  difference between one result and nine.
+  """
+  def anime_sxe_query(title, episode) do
+    "#{anime_title(title)} S#{pad(wanted_season(title))}E#{pad(episode)}"
+  end
+
   @doc "Query for an anime movie — just the cleaned title."
   def anime_movie_query(title), do: anime_title(title)
 
@@ -136,7 +146,19 @@ defmodule Laev.Sources do
           case search_animetosho_aid(aid) do
             {:ok, all} when all != [] ->
               {ep, rest} = Enum.split_with(all, &release_has_episode?(&1.name, episode))
-              {Enum.sort_by(ep, &score/1, :desc) ++ Enum.sort_by(rest, &score/1, :desc), :mixed}
+
+              # That feed is newest-first, so an older episode can be missing
+              # from it even though the show is right — ask the text queries too
+              # rather than offering only batches and later episodes.
+              extra =
+                if ep == [],
+                  do: (case text_episode_search(title, episode) do
+                         {:ok, sources, _} -> sources
+                         _ -> []
+                       end),
+                  else: []
+
+              {Enum.sort_by(ep, &score/1, :desc) ++ extra ++ Enum.sort_by(rest, &score/1, :desc), :mixed}
 
             _ ->
               case text_episode_search(title, episode) do
@@ -194,31 +216,53 @@ defmodule Laev.Sources do
     Regex.match?(~r/\bbatch|complete|\bseason\b|\bS\d+\b(?!E)|\d+\s*[-~]\s*\d+|\bvol\b/i, name)
   end
 
-  # Does the name pin a single episode number (E12 / - 12 / _12_) at all?
+  # Does the name pin a single episode number (S01E12 / E12 / - 12 / _12_) at
+  # all? The SxxExx form needs its own alternative: `\be` can't match the E in
+  # "S01E07", where the preceding character is a digit and so no word boundary
+  # exists — which used to make every streaming-rip release look episode-less
+  # and sail through the wrong-episode filter.
   defp names_single_episode?(name) do
-    Regex.match?(~r/\be\d{1,3}\b|(?:^|[\s_\-\[])\d{1,3}(?:$|[\s_\-\]v])/i, name)
+    Regex.match?(~r/\bs\d{1,2}e\d{1,3}\b|\be\d{1,3}\b|(?:^|[\s_\-\[])\d{1,3}(?:$|[\s_\-\]v])/i, name)
   end
 
+  # Both episode spellings plus the whole-series query, run together — three
+  # concurrent searches are quicker than the two sequential ones this replaces.
+  # Nothing is truncated here: the caller filters out the wrong episodes and
+  # caps the result, and trimming first would spend those slots on releases
+  # about to be discarded (the series query returns every episode of the show).
   defp text_episode_search(title, episode) do
-    episode_result = search(anime_episode_query(title, episode), backend: :anime)
-    series_result = search(anime_movie_query(title), backend: :anime)
+    [by_number, by_sxe, by_series] =
+      [
+        fn -> search(anime_episode_query(title, episode), backend: :anime) end,
+        fn -> search(anime_sxe_query(title, episode), backend: :anime) end,
+        fn -> search(anime_movie_query(title), backend: :anime) end
+      ]
+      |> Enum.map(&Task.async/1)
+      |> Task.await_many(30_000)
 
-    case {episode_result, series_result} do
-      {{:ok, ep}, {:ok, series}} ->
-        merged = (ep ++ series) |> Enum.uniq_by(& &1.hash) |> Enum.take(30)
-        scope = cond do
-          ep == [] -> :series
-          series == [] -> :episode
-          true -> :mixed
-        end
+    ep = results(by_number) ++ results(by_sxe)
+    series = results(by_series)
+
+    cond do
+      ep == [] and series == [] ->
+        Enum.find([by_number, by_sxe, by_series], &match?({:error, _}, &1)) || {:ok, [], :episode}
+
+      true ->
+        merged = (ep ++ series) |> Enum.uniq_by(& &1.hash)
+
+        scope =
+          cond do
+            ep == [] -> :series
+            series == [] -> :episode
+            true -> :mixed
+          end
 
         {:ok, merged, scope}
-
-      {{:ok, ep}, _} -> {:ok, ep, :episode}
-      {_, {:ok, series}} -> {:ok, series, :series}
-      {error, _} -> error
     end
   end
+
+  defp results({:ok, list}), do: list
+  defp results(_), do: []
 
   # Does the release name mention this episode number as a standalone token
   # ("SAO - 01" yes; "S01" batch or "2012" no)?
