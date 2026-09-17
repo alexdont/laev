@@ -55,7 +55,7 @@
         {
           "key": "doomsday",
           "label": "Prepare for Doomsday",
-          "blurb": "what leads into Avengers: Doomsday"
+          "blurb": "everything in Essentials, plus what Doomsday draws on"
         },
         {
           "key": "essential",
@@ -83,14 +83,16 @@
           "tmdb_id": 6332,
           "season": 1,
           "title": "The Incredible Hulk",
-          "date": "1996-09-08"
+          "date": "1996-09-08",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 6332,
           "season": 2,
           "title": "The Incredible Hulk",
-          "date": "1997-09-21"
+          "date": "1997-09-21",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -121,25 +123,37 @@
           "tiers": []
         },
         {
+          "type": "movie",
+          "tmdb_id": 36657,
+          "title": "X-Men",
+          "date": "2000-07-13",
+          "tiers": [
+            "doomsday"
+          ]
+        },
+        {
           "type": "tv",
           "tmdb_id": 668,
           "season": 1,
           "title": "X-Men: Evolution",
-          "date": "2000-11-04"
+          "date": "2000-11-04",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 668,
           "season": 2,
           "title": "X-Men: Evolution",
-          "date": "2001-09-29"
+          "date": "2001-09-29",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 1449,
           "season": 1,
           "title": "Mutant X",
-          "date": "2001-10-06"
+          "date": "2001-10-06",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -153,14 +167,16 @@
           "tmdb_id": 668,
           "season": 3,
           "title": "X-Men: Evolution",
-          "date": "2002-09-14"
+          "date": "2002-09-14",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 1449,
           "season": 2,
           "title": "Mutant X",
-          "date": "2002-10-05"
+          "date": "2002-10-05",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -174,7 +190,9 @@
           "tmdb_id": 36658,
           "title": "X2",
           "date": "2003-04-27",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "movie",
@@ -195,14 +213,16 @@
           "tmdb_id": 668,
           "season": 4,
           "title": "X-Men: Evolution",
-          "date": "2003-08-30"
+          "date": "2003-08-30",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 1449,
           "season": 3,
           "title": "Mutant X",
-          "date": "2003-09-29"
+          "date": "2003-09-29",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -244,14 +264,18 @@
           "tmdb_id": 9738,
           "title": "Fantastic Four",
           "date": "2005-06-29",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "movie",
           "tmdb_id": 36668,
           "title": "X-Men: The Last Stand",
           "date": "2006-05-24",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
@@ -300,7 +324,9 @@
           "tmdb_id": 1979,
           "title": "Fantastic Four: Rise of the Silver Surfer",
           "date": "2007-06-13",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "movie",
@@ -314,7 +340,8 @@
           "tmdb_id": 3854,
           "season": 1,
           "title": "The Spectacular Spider-Man",
-          "date": "2008-03-08"
+          "date": "2008-03-08",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -322,6 +349,7 @@
           "title": "Iron Man",
           "date": "2008-04-30",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -331,6 +359,7 @@
           "title": "The Incredible Hulk",
           "date": "2008-06-12",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -381,21 +410,25 @@
           "tmdb_id": 7330,
           "season": 1,
           "title": "Iron Man: Armored Adventures",
-          "date": "2009-04-24"
+          "date": "2009-04-24",
+          "tiers": []
         },
         {
           "type": "movie",
           "tmdb_id": 2080,
           "title": "X-Men Origins: Wolverine",
           "date": "2009-04-28",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 3854,
           "season": 2,
           "title": "The Spectacular Spider-Man",
-          "date": "2009-06-22"
+          "date": "2009-06-22",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -403,6 +436,7 @@
           "title": "Iron Man 2",
           "date": "2010-04-28",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -411,7 +445,8 @@
           "tmdb_id": 33623,
           "season": 1,
           "title": "The Avengers: Earth's Mightiest Heroes",
-          "date": "2010-10-20"
+          "date": "2010-10-20",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -419,6 +454,7 @@
           "title": "Thor",
           "date": "2011-04-21",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -427,14 +463,17 @@
           "tmdb_id": 49538,
           "title": "X-Men: First Class",
           "date": "2011-06-01",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 7330,
           "season": 2,
           "title": "Iron Man: Armored Adventures",
-          "date": "2011-07-13"
+          "date": "2011-07-13",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -442,6 +481,7 @@
           "title": "Captain America: The First Avenger",
           "date": "2011-07-22",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -471,7 +511,8 @@
           "tmdb_id": 33623,
           "season": 2,
           "title": "The Avengers: Earth's Mightiest Heroes",
-          "date": "2012-04-01"
+          "date": "2012-04-01",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -479,6 +520,7 @@
           "title": "The Avengers",
           "date": "2012-04-25",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -502,6 +544,7 @@
           "title": "Iron Man 3",
           "date": "2013-04-18",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -510,14 +553,17 @@
           "tmdb_id": 76170,
           "title": "The Wolverine",
           "date": "2013-07-21",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 1403,
           "season": 1,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2013-09-24"
+          "date": "2013-09-24",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -532,6 +578,7 @@
           "title": "Thor: The Dark World",
           "date": "2013-10-30",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -548,6 +595,7 @@
           "title": "Captain America: The Winter Soldier",
           "date": "2014-03-20",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -571,6 +619,7 @@
           "title": "X-Men: Days of Future Past",
           "date": "2014-05-15",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -580,6 +629,7 @@
           "title": "Guardians of the Galaxy",
           "date": "2014-07-30",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -588,14 +638,16 @@
           "tmdb_id": 1403,
           "season": 2,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2014-09-23"
+          "date": "2014-09-23",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 61550,
           "season": 1,
           "title": "Marvel's Agent Carter",
-          "date": "2015-01-06"
+          "date": "2015-01-06",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -604,6 +656,7 @@
           "title": "Marvel's Daredevil",
           "date": "2015-04-10",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -613,6 +666,7 @@
           "title": "Avengers: Age of Ultron",
           "date": "2015-04-22",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -621,7 +675,8 @@
           "tmdb_id": 69069,
           "season": 1,
           "title": "WHIH Newsfront",
-          "date": "2015-07-02"
+          "date": "2015-07-02",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -629,6 +684,7 @@
           "title": "Ant-Man",
           "date": "2015-07-14",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -637,28 +693,33 @@
           "tmdb_id": 166424,
           "title": "Fantastic Four",
           "date": "2015-08-05",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 1403,
           "season": 3,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2015-09-29"
+          "date": "2015-09-29",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 38472,
           "season": 1,
           "title": "Marvel's Jessica Jones",
-          "date": "2015-11-20"
+          "date": "2015-11-20",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 61550,
           "season": 2,
           "title": "Marvel's Agent Carter",
-          "date": "2016-01-19"
+          "date": "2016-01-19",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -666,6 +727,7 @@
           "title": "Deadpool",
           "date": "2016-02-09",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -676,6 +738,7 @@
           "title": "Marvel's Daredevil",
           "date": "2016-03-18",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -684,7 +747,8 @@
           "tmdb_id": 69069,
           "season": 2,
           "title": "WHIH Newsfront",
-          "date": "2016-04-22"
+          "date": "2016-04-22",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -692,6 +756,7 @@
           "title": "Captain America: Civil War",
           "date": "2016-04-27",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -700,7 +765,9 @@
           "tmdb_id": 246655,
           "title": "X-Men: Apocalypse",
           "date": "2016-05-18",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "movie",
@@ -714,14 +781,16 @@
           "tmdb_id": 1403,
           "season": 4,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2016-09-20"
+          "date": "2016-09-20",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 62126,
           "season": 1,
           "title": "Marvel's Luke Cage",
-          "date": "2016-09-30"
+          "date": "2016-09-30",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -729,6 +798,7 @@
           "title": "Doctor Strange",
           "date": "2016-10-25",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -745,6 +815,7 @@
           "title": "Logan",
           "date": "2017-02-28",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -760,7 +831,8 @@
           "tmdb_id": 62127,
           "season": 1,
           "title": "Marvel's Iron Fist",
-          "date": "2017-03-17"
+          "date": "2017-03-17",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -768,6 +840,7 @@
           "title": "Guardians of the Galaxy Vol. 2",
           "date": "2017-04-25",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -777,6 +850,7 @@
           "title": "Spider-Man: Homecoming",
           "date": "2017-07-05",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -800,6 +874,7 @@
           "title": "Thor: Ragnarok",
           "date": "2017-10-02",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -808,21 +883,24 @@
           "tmdb_id": 67178,
           "season": 1,
           "title": "Marvel's The Punisher",
-          "date": "2017-11-17"
+          "date": "2017-11-17",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 67466,
           "season": 1,
           "title": "Marvel's Runaways",
-          "date": "2017-11-21"
+          "date": "2017-11-21",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 1403,
           "season": 5,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2017-12-01"
+          "date": "2017-12-01",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -830,6 +908,7 @@
           "title": "Black Panther",
           "date": "2018-02-13",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -845,7 +924,8 @@
           "tmdb_id": 38472,
           "season": 2,
           "title": "Marvel's Jessica Jones",
-          "date": "2018-03-08"
+          "date": "2018-03-08",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -863,6 +943,7 @@
           "title": "Deadpool 2",
           "date": "2018-05-15",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -871,14 +952,16 @@
           "tmdb_id": 66190,
           "season": 1,
           "title": "Marvel's Cloak & Dagger",
-          "date": "2018-06-07"
+          "date": "2018-06-07",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 62126,
           "season": 2,
           "title": "Marvel's Luke Cage",
-          "date": "2018-06-22"
+          "date": "2018-06-22",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -886,6 +969,7 @@
           "title": "Ant-Man and the Wasp",
           "date": "2018-07-04",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -894,7 +978,8 @@
           "tmdb_id": 62127,
           "season": 2,
           "title": "Marvel's Iron Fist",
-          "date": "2018-09-07"
+          "date": "2018-09-07",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -910,6 +995,7 @@
           "title": "Marvel's Daredevil",
           "date": "2018-10-19",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -932,14 +1018,16 @@
           "tmdb_id": 67466,
           "season": 2,
           "title": "Marvel's Runaways",
-          "date": "2018-12-21"
+          "date": "2018-12-21",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 67178,
           "season": 2,
           "title": "Marvel's The Punisher",
-          "date": "2019-01-18"
+          "date": "2019-01-18",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -947,6 +1035,7 @@
           "title": "Captain Marvel",
           "date": "2019-03-06",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -962,7 +1051,8 @@
           "tmdb_id": 66190,
           "season": 2,
           "title": "Marvel's Cloak & Dagger",
-          "date": "2019-04-04"
+          "date": "2019-04-04",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -979,21 +1069,25 @@
           "tmdb_id": 1403,
           "season": 6,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2019-05-10"
+          "date": "2019-05-10",
+          "tiers": []
         },
         {
           "type": "movie",
           "tmdb_id": 320288,
           "title": "Dark Phoenix",
           "date": "2019-06-05",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 38472,
           "season": 3,
           "title": "Marvel's Jessica Jones",
-          "date": "2019-06-14"
+          "date": "2019-06-14",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -1001,6 +1095,7 @@
           "title": "Spider-Man: Far From Home",
           "date": "2019-06-28",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1016,21 +1111,25 @@
           "tmdb_id": 67466,
           "season": 3,
           "title": "Marvel's Runaways",
-          "date": "2019-12-13"
+          "date": "2019-12-13",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 1403,
           "season": 7,
           "title": "Marvel's Agents of S.H.I.E.L.D.",
-          "date": "2020-05-27"
+          "date": "2020-05-27",
+          "tiers": []
         },
         {
           "type": "movie",
           "tmdb_id": 340102,
           "title": "The New Mutants",
           "date": "2020-08-26",
-          "tiers": []
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
@@ -1055,6 +1154,7 @@
           "title": "The Falcon and the Winter Soldier",
           "date": "2021-03-19",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1075,6 +1175,7 @@
           "title": "Black Widow",
           "date": "2021-07-07",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1083,7 +1184,8 @@
           "tmdb_id": 127635,
           "season": 1,
           "title": "Spidey and His Amazing Friends",
-          "date": "2021-08-06"
+          "date": "2021-08-06",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -1109,6 +1211,7 @@
           "title": "Shang-Chi and the Legend of the Ten Rings",
           "date": "2021-09-01",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1125,6 +1228,7 @@
           "title": "Eternals",
           "date": "2021-11-03",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1134,6 +1238,7 @@
           "title": "Hawkeye",
           "date": "2021-11-24",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1167,6 +1272,7 @@
           "title": "Moon Knight",
           "date": "2022-03-30",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1186,6 +1292,7 @@
           "title": "Ms. Marvel",
           "date": "2022-06-08",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1195,6 +1302,7 @@
           "title": "Thor: Love and Thunder",
           "date": "2022-07-06",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1238,7 +1346,8 @@
           "tmdb_id": 232125,
           "season": 1,
           "title": "I Am Groot",
-          "date": "2022-08-10"
+          "date": "2022-08-10",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -1246,6 +1355,7 @@
           "title": "She-Hulk: Attorney at Law",
           "date": "2022-08-18",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1254,7 +1364,8 @@
           "tmdb_id": 127635,
           "season": 2,
           "title": "Spidey and His Amazing Friends",
-          "date": "2022-08-19"
+          "date": "2022-08-19",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -1262,6 +1373,7 @@
           "title": "Werewolf by Night",
           "date": "2022-09-25",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1338,7 +1450,8 @@
           "tmdb_id": 232125,
           "season": 2,
           "title": "I Am Groot",
-          "date": "2023-09-06"
+          "date": "2023-09-06",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -1384,7 +1497,8 @@
           "tmdb_id": 127635,
           "season": 3,
           "title": "Spidey and His Amazing Friends",
-          "date": "2024-01-08"
+          "date": "2024-01-08",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -1392,6 +1506,7 @@
           "title": "Echo",
           "date": "2024-01-09",
           "tiers": [
+            "doomsday",
             "essential"
           ]
         },
@@ -1400,7 +1515,10 @@
           "tmdb_id": 138502,
           "season": 1,
           "title": "X-Men '97",
-          "date": "2024-03-20"
+          "date": "2024-03-20",
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "movie",
@@ -1493,7 +1611,8 @@
           "tmdb_id": 127635,
           "season": 4,
           "title": "Spidey and His Amazing Friends",
-          "date": "2025-06-16"
+          "date": "2025-06-16",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -1600,14 +1719,18 @@
           "tmdb_id": 138502,
           "season": 2,
           "title": "X-Men '97",
-          "date": "2026-07-01"
+          "date": "2026-07-01",
+          "tiers": [
+            "doomsday"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 127635,
           "season": 5,
           "title": "Spidey and His Amazing Friends",
-          "date": "2026-07-13"
+          "date": "2026-07-13",
+          "tiers": []
         },
         {
           "type": "movie",
