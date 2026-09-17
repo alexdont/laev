@@ -48,6 +48,11 @@
       "name": "Marvel",
       "tiers": [
         {
+          "key": "essential",
+          "label": "Essentials",
+          "blurb": "the MCU main line — no older films, animation or one-shots"
+        },
+        {
           "key": "all",
           "label": "Everything",
           "blurb": "every Marvel film and series, in release order"
@@ -56,11 +61,6 @@
           "key": "doomsday",
           "label": "Prepare for Doomsday",
           "blurb": "everything in Essentials, plus what Doomsday draws on"
-        },
-        {
-          "key": "essential",
-          "label": "Essentials",
-          "blurb": "the MCU main line — no older films, animation or one-shots"
         }
       ],
       "entries": [
