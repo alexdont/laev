@@ -46,13 +46,14 @@ widget library.)
 ## Install
 
 The binaries are self-contained — no Erlang, no Elixir, nothing to add to a
-project. You just need **mpv** for playback (`fzf` is optional but makes the
-pickers much nicer).
+project. You just need **mpv** for playback; `fzf` makes the pickers much
+nicer and **chafa** is what draws the poster previews (without it the poster
+pane is simply absent — `laev doctor` says so).
 
 **Linux (x86_64):**
 
 ```sh
-sudo pacman -S --needed mpv fzf   # or your distro's equivalent
+sudo pacman -S --needed mpv fzf chafa   # or your distro's equivalent
 curl -Lo laev https://github.com/alexdont/laev/releases/latest/download/laev_linux_x86_64
 chmod +x laev && mkdir -p ~/.local/bin && mv laev ~/.local/bin/
 ```
@@ -70,7 +71,7 @@ chmod +x laev && mkdir -p ~/.local/bin && mv laev ~/.local/bin/
 **macOS (Apple Silicon)** — untested build, feedback welcome:
 
 ```sh
-brew install mpv fzf
+brew install mpv fzf chafa
 curl -Lo laev https://github.com/alexdont/laev/releases/latest/download/laev_macos_aarch64
 chmod +x laev && mv laev /usr/local/bin/
 ```

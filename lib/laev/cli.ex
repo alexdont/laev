@@ -3388,8 +3388,14 @@ defmodule Laev.CLI do
 
   # Runs inside fzf's preview pane: {2} is the poster URL column. Downloads
   # once into a tmp cache, renders with chafa sized to the pane.
+  #
+  # Two portability guards, both learned from macOS: the cache name falls back
+  # from md5sum (GNU) to md5 -q (BSD) to the bare URL, because an empty hash
+  # made the "file" the cache directory itself and every preview came out
+  # blank; and a failed render retries as block symbols, so a terminal-specific
+  # format the local chafa doesn't have degrades to art instead of nothing.
   @poster_preview ~S"""
-  url={2}; if [ "$url" = "-" ]; then echo; else d="${TMPDIR:-/tmp}/laev-posters"; mkdir -p "$d"; f="$d/$(printf %s "$url" | md5sum | cut -c1-16)"; [ -s "$f" ] || curl -sL "$url" -o "$f" 2>/dev/null; chafa CHAFA_OPTS --size=${FZF_PREVIEW_COLUMNS}x${FZF_PREVIEW_LINES} "$f" 2>/dev/null || echo; fi
+  url={2}; if [ "$url" = "-" ]; then echo; else d="${TMPDIR:-/tmp}/laev-posters"; mkdir -p "$d"; h=$(printf %s "$url" | md5sum 2>/dev/null | cut -c1-16); [ -n "$h" ] || h=$(printf %s "$url" | md5 -q 2>/dev/null | cut -c1-16); [ -n "$h" ] || h=$(printf %s "$url" | tr -dc 'A-Za-z0-9' | tail -c 24); f="$d/$h"; [ -s "$f" ] || curl -sL "$url" -o "$f" 2>/dev/null; sz=--size=${FZF_PREVIEW_COLUMNS}x${FZF_PREVIEW_LINES}; chafa CHAFA_OPTS $sz "$f" 2>/dev/null || chafa -f symbols --symbols block $sz "$f" 2>/dev/null || echo; fi
   """ |> String.trim()
 
   @poster_cache_max_age_s 30 * 24 * 3600
@@ -3430,6 +3436,7 @@ defmodule Laev.CLI do
         String.contains?(term, "foot") -> "-f sixels"
         String.contains?(term, "kitty") or String.contains?(term, "ghostty") -> "-f kitty"
         program in ["ghostty", "kitty", "WezTerm"] -> "-f kitty"
+        program == "iTerm.app" or System.get_env("LC_TERMINAL") == "iTerm2" -> "-f iterm"
         true -> "-f symbols --symbols block"
       end
 
