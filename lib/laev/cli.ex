@@ -4040,16 +4040,57 @@ defmodule Laev.CLI do
   defp anilist_mal_id(nil), do: nil
 
   defp anilist_mal_id(title) do
+    query =
+      "query($s:String){Page(perPage:8){media(search:$s,type:ANIME)" <>
+        "{idMal popularity synonyms title{romaji english native}}}}"
+
     case Req.post("https://graphql.anilist.co",
-           json: %{query: "query($s:String){Media(search:$s,type:ANIME){idMal}}", variables: %{s: title}},
+           json: %{query: query, variables: %{s: title}},
            retry: false,
            receive_timeout: 8_000
          ) do
-      {:ok, %{status: 200, body: %{"data" => %{"Media" => %{"idMal" => mal}}}}} when is_integer(mal) -> mal
-      _ -> nil
+      {:ok, %{status: 200, body: %{"data" => %{"Page" => %{"media" => list}}}}} when is_list(list) ->
+        best_anilist_match(list, title)
+
+      _ ->
+        nil
     end
   rescue
     _ -> nil
+  end
+
+  # AniList's own ranking puts spinoffs first often enough to matter: searching
+  # Frieren's English title answers with a 12-episode ONA short (10k
+  # popularity) ahead of the series itself (480k), which would then be the show
+  # episodes scrobble against. So prefer a candidate that actually calls itself
+  # what was asked for, and only fall back to the most popular — popularity
+  # alone would answer "Attack on Titan Season 2" with season 1.
+  defp best_anilist_match(list, title) do
+    wanted = normalize_title(title)
+    usable = Enum.filter(list, &is_integer(&1["idMal"]))
+
+    exact =
+      Enum.filter(usable, fn m ->
+        names = [m["title"]["romaji"], m["title"]["english"], m["title"]["native"] | m["synonyms"] || []]
+        Enum.any?(names, &(normalize_title(&1) == wanted))
+      end)
+
+    case (exact == [] && usable) || exact do
+      [] -> nil
+      pool -> pool |> Enum.max_by(&(&1["popularity"] || 0)) |> Map.get("idMal")
+    end
+  end
+
+  # Loose enough that curly apostrophes, colons and spacing don't decide a
+  # match ("Frieren: Beyond Journey's End" vs "Frieren: Beyond Journey’s End").
+  defp normalize_title(nil), do: nil
+
+  defp normalize_title(title) do
+    title
+    |> String.downcase()
+    |> String.replace(~r/[\x{2019}\x{02BC}'`]/u, "")
+    |> String.replace(~r/[^\p{L}\p{N}]+/u, " ")
+    |> String.trim()
   end
 
   defp config do
