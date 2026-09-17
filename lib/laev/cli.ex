@@ -2375,8 +2375,16 @@ defmodule Laev.CLI do
         # "order of the phoenix" surfaces Harry Potter just as "harry potter"
         # does, with the film itself still the first ordinary result.
         # A title is often in more than one list — Spider-Man is its own
-        # franchise and part of Marvel — so offer each, narrowest first.
-        items = Enum.map(Laev.Franchises.detect(titles), &{:franchise, &1}) ++ items
+        # franchise and part of Marvel — so offer each, narrowest first. With
+        # nothing curated, TMDB's own collection stands in, which covers the
+        # series it groups correctly without anyone having to list them.
+        franchises =
+          case Laev.Franchises.detect(titles) do
+            [] -> List.wrap(tmdb_collection_franchise(titles))
+            curated -> curated
+          end
+
+        items = Enum.map(franchises, &{:franchise, &1}) ++ items
 
         header =
           "what to watch? (#{length(titles)} results" <>
@@ -2387,6 +2395,39 @@ defmodule Laev.CLI do
           {:franchise, franchise} -> franchise_screen(franchise, q, year, page, titles)
           other -> other
         end
+    end
+  end
+
+  # TMDB files most series in a "collection" of its own, and for the ones it
+  # gets right that is as good as a curated list — so the top result's
+  # collection becomes a franchise with the same shape, and the rest of the
+  # flow can't tell the difference. Only the film matters, not the query: this
+  # is what makes searching "dead man's chest" offer Pirates of the Caribbean.
+  defp tmdb_collection_franchise(titles) do
+    with %{type: "movie", id: id} <- Enum.find(titles, &match?(%{type: "movie"}, &1)),
+         {:ok, %{"belongs_to_collection" => %{"id" => collection_id}}} when is_integer(collection_id) <-
+           fetch_details(%{type: "movie", id: id}),
+         {:ok, %{"parts" => parts, "name" => name}} when length(parts) > 1 <- Tmdb.collection(collection_id) do
+      %{
+        name: String.replace(name, ~r/ Collection$/, ""),
+        source: :tmdb,
+        tiers: [],
+        entries:
+          parts
+          |> Enum.map(
+            &%{
+              type: "movie",
+              tmdb_id: &1["id"],
+              season: nil,
+              title: &1["title"],
+              date: &1["release_date"] || "",
+              tiers: []
+            }
+          )
+          |> Enum.sort_by(&if(&1.date in [nil, ""], do: "9999", else: &1.date))
+      }
+    else
+      _ -> nil
     end
   end
 
@@ -2573,10 +2614,11 @@ defmodule Laev.CLI do
   defp describe_title_item({:franchise, f}) do
     films = Enum.count(f.entries, &(&1.type == "movie"))
     shows = length(f.entries) - films
+    kind = if Map.get(f, :source) == :tmdb, do: "the series", else: "curated list"
 
     IO.ANSI.format([
       :bright,
-      "🎬 #{f.name} — curated list",
+      "🎬 #{f.name} — #{kind}",
       :reset,
       :faint,
       "  #{films} films#{if shows > 0, do: " · #{shows} TV", else: ""} · in release order",

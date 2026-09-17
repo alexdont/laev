@@ -81,6 +81,13 @@ defmodule Laev.Tmdb do
   def movie(id), do: get("/movie/#{id}", append_to_response: "external_ids")
   def tv(id), do: get("/tv/#{id}", append_to_response: "external_ids")
   def season(tv_id, season_number), do: get("/tv/#{tv_id}/season/#{season_number}")
+
+  @doc """
+  A TMDB collection — its own idea of a franchise, with every film in it. Right
+  for most series (John Wick, Pirates of the Caribbean, Jurassic Park), which is
+  why only the ones it gets wrong are curated by hand.
+  """
+  def collection(id), do: get("/collection/#{id}")
   def release_dates(movie_id), do: get("/movie/#{movie_id}/release_dates")
 
   @doc "The IMDb id (tt…) for a details map, or nil."

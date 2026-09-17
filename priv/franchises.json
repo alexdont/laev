@@ -1,7 +1,9 @@
 {
   "_comment": [
     "Franchises TMDB groups badly, curated by hand. Only exceptions belong here:",
-    "anything TMDB's own collection gets right is grouped automatically and needs",
+    "anything TMDB's own collection gets right is offered automatically from that",
+    "collection, so John Wick, Pirates of the Caribbean and Jurassic Park need no",
+    "entry and stay correct on their own as films are added.",
     "no entry. Every id below was resolved from TMDB rather than typed, and the",
     "candidates came from tools/detect_franchises.py, which flags franchises whose",
     "films land in more than one collection or sit outside the one they belong to.",
