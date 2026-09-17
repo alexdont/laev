@@ -11,12 +11,18 @@
     "TMDB at render time, so they can drift without breaking anything.",
     "",
     "Why each of these is here, and where a judgement call was made:",
-    "  Marvel           no usable automatic source: the MCU keyword returns 80 films",
-    "                   and Marvel Studios as a company returns 103, including Raimi's",
-    "                   Spider-Man and a comics documentary. Hand-listed, and the only",
-    "                   franchise with tiers — the catalogue is too big to open flat.",
-    "                   The tier picks are ours; they are a judgement about what leads",
-    "                   where, and meant to be argued with and edited",
+    "  Marvel           the whole Marvel catalogue, matching the scope the watchlist",
+    "                   sites cover: the MCU, the Fox and Sony films, the Netflix and",
+    "                   ABC shows, the animated series and the One-Shots. Built from",
+    "                   TMDB's Marvel companies plus the MCU list, because no single",
+    "                   query returns it — the MCU keyword gives 80 films and Marvel",
+    "                   Studios as a company gives 103, Raimi's Spider-Man and a",
+    "                   comics documentary included.",
+    "                   The only franchise with tiers: 169 titles is too many to open",
+    "                   flat. The tier picks are ours, not taken from anyone's site —",
+    "                   they are judgements, and live here so they can be edited.",
+    "                   A title in two lists resolves to the smaller one, so Logan",
+    "                   opens the fourteen X-Men films rather than all of Marvel.",
     "  Alien            four TMDB collections (Alien, Prometheus, Romulus, AVP), plus",
     "                   a TV series TMDB files under no franchise at all",
     "  Middle-earth     The Hobbit is a separate collection from The Lord of the Rings,",
@@ -39,12 +45,12 @@
   ],
   "franchises": [
     {
-      "name": "Marvel Cinematic Universe",
+      "name": "Marvel",
       "tiers": [
         {
           "key": "all",
           "label": "Everything",
-          "blurb": "every film and series, in release order"
+          "blurb": "every Marvel film and series, in release order"
         },
         {
           "key": "doomsday",
@@ -54,10 +60,220 @@
         {
           "key": "essential",
           "label": "Essentials",
-          "blurb": "the main thread, nothing optional"
+          "blurb": "the MCU main line — no older films, animation or one-shots"
         }
       ],
       "entries": [
+        {
+          "type": "tv",
+          "tmdb_id": 1651,
+          "title": "The Fantastic Four",
+          "date": "1967-09-09",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 10658,
+          "title": "Howard the Duck",
+          "date": "1986-08-01",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 6332,
+          "title": "The Incredible Hulk",
+          "date": "1996-09-08",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1130,
+          "title": "Silver Surfer",
+          "date": "1998-02-07",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 27460,
+          "title": "Nick Fury: Agent of S.H.I.E.L.D.",
+          "date": "1998-05-26",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 10079,
+          "title": "Spider-Man Unlimited",
+          "date": "1999-10-02",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1300,
+          "title": "The Avengers: United They Stand",
+          "date": "1999-10-30",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 668,
+          "title": "X-Men: Evolution",
+          "date": "2000-11-04",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1449,
+          "title": "Mutant X",
+          "date": "2001-10-06",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 557,
+          "title": "Spider-Man",
+          "date": "2002-05-01",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 9480,
+          "title": "Daredevil",
+          "date": "2003-02-14",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 36658,
+          "title": "X2",
+          "date": "2003-04-27",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1927,
+          "title": "Hulk",
+          "date": "2003-06-19",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1664,
+          "title": "Spider-Man: The New Animated Series",
+          "date": "2003-07-11",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 7220,
+          "title": "The Punisher",
+          "date": "2004-04-15",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 558,
+          "title": "Spider-Man 2",
+          "date": "2004-06-25",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 36648,
+          "title": "Blade: Trinity",
+          "date": "2004-12-08",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 9947,
+          "title": "Elektra",
+          "date": "2005-01-13",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 18882,
+          "title": "Man-Thing",
+          "date": "2005-04-21",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 9738,
+          "title": "Fantastic Four",
+          "date": "2005-06-29",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 36668,
+          "title": "X-Men: The Last Stand",
+          "date": "2006-05-24",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 4619,
+          "title": "Blade: The Series",
+          "date": "2006-06-28",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 14611,
+          "title": "Ultimate Avengers 2",
+          "date": "2006-08-08",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 132,
+          "title": "Fantastic Four: World's Greatest Heroes",
+          "date": "2006-09-02",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1250,
+          "title": "Ghost Rider",
+          "date": "2007-01-15",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 13647,
+          "title": "The Invincible Iron Man",
+          "date": "2007-01-23",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 559,
+          "title": "Spider-Man 3",
+          "date": "2007-05-01",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1979,
+          "title": "Fantastic Four: Rise of the Silver Surfer",
+          "date": "2007-06-13",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 14830,
+          "title": "Doctor Strange",
+          "date": "2007-08-14",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 3854,
+          "title": "The Spectacular Spider-Man",
+          "date": "2008-03-08",
+          "tiers": []
+        },
         {
           "type": "movie",
           "tmdb_id": 1726,
@@ -72,6 +288,64 @@
           "tmdb_id": 1724,
           "title": "The Incredible Hulk",
           "date": "2008-06-12",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 18216,
+          "title": "Brutal Massacre: A Comedy",
+          "date": "2008-07-22",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 14613,
+          "title": "Next Avengers: Heroes of Tomorrow",
+          "date": "2008-09-02",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 13056,
+          "title": "Punisher: War Zone",
+          "date": "2008-12-05",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 6549,
+          "title": "Wolverine and the X-Men",
+          "date": "2009-01-23",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 101907,
+          "title": "Hulk vs. Thor",
+          "date": "2009-01-27",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 15257,
+          "title": "Hulk vs. Wolverine",
+          "date": "2009-01-27",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 7330,
+          "title": "Iron Man: Armored Adventures",
+          "date": "2009-04-24",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 2080,
+          "title": "X-Men Origins: Wolverine",
+          "date": "2009-04-28",
           "tiers": []
         },
         {
@@ -79,6 +353,15 @@
           "tmdb_id": 10138,
           "title": "Iron Man 2",
           "date": "2010-04-28",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 33623,
+          "title": "The Avengers: Earth's Mightiest Heroes",
+          "date": "2010-10-20",
           "tiers": []
         },
         {
@@ -86,6 +369,15 @@
           "tmdb_id": 10195,
           "title": "Thor",
           "date": "2011-04-21",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 49538,
+          "title": "X-Men: First Class",
+          "date": "2011-06-01",
           "tiers": []
         },
         {
@@ -93,6 +385,29 @@
           "tmdb_id": 1771,
           "title": "Captain America: The First Avenger",
           "date": "2011-07-22",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 76122,
+          "title": "Marvel One-Shot: The Consultant",
+          "date": "2011-09-13",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 76535,
+          "title": "Marvel One-Shot: A Funny Thing Happened on the Way to Thor's Hammer",
+          "date": "2011-10-25",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 71676,
+          "title": "Ghost Rider: Spirit of Vengeance",
+          "date": "2011-12-10",
           "tiers": []
         },
         {
@@ -106,9 +421,46 @@
         },
         {
           "type": "movie",
+          "tmdb_id": 1930,
+          "title": "The Amazing Spider-Man",
+          "date": "2012-06-23",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 119569,
+          "title": "Marvel One-Shot: Item 47",
+          "date": "2012-08-29",
+          "tiers": []
+        },
+        {
+          "type": "movie",
           "tmdb_id": 68721,
           "title": "Iron Man 3",
           "date": "2013-04-18",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 76170,
+          "title": "The Wolverine",
+          "date": "2013-07-21",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 1403,
+          "title": "Marvel's Agents of S.H.I.E.L.D.",
+          "date": "2013-09-24",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 211387,
+          "title": "Marvel One-Shot: Agent Carter",
+          "date": "2013-10-04",
           "tiers": []
         },
         {
@@ -116,6 +468,15 @@
           "tmdb_id": 76338,
           "title": "Thor: The Dark World",
           "date": "2013-10-30",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 253980,
+          "title": "Marvel One-Shot: All Hail the King",
+          "date": "2014-02-04",
           "tiers": []
         },
         {
@@ -128,6 +489,27 @@
           ]
         },
         {
+          "type": "tv",
+          "tmdb_id": 70801,
+          "title": "Marvel Disk Wars: The Avengers",
+          "date": "2014-04-02",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 102382,
+          "title": "The Amazing Spider-Man 2",
+          "date": "2014-04-16",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 127585,
+          "title": "X-Men: Days of Future Past",
+          "date": "2014-05-15",
+          "tiers": []
+        },
+        {
           "type": "movie",
           "tmdb_id": 118340,
           "title": "Guardians of the Galaxy",
@@ -135,6 +517,13 @@
           "tiers": [
             "essential"
           ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 61550,
+          "title": "Marvel's Agent Carter",
+          "date": "2015-01-06",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -148,6 +537,15 @@
           "tmdb_id": 99861,
           "title": "Avengers: Age of Ultron",
           "date": "2015-04-22",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 69069,
+          "title": "WHIH Newsfront",
+          "date": "2015-07-02",
           "tiers": []
         },
         {
@@ -155,6 +553,15 @@
           "tmdb_id": 102899,
           "title": "Ant-Man",
           "date": "2015-07-14",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 166424,
+          "title": "Fantastic Four",
+          "date": "2015-08-05",
           "tiers": []
         },
         {
@@ -166,12 +573,33 @@
         },
         {
           "type": "movie",
+          "tmdb_id": 293660,
+          "title": "Deadpool",
+          "date": "2016-02-09",
+          "tiers": []
+        },
+        {
+          "type": "movie",
           "tmdb_id": 271110,
           "title": "Captain America: Civil War",
           "date": "2016-04-27",
           "tiers": [
             "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 246655,
+          "title": "X-Men: Apocalypse",
+          "date": "2016-05-18",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 413279,
+          "title": "Team Thor",
+          "date": "2016-08-28",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -190,6 +618,27 @@
           ]
         },
         {
+          "type": "movie",
+          "tmdb_id": 441829,
+          "title": "Team Thor: Part 2",
+          "date": "2017-02-14",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 263115,
+          "title": "Logan",
+          "date": "2017-02-28",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 558144,
+          "title": "Deadpool: No Good Deed",
+          "date": "2017-03-03",
+          "tiers": []
+        },
+        {
           "type": "tv",
           "tmdb_id": 62127,
           "title": "Marvel's Iron Fist",
@@ -201,20 +650,31 @@
           "tmdb_id": 283995,
           "title": "Guardians of the Galaxy Vol. 2",
           "date": "2017-04-25",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
           "tmdb_id": 315635,
           "title": "Spider-Man: Homecoming",
           "date": "2017-07-05",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 62285,
           "title": "Marvel's The Defenders",
           "date": "2017-08-18",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 68716,
+          "title": "Marvel's Inhumans",
+          "date": "2017-09-29",
           "tiers": []
         },
         {
@@ -234,6 +694,13 @@
           "tiers": []
         },
         {
+          "type": "tv",
+          "tmdb_id": 67466,
+          "title": "Marvel's Runaways",
+          "date": "2017-11-21",
+          "tiers": []
+        },
+        {
           "type": "movie",
           "tmdb_id": 284054,
           "title": "Black Panther",
@@ -244,19 +711,63 @@
         },
         {
           "type": "movie",
+          "tmdb_id": 505945,
+          "title": "Team Darryl",
+          "date": "2018-02-20",
+          "tiers": []
+        },
+        {
+          "type": "movie",
           "tmdb_id": 299536,
           "title": "Avengers: Infinity War",
           "date": "2018-04-25",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 383498,
+          "title": "Deadpool 2",
+          "date": "2018-05-15",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 66190,
+          "title": "Marvel's Cloak & Dagger",
+          "date": "2018-06-07",
+          "tiers": []
         },
         {
           "type": "movie",
           "tmdb_id": 363088,
           "title": "Ant-Man and the Wasp",
           "date": "2018-07-04",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 335983,
+          "title": "Venom",
+          "date": "2018-09-28",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 324857,
+          "title": "Spider-Man: Into the Spider-Verse",
+          "date": "2018-12-06",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 567604,
+          "title": "Once Upon a Deadpool",
+          "date": "2018-12-11",
           "tiers": []
         },
         {
@@ -270,19 +781,56 @@
         },
         {
           "type": "movie",
+          "tmdb_id": 583055,
+          "title": "Spider-Ham: Caught in a Ham",
+          "date": "2019-03-19",
+          "tiers": []
+        },
+        {
+          "type": "movie",
           "tmdb_id": 299534,
           "title": "Avengers: Endgame",
           "date": "2019-04-24",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 320288,
+          "title": "Dark Phoenix",
+          "date": "2019-06-05",
+          "tiers": []
         },
         {
           "type": "movie",
           "tmdb_id": 429617,
           "title": "Spider-Man: Far From Home",
           "date": "2019-06-28",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 758025,
+          "title": "Peter's To-Do List",
+          "date": "2019-09-17",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 340102,
+          "title": "The New Mutants",
+          "date": "2020-08-26",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 88987,
+          "title": "Helstrom",
+          "date": "2020-10-16",
           "tiers": []
         },
         {
@@ -291,8 +839,8 @@
           "title": "WandaVision",
           "date": "2021-01-15",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -300,7 +848,9 @@
           "tmdb_id": 88396,
           "title": "The Falcon and the Winter Soldier",
           "date": "2021-03-19",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "tv",
@@ -308,8 +858,8 @@
           "title": "Loki",
           "date": "2021-06-09",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -317,6 +867,15 @@
           "tmdb_id": 497698,
           "title": "Black Widow",
           "date": "2021-07-07",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 127635,
+          "title": "Spidey and His Amazing Friends",
+          "date": "2021-08-06",
           "tiers": []
         },
         {
@@ -325,14 +884,31 @@
           "title": "What If...?",
           "date": "2021-08-11",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 550988,
+          "title": "Free Guy",
+          "date": "2021-08-11",
+          "tiers": []
         },
         {
           "type": "movie",
           "tmdb_id": 566525,
           "title": "Shang-Chi and the Legend of the Ten Rings",
           "date": "2021-09-01",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 899249,
+          "title": "LEGO Marvel Avengers: Loki in Training",
+          "date": "2021-11-01",
           "tiers": []
         },
         {
@@ -340,14 +916,18 @@
           "tmdb_id": 524434,
           "title": "Eternals",
           "date": "2021-11-03",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "tv",
           "tmdb_id": 88329,
           "title": "Hawkeye",
           "date": "2021-11-24",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -355,16 +935,32 @@
           "title": "Spider-Man: No Way Home",
           "date": "2021-12-15",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 940543,
+          "title": "LEGO Marvel Avengers: Time Twisted",
+          "date": "2022-01-17",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 696806,
+          "title": "The Adam Project",
+          "date": "2022-03-11",
+          "tiers": []
         },
         {
           "type": "tv",
           "tmdb_id": 92749,
           "title": "Moon Knight",
           "date": "2022-03-30",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -372,8 +968,8 @@
           "title": "Doctor Strange in the Multiverse of Madness",
           "date": "2022-05-04",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -381,13 +977,59 @@
           "tmdb_id": 92782,
           "title": "Ms. Marvel",
           "date": "2022-06-08",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
           "tmdb_id": 616037,
           "title": "Thor: Love and Thunder",
           "date": "2022-07-06",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1010823,
+          "title": "Magnum Opus",
+          "date": "2022-07-18",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1010821,
+          "title": "Groot Takes a Bath",
+          "date": "2022-08-10",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1010820,
+          "title": "Groot's Pursuit",
+          "date": "2022-08-10",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1010819,
+          "title": "The Little Guy",
+          "date": "2022-08-10",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1010818,
+          "title": "Groot's First Steps",
+          "date": "2022-08-10",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 232125,
+          "title": "I Am Groot",
+          "date": "2022-08-10",
           "tiers": []
         },
         {
@@ -395,7 +1037,9 @@
           "tmdb_id": 92783,
           "title": "She-Hulk: Attorney at Law",
           "date": "2022-08-18",
-          "tiers": []
+          "tiers": [
+            "essential"
+          ]
         },
         {
           "type": "movie",
@@ -410,8 +1054,16 @@
           "title": "Black Panther: Wakanda Forever",
           "date": "2022-11-09",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 632856,
+          "title": "Spirited",
+          "date": "2022-11-10",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -421,12 +1073,20 @@
           "tiers": []
         },
         {
+          "type": "tv",
+          "tmdb_id": 212423,
+          "title": "Marvel Lucha Libre Edition: El origen de la máscara",
+          "date": "2023-01-18",
+          "tiers": []
+        },
+        {
           "type": "movie",
           "tmdb_id": 640146,
           "title": "Ant-Man and the Wasp: Quantumania",
           "date": "2023-02-15",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -435,8 +1095,16 @@
           "title": "Guardians of the Galaxy Vol. 3",
           "date": "2023-05-03",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 569094,
+          "title": "Spider-Man: Across the Spider-Verse",
+          "date": "2023-05-31",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -444,8 +1112,16 @@
           "title": "Secret Invasion",
           "date": "2023-06-21",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1154598,
+          "title": "LEGO Marvel Avengers: Code Red",
+          "date": "2023-10-26",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -453,7 +1129,8 @@
           "title": "The Marvels",
           "date": "2023-11-08",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -461,6 +1138,22 @@
           "tmdb_id": 122226,
           "title": "Echo",
           "date": "2024-01-09",
+          "tiers": [
+            "essential"
+          ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 138502,
+          "title": "X-Men '97",
+          "date": "2024-03-20",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 639720,
+          "title": "IF",
+          "date": "2024-05-08",
           "tiers": []
         },
         {
@@ -469,8 +1162,8 @@
           "title": "Deadpool & Wolverine",
           "date": "2024-07-24",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -479,8 +1172,16 @@
           "title": "Agatha All Along",
           "date": "2024-09-18",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1359227,
+          "title": "LEGO Marvel Avengers: Mission Demolition",
+          "date": "2024-10-17",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -488,7 +1189,8 @@
           "title": "Your Friendly Neighborhood Spider-Man",
           "date": "2025-01-29",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -497,7 +1199,8 @@
           "title": "Captain America: Brave New World",
           "date": "2025-02-12",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -506,7 +1209,8 @@
           "title": "Daredevil: Born Again",
           "date": "2025-03-04",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -515,8 +1219,8 @@
           "title": "Thunderbolts*",
           "date": "2025-04-30",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         },
         {
@@ -525,8 +1229,16 @@
           "title": "Ironheart",
           "date": "2025-06-24",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 294895,
+          "title": "Meet Iron Man and His Awesome Friends",
+          "date": "2025-07-14",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -544,8 +1256,16 @@
           "title": "Eyes of Wakanda",
           "date": "2025-08-01",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 274388,
+          "title": "Iron Man and His Awesome Friends",
+          "date": "2025-08-11",
+          "tiers": []
         },
         {
           "type": "tv",
@@ -553,8 +1273,44 @@
           "title": "Marvel Zombies",
           "date": "2025-09-24",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1564058,
+          "title": "Spidey and Iron Man: Avengers Team Up!",
+          "date": "2025-10-16",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 305165,
+          "title": "LEGO Marvel Avengers: Strange Tails",
+          "date": "2025-11-14",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 198178,
+          "title": "Wonder Man",
+          "date": "2026-01-27",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 318417,
+          "title": "Daredevil: Born Again Official Podcast",
+          "date": "2026-03-17",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1439930,
+          "title": "The Punisher: One Last Kill",
+          "date": "2026-05-12",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -562,8 +1318,37 @@
           "title": "Spider-Man: Brand New Day",
           "date": "2026-07-29",
           "tiers": [
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 332379,
+          "title": "Countdown to Avengers: Doomsday Official Podcast",
+          "date": "2026-08-27",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1137844,
+          "title": "Mayday",
+          "date": "2026-09-03",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1750432,
+          "title": "Spidey and the Avengers: Halloween Team-Up!",
+          "date": "2026-09-24",
+          "tiers": []
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 213375,
+          "title": "VisionQuest",
+          "date": "2026-10-14",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -571,9 +1356,23 @@
           "title": "Avengers: Doomsday",
           "date": "2026-12-16",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 1115030,
+          "title": "Animal Friends",
+          "date": "2027-01-21",
+          "tiers": []
+        },
+        {
+          "type": "movie",
+          "tmdb_id": 911916,
+          "title": "Spider-Man: Beyond the Spider-Verse",
+          "date": "2027-06-17",
+          "tiers": []
         },
         {
           "type": "movie",
@@ -581,8 +1380,8 @@
           "title": "Avengers: Secret Wars",
           "date": "2027-12-15",
           "tiers": [
-            "essential",
-            "doomsday"
+            "doomsday",
+            "essential"
           ]
         }
       ]

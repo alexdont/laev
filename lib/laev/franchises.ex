@@ -46,10 +46,15 @@ defmodule Laev.Franchises do
               end)
 
   # {type, tmdb_id} => franchise, so a lookup is a map fetch rather than a scan.
-  @index for f <- @franchises,
-             e <- f.entries,
-             into: %{},
-             do: {{e.type, e.tmdb_id}, f}
+  #
+  # A title can sit in more than one list — Logan is both an X-Men film and a
+  # Marvel one — and the smaller list is the more useful answer: someone looking
+  # up Logan wants the fourteen X-Men films, not all 169 Marvel titles. Iron Man
+  # is in no smaller list, so it still opens Marvel.
+  @index @franchises
+         |> Enum.flat_map(fn f -> Enum.map(f.entries, &{{&1.type, &1.tmdb_id}, f}) end)
+         |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+         |> Map.new(fn {key, franchises} -> {key, Enum.min_by(franchises, &length(&1.entries))} end)
 
   @doc "Every curated franchise."
   def all, do: @franchises
