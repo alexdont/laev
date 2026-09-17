@@ -771,7 +771,7 @@ defmodule Laev.CLI do
   # token they already use on another device.
   defp configure_sync_token do
     {suggested, source} =
-      case Laev.Sync.token() do
+      case Laev.Sync.laev_key() do
         nil -> {gen_sync_token(), :new}
         existing -> {existing, :current}
       end
@@ -810,10 +810,14 @@ defmodule Laev.CLI do
     save_setting("LAEV_SYNC_TOKEN", chosen)
   end
 
-  # A strong random token in the server's `laev_<base64url>` shape — the
-  # server auto-provisions any well-formed laev_-prefixed token.
+  # A laev key: `laev_<token>.<secret>`. The server auto-provisions any
+  # well-formed laev_-prefixed token and only ever sees that first half; the
+  # part after the dot stays on this machine and encrypts the API keys, so the
+  # key is one string to paste but two secrets in effect.
   defp gen_sync_token do
-    "laev_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    secret = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    "laev_#{token}.#{secret}"
   end
 
   # Sync is on — manage it.
@@ -821,25 +825,28 @@ defmodule Laev.CLI do
     IO.puts(:stderr, "  Syncing to #{Laev.Sync.url()}")
 
     token_line =
-      case Laev.Sync.token() do
-        nil -> "  token: (none)"
-        t -> "  token: #{mask(t)}"
+      case Laev.Sync.laev_key() do
+        nil -> "  laev key: (none)"
+        t -> "  laev key: #{mask(t)}"
       end
 
     IO.puts(:stderr, IO.ANSI.format([:faint, token_line, :reset]))
 
-    IO.puts(
-      :stderr,
-      IO.ANSI.format([:faint, "  Watchlist, history, resume points & watched flags — not your keys.\n", :reset])
-    )
+    carried =
+      if Laev.Sync.keys_enabled?(),
+        do: "  Watchlist, history, resume points, watched flags — and your API keys, encrypted.\n",
+        else: "  Watchlist, history, resume points & watched flags — not your keys.\n"
+
+    IO.puts(:stderr, IO.ANSI.format([:faint, carried, :reset]))
 
     actions = [
       {:now, "↻ sync now — pull the latest from the server"},
       {:auto, "⚙ auto-sync on launch & after episodes  [#{if Laev.Sync.auto?(), do: "on", else: "off"}]"},
       {:live, "⚡ live-save each change (pin, watched, resume)  [#{if Laev.Sync.live?(), do: "on", else: "off"}]"},
-      {:show, "👁  show my token (to set up another device)"},
-      {:token, "paste a token (from another setup)"},
-      {:reset, "⟳ reset token — generate a fresh one"},
+      {:keys, "🔑 carry my API keys too, encrypted  [#{if Laev.Sync.keys_enabled?(), do: "on", else: "off"}]"},
+      {:show, "👁  show my laev key (to set up another device)"},
+      {:token, "paste a laev key (from another setup)"},
+      {:reset, "⟳ reset key — generate a fresh one"},
       {:url, "change endpoint URL"},
       {:off, "turn off (go back to local-only)"}
     ]
@@ -854,6 +861,10 @@ defmodule Laev.CLI do
 
       {:live, _} ->
         save_setting("LAEV_SYNC_LIVE", if(Laev.Sync.live?(), do: "off", else: "on"))
+        sync_menu()
+
+      {:keys, _} ->
+        toggle_key_sync()
         sync_menu()
 
       {:show, _} ->
@@ -920,14 +931,100 @@ defmodule Laev.CLI do
     end
   end
 
-  # Print the full token + endpoint so it can be copied to another machine.
+  # Opting the API keys into the bundle. Turning it on is a real change in what
+  # the key is worth, so say so rather than flipping a silent switch; an older
+  # key with no secret half can't encrypt anything, so offer to reissue.
+  defp toggle_key_sync do
+    cond do
+      Laev.Sync.keys_enabled?() ->
+        save_setting("LAEV_SYNC_KEYS", "off")
+
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :faint,
+            "\n  This device will stop sending its keys. Whatever is already stored\n" <>
+              "  stays there for your other devices — \"reset key\" clears it.\n",
+            :reset
+          ])
+        )
+
+        IO.gets("  press enter to continue… ")
+
+      is_nil(Laev.Sync.secret()) ->
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :yellow,
+            "\n  This laev key predates encrypted keys and has no secret half.\n",
+            :reset,
+            "  Use “reset key” to issue a new one, then turn this on.\n"
+          ])
+        )
+
+        IO.gets("  press enter to continue… ")
+
+      true ->
+        IO.puts(:stderr, IO.ANSI.format(["\n  🔑 ", :bright, "Carry your API keys", :reset, "\n"]))
+
+        IO.puts(
+          :stderr,
+          "  Your keys (debrid, TMDB, indexers — everything but your MyAnimeList\n" <>
+            "  login) get encrypted with the half of your laev key that never leaves\n" <>
+            "  this machine, so the server stores something it cannot read. A new\n" <>
+            "  install that pastes the key is set up with no keys to re-enter.\n"
+        )
+
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :yellow,
+            "  Your laev key then unlocks your debrid account — keep it like a password,\n" <>
+              "  and note that losing it means the stored copy can't be opened again.\n",
+            :reset
+          ])
+        )
+
+        case IO.gets("  turn it on? [y/N] ") do
+          line when is_binary(line) ->
+            if String.trim(String.downcase(line)) in ["y", "yes"] do
+              save_setting("LAEV_SYNC_KEYS", "on")
+              run_sync_now()
+            else
+              IO.puts(:stderr, "  left off.\n")
+            end
+
+          _ ->
+            :ok
+        end
+    end
+  end
+
+  # Print the full key + endpoint so it can be copied to another machine.
   defp show_sync_token do
     clear_screen()
-    IO.puts(:stderr, IO.ANSI.format(["\n  🔑 ", :bright, "Your sync credentials", :reset, "\n"]))
-    IO.puts(:stderr, "  Enter these two on your other device (Settings → Integrations →")
-    IO.puts(:stderr, "  Cross-device sync) to see the same library.\n")
+    IO.puts(:stderr, IO.ANSI.format(["\n  🔑 ", :bright, "Your laev key", :reset, "\n"]))
+    IO.puts(:stderr, "  Paste this into a new install (setup asks for it, or Settings →")
+    IO.puts(:stderr, "  Cross-device sync) and that machine becomes a copy of this one.\n")
     IO.puts(:stderr, IO.ANSI.format(["  endpoint  ", :bright, Laev.Sync.url() || "(none)", :reset]))
-    IO.puts(:stderr, IO.ANSI.format(["  token     ", :bright, Laev.Sync.token() || "(none)", :reset]))
+    IO.puts(:stderr, IO.ANSI.format(["  laev key  ", :bright, Laev.Sync.laev_key() || "(none)", :reset]))
+
+    if Laev.Sync.keys_enabled?() do
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          "\n  ",
+          :yellow,
+          "This key also unlocks your API keys — it is worth as much as the",
+          :reset,
+          "\n  ",
+          :yellow,
+          "debrid account behind it. Treat it like a password.",
+          :reset
+        ])
+      )
+    end
+
     IO.gets("\n  press enter to go back… ")
   end
 
@@ -4102,8 +4199,95 @@ defmodule Laev.CLI do
   defp setup do
     unless tty?(), do: die("setup is interactive — run it at a terminal")
 
-    IO.puts(:stderr, IO.ANSI.format(["\n  🍿 ", :bright, "laev setup", :reset, " — two keys and you're watching\n"]))
+    IO.puts(:stderr, IO.ANSI.format(["\n  🍿 ", :bright, "laev setup", :reset, "\n"]))
 
+    options = [
+      {:fresh, "🔑 New setup — enter my API keys"},
+      {:restore, "⇄  I already have a laev key from another device"}
+    ]
+
+    case pick(options, &elem(&1, 1), "enter selects") do
+      {:restore, _} -> restore_from_laev_key()
+      _ -> fresh_setup()
+    end
+  end
+
+  # The one-paste path: a laev key carries the endpoint's contents, so the
+  # machine ends up configured exactly like the one the key came from — keys
+  # included, when that machine had key-carrying on. If it didn't, there is
+  # nothing to restore beyond the library, so fall through to entering keys.
+  defp restore_from_laev_key do
+    IO.puts(
+      :stderr,
+      "\n  On your other device: Settings → 🔄 Cross-device sync → show my laev key.\n"
+    )
+
+    key = IO.gets("  laev key: ") |> to_string() |> String.trim()
+
+    if key == "" do
+      IO.puts(:stderr, IO.ANSI.format([:faint, "  nothing pasted — setting up from scratch instead.\n", :reset]))
+      fresh_setup()
+    else
+      url =
+        case IO.gets("  endpoint [#{@hosted_sync_url}]: ") |> to_string() |> String.trim() do
+          "" -> @hosted_sync_url
+          entered -> entered
+        end
+
+      write_config_keys([
+        {"LAEV_SYNC_URL", url},
+        {"LAEV_SYNC_TOKEN", key},
+        {"LAEV_SYNC_KEYS", "on"},
+        {"LAEV_SYNC_AUTO", "on"}
+      ])
+
+      Config.load()
+      IO.puts(:stderr, "\n  pulling…")
+
+      case Laev.Sync.sync() do
+        {:ok, summary} ->
+          Enum.each(sync_summary_lines(summary), &IO.puts(:stderr, "  " <> &1))
+          finish_restore()
+
+        {:error, reason} ->
+          IO.puts(:stderr, IO.ANSI.format([:red, "  ✗ #{inspect(reason)}\n", :reset]))
+          IO.puts(:stderr, "  Setting up by hand instead — the key stays saved, so sync\n  will pick it up once the server is reachable.\n")
+          fresh_setup()
+
+        :disabled ->
+          fresh_setup()
+      end
+    end
+  end
+
+  defp finish_restore do
+    if Providers.any_configured?() and Tmdb.configured?() do
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          :green,
+          "\n  ✓ restored — your keys and your library came across. Nothing else to enter.\n",
+          :reset
+        ])
+      )
+
+      IO.puts(:stderr, "  all set — run: laev\n")
+    else
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          :yellow,
+          "\n  Your library came across, but no API keys were stored with that key.\n",
+          :reset,
+          "  (Turn on “carry my API keys” on the other device to include them.)\n"
+        ])
+      )
+
+      fresh_setup()
+    end
+  end
+
+  defp fresh_setup do
     rd =
       prompt_key(
         "Real-Debrid API token",
@@ -4262,30 +4446,7 @@ defmodule Laev.CLI do
   # Update KEY=VALUE lines in the config file in place (comments and other
   # keys untouched); append keys that aren't there yet. Mode 600 — it holds
   # secrets.
-  defp write_config_keys(pairs) do
-    path = Config.path()
-    File.mkdir_p!(Path.dirname(path))
-    lines = case File.read(path) do
-      {:ok, contents} -> String.split(contents, "\n")
-      _ -> ["# laev config — created by laev setup"]
-    end
-
-    updated =
-      Enum.reduce(pairs, lines, fn {key, value}, acc ->
-        line = "#{key}=#{value}"
-
-        if Enum.any?(acc, &String.starts_with?(String.trim_leading(&1), key <> "=")) do
-          Enum.map(acc, fn l ->
-            if String.starts_with?(String.trim_leading(l), key <> "="), do: line, else: l
-          end)
-        else
-          acc ++ [line]
-        end
-      end)
-
-    File.write!(path, Enum.join(updated, "\n"))
-    File.chmod(path, 0o600)
-  end
+  defp write_config_keys(pairs), do: Config.write(pairs)
 
   # ── doctor (health checks) ────────────────────────────────────────
 

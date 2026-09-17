@@ -24,9 +24,23 @@ defmodule Laev.Sync do
   ## What is synced (and what is deliberately not)
 
   Synced: watchlist, resume/history, per-episode positions, watched flags,
-  and per-series audio/subtitle track choices. Never synced: API keys
-  (`config`) or MAL OAuth tokens (`mal.json`) — those are device/secret state,
-  not user state.
+  and per-series audio/subtitle track choices. Optionally (`LAEV_SYNC_KEYS`)
+  also the API keys, encrypted — see "Secrets" below. Never synced: MAL OAuth
+  tokens (`mal.json`), because the refresh token rotates on every refresh and
+  two machines sharing one would log each other out.
+
+  ## Secrets
+
+  A laev key is `laev_<token>.<secret>`. The token half is the path segment the
+  server files the document under, so the server necessarily knows it; the
+  secret half never leaves the machine, and is what the API keys are encrypted
+  with (AES-256-GCM, key derived by PBKDF2). That split is the whole point: the
+  server — or a stolen backup of one — holds ciphertext it has no way to open,
+  while the user still has a single string to paste on a new machine.
+
+  Which keys travel is `Laev.Config.syncable_keys/0`, i.e. everything laev
+  knows about minus the sync settings themselves and the two machine-specific
+  ones, so a provider added later is carried without touching this module.
 
   ## Merge model
 
@@ -50,8 +64,54 @@ defmodule Laev.Sync do
 
   @doc "The configured base URL (for display), e.g. https://host/laev."
   def url, do: blank_to_nil(Application.get_env(:laev_app, :sync_url))
-  def token, do: blank_to_nil(Application.get_env(:laev_app, :sync_token))
   def enabled?, do: url() != nil
+
+  @doc """
+  The half of the laev key the server sees. A key is `laev_<token>.<secret>`;
+  only the part before the dot ever goes on the wire, as the path segment that
+  identifies the document. Keys issued before the secret existed have no dot
+  and are returned whole.
+  """
+  def token do
+    case raw_token() do
+      nil -> nil
+      raw -> raw |> String.split(".", parts: 2) |> hd() |> blank_to_nil()
+    end
+  end
+
+  @doc """
+  The half that never leaves this machine — it encrypts the API keys, so the
+  server must not be able to derive it. `nil` for a key issued without one.
+  """
+  def secret do
+    case raw_token() do
+      nil ->
+        nil
+
+      raw ->
+        case String.split(raw, ".", parts: 2) do
+          [_, secret] -> blank_to_nil(secret)
+          _ -> nil
+        end
+    end
+  end
+
+  @doc "Whether the laev key also carries the API keys (`LAEV_SYNC_KEYS`)."
+  def keys_enabled? do
+    secret() != nil and
+      case Application.get_env(:laev_app, :sync_keys) do
+        v when is_binary(v) -> String.downcase(String.trim(v)) in ["on", "true", "yes", "1"]
+        _ -> false
+      end
+  end
+
+  @doc """
+  The whole laev key as the user holds it — both halves. This is what gets
+  shown, copied and pasted; `token/0` is the only part that goes to a server.
+  """
+  def laev_key, do: raw_token()
+
+  defp raw_token, do: blank_to_nil(Application.get_env(:laev_app, :sync_token))
 
   @doc """
   Whether laev syncs automatically (on launch and after each episode).
@@ -186,9 +246,12 @@ defmodule Laev.Sync do
       merged = merge(local, remote_b)
 
       apply_bundle(merged)
-      save_sidecar(merged)
 
-      case push(merged, etag) do
+      {secrets, restored} = sync_secrets(remote["secrets"], sidecar_meta())
+      if restored > 0, do: note("↓ restored #{restored} key(s) from your laev key")
+      save_sidecar(merged, secrets_meta(secrets))
+
+      case push(merged, secrets, etag) do
         :ok ->
           {:ok, summary(local, remote_b, merged)}
 
@@ -226,10 +289,10 @@ defmodule Laev.Sync do
     end
   end
 
-  defp push(bundle, etag) do
+  defp push(bundle, secrets, etag) do
     headers = if etag, do: [{"if-match", etag} | auth()], else: auth()
 
-    case Req.put(endpoint(), headers: headers, json: to_wire(bundle), retry: false, receive_timeout: 15_000) do
+    case Req.put(endpoint(), headers: headers, json: to_wire(bundle, secrets), retry: false, receive_timeout: 15_000) do
       {:ok, %{status: s}} when s in 200..204 -> :ok
       {:ok, %{status: 412}} -> {:conflict, :etag}
       {:ok, %{status: 409}} -> {:conflict, :version}
@@ -449,11 +512,22 @@ defmodule Laev.Sync do
     end
   end
 
-  defp save_sidecar(bundle) do
+  defp save_sidecar(bundle, meta \\ %{}) do
     File.mkdir_p!(data_dir())
-    File.write(sidecar_path(), Jason.encode!(to_wire(bundle)))
+    File.write(sidecar_path(), Jason.encode!(Map.merge(to_wire(bundle), meta)))
   rescue
     _ -> :ok
+  end
+
+  # The sidecar as stored, including the secrets bookkeeping that normalize/1
+  # (which only knows about collections) would drop.
+  defp sidecar_meta do
+    with {:ok, body} <- File.read(sidecar_path()),
+         {:ok, map} when is_map(map) <- Jason.decode(body) do
+      map
+    else
+      _ -> %{}
+    end
   end
 
   # ── wire format helpers ───────────────────────────────────────────
@@ -467,8 +541,149 @@ defmodule Laev.Sync do
 
   defp normalize(_), do: %{}
 
-  defp to_wire(bundle) do
-    Map.put(for(coll <- @collections, into: %{}, do: {Atom.to_string(coll), Map.get(bundle, coll, %{})}), "version", 1)
+  defp to_wire(bundle, secrets \\ nil) do
+    wire = Map.put(for(coll <- @collections, into: %{}, do: {Atom.to_string(coll), Map.get(bundle, coll, %{})}), "version", 1)
+
+    if is_map(secrets), do: Map.put(wire, "secrets", secrets), else: wire
+  end
+
+  # ── secrets (the API keys, encrypted) ─────────────────────────────
+
+  @aad "laev-secrets-v1"
+  @kdf_iterations 100_000
+
+  # Whole-blob last-write-wins, decided against the digest recorded at the last
+  # sync: a digest that no longer matches means the keys were changed here, and
+  # a stamp newer than the one we recorded means they were changed elsewhere.
+  # Returns the blob to store and how many keys were applied locally.
+  defp sync_secrets(remote_blob, meta) do
+    if keys_enabled?() do
+      resolve_secrets(Laev.Config.export(), decrypt_secrets(remote_blob), remote_blob, meta)
+    else
+      # Leave whatever is stored alone. A machine with the feature off, or
+      # holding an older key with no secret half, must not blank out the keys
+      # the other machines rely on.
+      {remote_blob, 0}
+    end
+  end
+
+  # Nothing readable came back. A blob that is *there* but won't open was
+  # written with a different secret half, so it belongs to keys we can't see —
+  # keep it exactly as it is. Replacing it with ours (or with nothing, on a
+  # machine that has no keys yet) would destroy another device's only copy.
+  defp resolve_secrets(local, nil, remote_blob, _meta) do
+    cond do
+      is_map(remote_blob) -> {remote_blob, 0}
+      map_size(local) == 0 -> {nil, 0}
+      true -> {encrypt_secrets(local), 0}
+    end
+  end
+
+  defp resolve_secrets(local, remote, remote_blob, meta) do
+    last_digest = meta["secrets_digest"]
+    remote_ts = (is_map(remote_blob) && remote_blob["updated_at"]) || 0
+
+    cond do
+      # Never synced secrets on this machine — the restore path on a fresh
+      # install. Adopt what is stored, keep anything only this machine has.
+      is_nil(last_digest) ->
+        {encrypt_secrets(Map.merge(local, remote)), Laev.Config.import_keys(remote)}
+
+      # Changed here since the last sync: ours win, theirs fill the gaps.
+      digest(local) != last_digest ->
+        restored = Laev.Config.import_keys(Map.drop(remote, Map.keys(local)))
+        {encrypt_secrets(Map.merge(remote, local)), restored}
+
+      remote_ts > (meta["secrets_updated_at"] || 0) ->
+        {remote_blob, Laev.Config.import_keys(remote)}
+
+      true ->
+        {remote_blob, 0}
+    end
+  end
+
+  # Bookkeeping for the sidecar: what the key set looks like now, and the stamp
+  # on the blob that says so.
+  defp secrets_meta(blob) do
+    %{
+      "secrets_digest" => if(keys_enabled?(), do: digest(Laev.Config.export())),
+      "secrets_updated_at" => (is_map(blob) && blob["updated_at"]) || 0
+    }
+  end
+
+  defp encrypt_secrets(plain) when map_size(plain) == 0, do: nil
+
+  defp encrypt_secrets(plain) do
+    with secret when is_binary(secret) <- secret() do
+      salt = :crypto.strong_rand_bytes(16)
+      iv = :crypto.strong_rand_bytes(12)
+      key = derive_key(secret, salt, @kdf_iterations)
+
+      {ciphertext, tag} =
+        :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, Jason.encode!(plain), @aad, true)
+
+      %{
+        "v" => 1,
+        "kdf" => "pbkdf2-sha256",
+        "iter" => @kdf_iterations,
+        "salt" => Base.encode64(salt),
+        "iv" => Base.encode64(iv),
+        "tag" => Base.encode64(tag),
+        "data" => Base.encode64(ciphertext),
+        "updated_at" => now()
+      }
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp decrypt_secrets(blob) when is_map(blob) do
+    with secret when is_binary(secret) <- secret(),
+         {:ok, ciphertext} <- Base.decode64(blob["data"] || ""),
+         {:ok, iv} <- Base.decode64(blob["iv"] || ""),
+         {:ok, tag} <- Base.decode64(blob["tag"] || ""),
+         {:ok, salt} <- Base.decode64(blob["salt"] || ""),
+         key = derive_key(secret, salt, blob["iter"] || @kdf_iterations),
+         plain when is_binary(plain) <-
+           :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, ciphertext, @aad, tag, false),
+         {:ok, map} when is_map(map) <- Jason.decode(plain) do
+      map
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp decrypt_secrets(_), do: nil
+
+  # Deriving is the expensive part, so hold it for the session — in live mode a
+  # sync runs after every action.
+  defp derive_key(secret, salt, iterations) do
+    cache = {:laev_sync_key, salt, iterations}
+
+    case Process.get(cache) do
+      nil ->
+        key = :crypto.pbkdf2_hmac(:sha256, secret, salt, iterations, 32)
+        Process.put(cache, key)
+        key
+
+      key ->
+        key
+    end
+  end
+
+  # Order-independent fingerprint of the key set, so "did this change here?"
+  # never turns on map iteration order.
+  defp digest(map) do
+    map
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(&Tuple.to_list/1)
+    |> Jason.encode!()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   # ── misc ──────────────────────────────────────────────────────────

@@ -34,11 +34,86 @@ defmodule Laev.Config do
     "LAEV_SYNC_URL" => :sync_url,
     "LAEV_SYNC_TOKEN" => :sync_token,
     "LAEV_SYNC_AUTO" => :sync_auto,
-    "LAEV_SYNC_LIVE" => :sync_live
+    "LAEV_SYNC_LIVE" => :sync_live,
+    "LAEV_SYNC_KEYS" => :sync_keys
   }
 
   @doc "The ENV_KEY => app-env-atom map for every configurable key."
   def keys, do: @keys
+
+  # What travels with a laev key. Everything configurable except the sync
+  # settings themselves — which are what bootstraps the restore, so carrying
+  # them would be circular — and the two machine-specific ones, since another
+  # computer has neither the same download directory nor the same mpv flags.
+  @unsynced ~w(LAEV_SYNC_URL LAEV_SYNC_TOKEN LAEV_SYNC_AUTO LAEV_SYNC_LIVE LAEV_SYNC_KEYS
+               LAEV_DOWNLOAD_DIR LAEV_MPV_ARGS)
+
+  @doc "Config keys that a laev key carries between machines."
+  def syncable_keys, do: Map.keys(@keys) -- @unsynced
+
+  @doc "The currently-set syncable keys, as ENV_KEY => value."
+  def export do
+    for key <- syncable_keys(),
+        value = Application.get_env(:laev_app, Map.fetch!(@keys, key)),
+        value not in [nil, ""],
+        into: %{},
+        do: {key, value}
+  end
+
+  @doc """
+  Write restored keys to the config file and into the running app, skipping
+  anything that isn't a key laev recognises. Returns how many were applied.
+  """
+  def import_keys(map) when is_map(map) do
+    pairs =
+      for {key, value} <- map,
+          key in syncable_keys(),
+          is_binary(value),
+          String.trim(value) != "",
+          do: {key, value}
+
+    if pairs != [] do
+      write(pairs)
+      for {key, value} <- pairs, do: Application.put_env(:laev_app, Map.fetch!(@keys, key), value)
+    end
+
+    length(pairs)
+  end
+
+  def import_keys(_), do: 0
+
+  @doc """
+  Upsert `KEY=VALUE` lines in the config file, leaving everything else — other
+  keys, comments, ordering — as it was. The file holds credentials, so it is
+  kept owner-only.
+  """
+  def write(pairs) do
+    path = path()
+    File.mkdir_p!(Path.dirname(path))
+
+    lines =
+      case File.read(path) do
+        {:ok, contents} -> String.split(contents, "\n")
+        _ -> ["# laev config — created by laev setup"]
+      end
+
+    updated =
+      Enum.reduce(pairs, lines, fn {key, value}, acc ->
+        line = "#{key}=#{value}"
+        present? = Enum.any?(acc, &String.starts_with?(String.trim_leading(&1), key <> "="))
+
+        if present? do
+          Enum.map(acc, fn l ->
+            if String.starts_with?(String.trim_leading(l), key <> "="), do: line, else: l
+          end)
+        else
+          acc ++ [line]
+        end
+      end)
+
+    File.write!(path, Enum.join(updated, "\n"))
+    File.chmod(path, 0o600)
+  end
 
   def path do
     config_home = System.get_env("XDG_CONFIG_HOME") || Path.join(System.user_home!(), ".config")
