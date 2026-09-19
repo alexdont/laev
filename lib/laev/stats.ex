@@ -10,7 +10,10 @@ defmodule Laev.Stats do
 
   Nothing is invented. An entry whose runtime can't be established is counted
   as watched but left out of the time, and reported separately, so the total
-  is only ever made of durations that were actually known.
+  is only ever made of durations that were actually known. Marking something
+  watched by hand does count its runtime — you watched it, laev just wasn't
+  the one playing it — and how many totals were reached that way is reported
+  alongside.
   """
 
   alias Laev.Tmdb
@@ -65,8 +68,8 @@ defmodule Laev.Stats do
   # ── the position files ────────────────────────────────────────────
 
   # Each becomes {type, tmdb_id, kind, progress}. A bare `tv-<id>` is the
-  # ctrl-w "I've seen this" mark on a whole series: a statement, not a
-  # measured play, so it never contributes time.
+  # ctrl-w "I've seen this" mark on a whole series — there's no honest number
+  # of hours for "all of Game of Thrones", so it counts as watched, not time.
   defp read_positions do
     dir = Path.join(data_dir(), "positions")
 
@@ -154,7 +157,7 @@ defmodule Laev.Stats do
 
     wanted =
       entries
-      |> Enum.reject(fn {_n, _t, _i, kind, p} -> kind == :series_mark or p == :seen end)
+      |> Enum.reject(fn {_n, _t, _i, kind, _p} -> kind == :series_mark end)
       |> Enum.map(fn {_n, type, id, _kind, _p} -> {type, id} end)
       |> Enum.uniq()
       |> Enum.reject(&Map.has_key?(cached, cache_key(&1)))
@@ -235,7 +238,6 @@ defmodule Laev.Stats do
         _ ->
           case seconds_for(kind, progress, Map.get(runtimes, "#{type}-#{id}")) do
             :skip -> {acc, unknown, skipped, measured}
-            :marked -> {bump(acc, {type, id}, titles, 0, progress), unknown, skipped, measured}
             :unknown -> {bump(acc, {type, id}, titles, 0, progress), unknown + 1, skipped, measured}
             seconds -> {bump(acc, {type, id}, titles, seconds, progress), unknown, skipped, measured}
           end
@@ -246,12 +248,12 @@ defmodule Laev.Stats do
 
   # A part-watched entry is worth the seconds it reached; a finished one is
   # worth its runtime, which is the only place the runtime lookup is needed.
+  # A hand mark counts the same as a finished play: ctrl-w says you watched
+  # it, and a film you watched is worth its runtime wherever you saw it.
   defp seconds_for(:series_mark, _progress, _runtime), do: :skip
-  # Marked by hand: watched, but not time laev can claim to have measured.
-  defp seconds_for(_kind, :seen, _runtime), do: :marked
   defp seconds_for(_kind, {:secs, seconds}, _runtime), do: seconds
-  defp seconds_for(_kind, :done, runtime) when is_integer(runtime), do: runtime
-  defp seconds_for(_kind, :done, _), do: :unknown
+  defp seconds_for(_kind, done, runtime) when done in [:done, :seen] and is_integer(runtime), do: runtime
+  defp seconds_for(_kind, done, _) when done in [:done, :seen], do: :unknown
 
   defp bump(acc, {type, id} = key, titles, seconds, progress) do
     entry =

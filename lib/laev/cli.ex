@@ -3810,7 +3810,7 @@ defmodule Laev.CLI do
         :stderr,
         IO.ANSI.format([
           :faint,
-          "  #{s.marked} marked watched by hand — counted as seen, not as time\n",
+          "  #{s.marked} of those you marked watched by hand, counted at runtime\n",
           :reset
         ])
       )
