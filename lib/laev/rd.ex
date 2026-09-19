@@ -183,6 +183,25 @@ defmodule Laev.RD do
   end
 
   @doc """
+  Media details for an unrestricted download id (`stream.id`): RD probes
+  the container server-side and lists every audio/subtitle track with its
+  language — one ~300ms call, not a byte of the file fetched locally.
+
+  Runs inside source probing, where a slow answer costs more than a
+  missing one: no retries, short timeout, caller treats errors as "unknown".
+  """
+  def media_info(download_id) do
+    case Req.get(req(),
+           url: "/streaming/mediaInfos/#{download_id}",
+           retry: false,
+           receive_timeout: 8_000
+         ) do
+      {:ok, %{status: 200, body: body}} when is_map(body) -> {:ok, body}
+      other -> error(other)
+    end
+  end
+
+  @doc """
   HLS transcode URL (AAC audio) for an unrestricted download id.
 
   This is the fix for releases whose audio the browser can't decode
