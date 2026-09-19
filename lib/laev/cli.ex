@@ -24,6 +24,7 @@ defmodule Laev.CLI do
       ["play" | rest] -> play(rest)
       ["colors" | _] -> debug_colors()
       ["config" | _] -> config()
+      ["stats" | _] -> stats()
       ["setup" | _] -> setup()
       ["doctor" | _] -> doctor()
       ["update" | _] -> update()
@@ -482,6 +483,7 @@ defmodule Laev.CLI do
         {:watchlist, watchlist_row()},
         {:calendar, calendar_row()},
         {:search, "⌕ Search — find something by name"},
+        {:stats, "📊 Stats — how much you've watched"},
         {:settings, "⚙ Settings — toggles & preferences"}
       ])
 
@@ -495,6 +497,10 @@ defmodule Laev.CLI do
       {:watchlist, _} -> watchlist_menu()
       {:calendar, _} -> calendar()
       {:search, _} -> menu_search()
+      {:stats, _} ->
+        stats()
+        main_menu()
+
       {:settings, _} -> settings_menu()
     end
   end
@@ -3714,6 +3720,88 @@ defmodule Laev.CLI do
   defp rd_auth_error,
     do: "Real-Debrid rejected the token (401) — check RD_TOKEN in #{Config.path()}"
 
+  # ── stats ─────────────────────────────────────────────────────────
+
+  defp stats do
+    IO.puts(:stderr, "reading your history…")
+    s = Laev.Stats.all_time()
+
+    if tty?() do
+      print_stats(s)
+    else
+      IO.puts(
+        Jason.encode!(%{
+          seconds: s.seconds,
+          films: s.films,
+          episodes: s.episodes,
+          unknown_runtime: s.unknown,
+          titles:
+            Enum.map(s.titles, &%{title: &1.title, type: &1.type, tmdb_id: &1.tmdb_id, seconds: &1.seconds})
+        })
+      )
+    end
+  end
+
+  defp print_stats(%{titles: []}) do
+    IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  Nothing watched yet — play something and it lands here.\n", :reset]))
+  end
+
+  defp print_stats(s) do
+    clear_screen()
+    IO.puts(:stderr, IO.ANSI.format(["\n  📊 ", :bright, "What you've watched", :reset, "\n"]))
+
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        "  ",
+        :bright,
+        Laev.Stats.duration(s.seconds),
+        :reset,
+        " across #{length(s.titles)} titles · #{s.films} films · #{s.episodes} episodes\n"
+      ])
+    )
+
+    IO.puts(:stderr, IO.ANSI.format([:faint, "  Most time spent", :reset]))
+
+    s.titles
+    |> Enum.take(10)
+    |> Enum.with_index(1)
+    |> Enum.each(fn {t, i} ->
+      counts =
+        [t.finished > 0 && "#{t.finished} finished", t.started > 0 && "#{t.started} in progress"]
+        |> Enum.reject(&(&1 == false))
+        |> Enum.join(" · ")
+
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          "  #{String.pad_leading(to_string(i), 2)}. ",
+          String.pad_trailing(String.slice(t.title, 0, 38), 40),
+          :bright,
+          String.pad_leading(Laev.Stats.duration(t.seconds), 8),
+          :reset,
+          :faint,
+          "  #{counts}",
+          :reset
+        ])
+      )
+    end)
+
+    if s.unknown > 0 do
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          :faint,
+          "\n  #{s.unknown} finished #{if s.unknown == 1, do: "entry", else: "entries"} had no runtime on TMDB, so they're counted as watched but not timed.",
+          :reset
+        ])
+      )
+    end
+
+    IO.puts(:stderr, "")
+    if tty?(), do: IO.gets("  press enter to go back… ")
+  end
+
   # ── continue watching ─────────────────────────────────────────────
 
   defp continue(initial \\ 0) do
@@ -5006,6 +5094,7 @@ defmodule Laev.CLI do
       laev setup             interactive first-run wizard: keys in, validated live
       laev doctor            check binaries, keys, and every service laev talks to
       laev config
+      laev stats             how much you've watched, and what you watched most
       laev update            self-update the standalone binary to the latest release
       laev mal [login|logout] link MyAnimeList to scrobble anime progress
 
