@@ -1542,15 +1542,25 @@ defmodule Laev.CLI do
         pick(
           entries,
           &describe_watchlist/1,
-          "≡ watchlist · enter watches · ctrl-d removes · ctrl-o info",
+          "≡ watchlist · enter watches · ctrl-w watched · ctrl-d removes · ctrl-o info",
           & &1["poster"],
           initial,
-          ["ctrl-d", "ctrl-o"]
+          ["ctrl-d", "ctrl-w", "ctrl-o"]
         )
 
       case result do
         nil ->
           main_menu()
+
+        {"ctrl-w", %{"type" => type} = entry} when type in ["franchise", "collection"] ->
+          # A pinned list isn't something you finish.
+          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
+
+        {"ctrl-w", entry} ->
+          ctx = entry_title_ctx(entry)
+          Laev.Position.set_watched(ctx, not Laev.Position.finished?(ctx))
+          Laev.Sync.live_push()
+          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-o", %{"type" => type} = entry} when type in ["franchise", "collection"] ->
           watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
@@ -1584,20 +1594,18 @@ defmodule Laev.CLI do
     resume = Laev.Resume.get(entry["type"], entry["tmdb_id"])
 
     cond do
-      watched_movie?(entry) -> {2, 0}
+      watched_entry?(entry) -> {2, 0}
       resume -> {0, -(resume["updated_at"] || 0)}
       true -> {1, -(entry["added_at"] || 0)}
     end
   end
 
-  defp watched_movie?(entry) do
-    entry["type"] == "movie" and
-      Laev.Position.finished?(%{
-        type: "movie",
-        tmdb_id: entry["tmdb_id"],
-        season: nil,
-        episode: nil
-      })
+  # Watched at title level — a film played through, or anything ctrl-w marked.
+  # Not per-episode: a series with one watched episode is still in progress.
+  defp watched_entry?(entry), do: Laev.Position.finished?(entry_title_ctx(entry))
+
+  defp entry_title_ctx(entry) do
+    %{type: entry["type"], tmdb_id: entry["tmdb_id"], season: nil, episode: nil}
   end
 
   # Reopen a pinned list: curated ones by name, TMDB's own by collection id.
@@ -1649,7 +1657,7 @@ defmodule Laev.CLI do
           entry_ep(resume) <> if(at, do: " · at #{at}", else: "")
       end
 
-    mark = if watched_movie?(entry), do: "✓ ", else: ""
+    mark = if watched_entry?(entry), do: "✓ ", else: ""
     "#{mark}#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}"
   end
 
