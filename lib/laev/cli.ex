@@ -7,7 +7,7 @@ defmodule Laev.CLI do
   a human-readable listing instead.
   """
 
-  alias Laev.{Config, Kitsu, Player, Providers, RD, Sources, Tmdb}
+  alias Laev.{Config, Kitsu, Player, Providers, RD, Sources, Tmdb, Tracks}
 
   @backends %{"apibay" => :apibay, "nyaa" => :nyaa, "anime" => :anime}
 
@@ -2957,7 +2957,7 @@ defmodule Laev.CLI do
       case result do
         {:ok, stream} ->
           IO.puts(:stderr, "  ✓ #{source.name}#{provider_tag(stream)}")
-          send(parent, {:playable, index, source, stream})
+          send(parent, {:playable, index, with_track_langs(source, stream), stream})
 
         {:error, reason} ->
           IO.puts(:stderr, "  ✗ #{source.name} — #{unplayable_reason(reason)}")
@@ -3599,6 +3599,14 @@ defmodule Laev.CLI do
   defp provider_tag(%{provider: :torbox}), do: "  ⚡TB"
   defp provider_tag(_stream), do: ""
 
+  # Audio languages RD read from the container are authoritative — they
+  # replace the release-name guess / Torrentio flags in `:langs`, which is
+  # what lang_score ranks on. Subtitles stay display-only (in `stream.tracks`).
+  defp with_track_langs(source, %{tracks: %{audio: [_ | _] = audio}}),
+    do: Map.put(source, :langs, audio)
+
+  defp with_track_langs(source, _stream), do: source
+
   defp collect_playable(acc \\ []) do
     receive do
       {:playable, index, source, stream} -> collect_playable([{index, source, stream} | acc])
@@ -4169,13 +4177,24 @@ defmodule Laev.CLI do
 
     # BluRay/WEB/HDTV granularity stays in the details ("HD" alone doesn't
     # say remux vs webrip); CAM there would just repeat the column.
+    # Probed RD streams know their real audio/subtitle tracks; that replaces
+    # both the name-derived "lang:xx" hint and the Torrentio flag suffix.
+    tracks = stream && Map.get(stream, :tracks)
+    known? = Tracks.label(tracks) != ""
+
     details =
-      [s.codec, s.audio, !cam? && s.source, Map.get(s, :langs) in [nil, []] && lang && "lang:#{lang}", Map.get(s, :provider)]
+      [s.codec, s.audio, !cam? && s.source, !known? && Map.get(s, :langs) in [nil, []] && lang && "lang:#{lang}", Map.get(s, :provider)]
       |> Enum.reject(&(&1 in [nil, false]))
       |> Enum.join(" · ")
 
     langs = Map.get(s, :langs) || []
-    lang_suffix = if langs == [], do: "", else: "  " <> Enum.join(langs, "\u00b7")
+
+    lang_suffix =
+      cond do
+        known? -> "  " <> Tracks.label(tracks)
+        langs == [] -> ""
+        true -> "  " <> Enum.join(langs, "\u00b7")
+      end
 
     prefix <>
       String.pad_trailing(res, 6) <>
