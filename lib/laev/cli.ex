@@ -4915,7 +4915,12 @@ defmodule Laev.CLI do
     else
       {:error, reason} ->
         File.rm(staged)
-        die("couldn't replace #{bin} (#{inspect(reason)}) — is that location writable?")
+        # Usually a root-owned install directory: laev replaces its own
+        # binary, so it has to live somewhere the user can write.
+        die(
+          "couldn't replace #{bin} (#{inspect(reason)}) — that location isn't writable. " <>
+            "Reinstall to ~/.local/bin (see the README) so updates don't need sudo."
+        )
     end
   end
 

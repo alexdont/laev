@@ -83,8 +83,14 @@ chmod +x laev && mkdir -p ~/.local/bin && mv laev ~/.local/bin/
 ```sh
 brew install mpv fzf chafa
 curl -Lo laev https://github.com/alexdont/laev/releases/latest/download/laev_macos_aarch64
-chmod +x laev && mv laev /usr/local/bin/
+chmod +x laev && mkdir -p ~/.local/bin && mv laev ~/.local/bin/
+# macOS doesn't put ~/.local/bin on PATH — add it if `which laev` finds nothing:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
 ```
+
+Not `/usr/local/bin`: it's owned by root on macOS, so the move fails without
+`sudo` — and installing it there with `sudo` leaves a root-owned binary that
+`laev update`, which replaces the binary in place, then can't overwrite.
 
 **From source** (needs Elixir; zig + p7zip only for the standalone build):
 
