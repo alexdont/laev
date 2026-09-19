@@ -28,7 +28,7 @@ defmodule Laev.Stats do
   All-time totals: seconds watched, how many films and episodes, and the
   titles you've given the most time to.
 
-  Returns `%{seconds:, films:, episodes:, titles: [%Title{}], unknown:,
+  Returns `%{seconds:, films:, episodes:, shows:, titles: [%Title{}], unknown:,
   skipped:, measured:}` with `titles` sorted by time spent. `skipped` counts
   only plays laev measured, so it starts at nothing and grows from here.
   """
@@ -43,6 +43,7 @@ defmodule Laev.Stats do
       seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(),
       films: count_kind(entries, :movie),
       episodes: count_kind(entries, :episode),
+      shows: count_shows(entries),
       marked: Enum.count(entries, fn {_n, _t, _i, _k, p} -> p == :seen end),
       titles: Enum.sort_by(titles, & &1.seconds, :desc),
       unknown: unknown,
@@ -108,6 +109,16 @@ defmodule Laev.Stats do
   end
 
   defp count_kind(entries, kind), do: Enum.count(entries, fn {_n, _t, _i, k, _p} -> k == kind end)
+
+  # How many separate shows those episodes came from — 46 episodes reads very
+  # differently depending on whether it is one series or thirteen.
+  defp count_shows(entries) do
+    entries
+    |> Enum.filter(fn {_n, _t, _i, kind, _p} -> kind == :episode end)
+    |> Enum.map(fn {_n, type, id, _kind, _p} -> {type, id} end)
+    |> Enum.uniq()
+    |> length()
+  end
 
   # What the mpv script measured: seconds truly played, and seconds seeked
   # past. Only exists for plays since laev started counting, so it refines

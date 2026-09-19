@@ -3734,6 +3734,7 @@ defmodule Laev.CLI do
           seconds: s.seconds,
           films: s.films,
           episodes: s.episodes,
+          shows: s.shows,
           unknown_runtime: s.unknown,
           skipped: s.skipped,
           measured_plays: s.measured,
@@ -3760,7 +3761,8 @@ defmodule Laev.CLI do
         :bright,
         Laev.Stats.duration(s.seconds),
         :reset,
-        " across #{length(s.titles)} titles · #{s.films} films · #{s.episodes} episodes\n"
+        " across #{length(s.titles)} titles · #{s.films} films · " <>
+          "#{s.episodes} episodes from #{s.shows} #{if s.shows == 1, do: "show", else: "shows"}\n"
       ])
     )
 
