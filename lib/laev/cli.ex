@@ -2667,10 +2667,10 @@ defmodule Laev.CLI do
       pick(
         items,
         describe,
-        header <> " · ctrl-s pins · ctrl-o info",
+        header <> " · ctrl-s pins · ctrl-w watched · ctrl-o info",
         &title_poster/1,
         initial,
-        ["ctrl-s", "ctrl-o"]
+        ["ctrl-s", "ctrl-w", "ctrl-o"]
       )
 
     case result do
@@ -2689,6 +2689,19 @@ defmodule Laev.CLI do
         Laev.Watchlist.toggle(franchise_pin(franchise))
         Laev.Sync.live_push()
         pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
+
+      {"ctrl-w", {:franchise, _} = row} ->
+        # A list isn't something you finish.
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
+
+      {"ctrl-w", :more} ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
+
+      {"ctrl-w", title} ->
+        ctx = title_ctx(title)
+        Laev.Position.set_watched(ctx, not Laev.Position.finished?(ctx))
+        Laev.Sync.live_push()
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
 
       {"ctrl-o", {:franchise, _} = row} ->
         # Opening a reference page only means something for a title.
@@ -2869,15 +2882,21 @@ defmodule Laev.CLI do
     rating = if t.vote && t.vote > 0, do: " · ★ #{Float.round(t.vote * 1.0, 1)}"
     text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}"
 
-    if finished_film?(t),
+    if seen?(t),
       do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset])),
       else: text
   end
 
-  defp finished_film?(%{type: "movie", id: id}) when is_integer(id),
-    do: Laev.Position.finished?(%{type: "movie", tmdb_id: id, season: nil, episode: nil})
+  # A film counts as seen once it is played through (85%/eof writes the same
+  # marker), a series only when ctrl-w says so — laev can't tell a finished
+  # series from an abandoned one, so that stays a deliberate act rather than
+  # a guess.
+  defp seen?(t), do: Laev.Position.finished?(title_ctx(t))
 
-  defp finished_film?(_), do: false
+  defp title_ctx(%{type: type, id: id}) when type in ["movie", "tv"] and is_integer(id),
+    do: %{type: type, tmdb_id: id, season: nil, episode: nil}
+
+  defp title_ctx(_), do: %{type: nil, tmdb_id: nil, season: nil, episode: nil}
 
   # Where you left off, for something already started — the episode you reached
   # for a series, the timestamp for a film. Nothing for a title you've never
