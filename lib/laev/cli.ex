@@ -2957,7 +2957,7 @@ defmodule Laev.CLI do
       case result do
         {:ok, stream} ->
           IO.puts(:stderr, "  ✓ #{source.name}#{provider_tag(stream)}")
-          send(parent, {:playable, index, with_track_langs(source, stream), stream})
+          send(parent, {:playable, index, source, stream})
 
         {:error, reason} ->
           IO.puts(:stderr, "  ✗ #{source.name} — #{unplayable_reason(reason)}")
@@ -2967,7 +2967,15 @@ defmodule Laev.CLI do
     Providers.probe_sources(Enum.with_index(page), Keyword.put(rd_opts, :notify, notify))
     # Global re-rank on every page: appended pages would otherwise stack
     # below earlier finds (a page-2 4K under a page-1 720p).
-    playable = Sources.rank_playable(playable_so_far ++ collect_playable())
+    # Track languages are read here, in one concurrent batch, because ranking
+    # uses them — a release you can watch with your subtitles must not sink as
+    # wrong-language before the list is ordered.
+    probed =
+      collect_playable()
+      |> Providers.attach_tracks()
+      |> Enum.map(fn {source, stream} -> {with_track_langs(source, stream), stream} end)
+
+    playable = Sources.rank_playable(playable_so_far ++ probed)
 
     case {playable, rest} do
       {[], []} ->

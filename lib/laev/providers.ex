@@ -14,6 +14,13 @@ defmodule Laev.Providers do
 
   def any_configured?, do: RD.configured?() or Torbox.configured?()
 
+  # How many sources are probed at once. Left at 2: raising it looked obvious
+  # but measured worse as often as better — probe time is dominated by how
+  # long a given torrent takes to resolve on the provider, and that varies by
+  # an order of magnitude between sources, so the setting barely shows through
+  # the noise. Configurable so that can be re-measured rather than re-argued.
+  @probe_concurrency 2
+
   @doc """
   Resolve on the first provider that can play the magnet. RD's error is
   returned when everything fails (it's the primary; its reasons are the
@@ -61,7 +68,7 @@ defmodule Laev.Providers do
       true ->
         case resolve_magnet(source.magnet, resolve_opts) do
           {:ok, stream} ->
-            {:ok, if(resolve_opts[:tracks] == false, do: stream, else: with_tracks(stream))}
+            {:ok, stream}
 
           {:error, {:rd, 451, _}} = err ->
             Blocklist.block(source.hash)
@@ -73,11 +80,33 @@ defmodule Laev.Providers do
     end
   end
 
-  # A probed RD stream also learns its real audio/subtitle languages, so the
-  # picker can show them and ranking can trust them over release-name
-  # guesses. Best-effort: if mediaInfos fails the stream simply has no
-  # `:tracks` and the row falls back to what the name says. TorBox streams
-  # have no equivalent endpoint.
+  @doc """
+  Attach real audio/subtitle languages to probed streams, so the picker can
+  show them and ranking can trust them over release-name guesses.
+
+  Done as one concurrent batch rather than inside each probe: RD reads the
+  container server-side the first time it is asked about a stream, which
+  costs about 1.8s — paid per source while probing (two at a time) that is
+  most of a minute for a full page, and paid all at once here it is one
+  round trip. Best-effort throughout: a stream whose lookup fails simply has
+  no `:tracks` and its row falls back to what the release name says.
+  """
+  def attach_tracks(playable) when is_list(playable) do
+    playable
+    |> Task.async_stream(fn {source, stream} -> {source, with_tracks(stream)} end,
+      max_concurrency: 8,
+      ordered: true,
+      timeout: 20_000,
+      on_timeout: :kill_task
+    )
+    |> Enum.zip(playable)
+    |> Enum.map(fn
+      {{:ok, enriched}, _original} -> enriched
+      {_failed, original} -> original
+    end)
+  end
+
+  # TorBox streams have no equivalent endpoint.
   defp with_tracks(%{provider: :rd, id: id} = stream) when is_binary(id) do
     case RD.media_info(id) do
       {:ok, body} -> Map.put(stream, :tracks, Tracks.from_media_info(body))
@@ -101,7 +130,7 @@ defmodule Laev.Providers do
       fn {source, index} ->
         notify.({:result, index, source, probe_resolve(source, resolve_opts)})
       end,
-      max_concurrency: 2,
+      max_concurrency: Keyword.get(opts, :concurrency, @probe_concurrency),
       ordered: false,
       timeout: 120_000,
       on_timeout: :kill_task
@@ -119,9 +148,7 @@ defmodule Laev.Providers do
   """
   def resolve_best(sources, opts \\ []) do
     notify = Keyword.get(opts, :notify, fn _ -> :ok end)
-    # --auto plays the first hit and never shows a row, so the track lookup
-    # would only delay the launch.
-    resolve_opts = [patience: 5, tracks: false] ++ Keyword.take(opts, [:episode, :season])
+    resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
     do_resolve_best(sources, notify, resolve_opts, [])
   end
 
