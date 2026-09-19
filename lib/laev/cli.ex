@@ -3746,6 +3746,17 @@ defmodule Laev.CLI do
     end
   end
 
+  # One row of the most-watched list: title, time, and how it got there.
+  defp stats_row(t) do
+    counts =
+      [t.finished > 0 && "#{t.finished} finished", t.started > 0 && "#{t.started} in progress"]
+      |> Enum.reject(&(&1 == false))
+      |> Enum.join(" · ")
+
+    String.pad_trailing(String.slice(t.title, 0, 38), 40) <>
+      String.pad_leading(Laev.Stats.duration(t.seconds), 8) <> "  " <> counts
+  end
+
   defp print_stats(%{titles: []}) do
     IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  Nothing watched yet — play something and it lands here.\n", :reset]))
   end
@@ -3795,29 +3806,6 @@ defmodule Laev.CLI do
 
     IO.puts(:stderr, IO.ANSI.format([:faint, "  Most time spent", :reset]))
 
-    s.titles
-    |> Enum.take(10)
-    |> Enum.with_index(1)
-    |> Enum.each(fn {t, i} ->
-      counts =
-        [t.finished > 0 && "#{t.finished} finished", t.started > 0 && "#{t.started} in progress"]
-        |> Enum.reject(&(&1 == false))
-        |> Enum.join(" · ")
-
-      IO.puts(
-        :stderr,
-        IO.ANSI.format([
-          "  #{String.pad_leading(to_string(i), 2)}. ",
-          String.pad_trailing(String.slice(t.title, 0, 38), 40),
-          :bright,
-          String.pad_leading(Laev.Stats.duration(t.seconds), 8),
-          :reset,
-          :faint,
-          "  #{counts}",
-          :reset
-        ])
-      )
-    end)
 
     if s.unknown > 0 do
       IO.puts(
@@ -3831,7 +3819,14 @@ defmodule Laev.CLI do
     end
 
     IO.puts(:stderr, "")
-    if tty?(), do: IO.gets("  press enter to go back… ")
+    # A picker rather than a prompt: esc leaves it the way esc leaves every
+    # other screen. Reading a single keypress isn't open to us — a System.cmd
+    # child has no controlling terminal, so raw mode can't be set.
+    rows = Enum.take(s.titles, 10)
+
+    if rows != [] do
+      pick(rows, &stats_row/1, "⧗ what you've watched · esc goes back")
+    end
   end
 
   # ── continue watching ─────────────────────────────────────────────
