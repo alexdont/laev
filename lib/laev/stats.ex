@@ -28,21 +28,25 @@ defmodule Laev.Stats do
   All-time totals: seconds watched, how many films and episodes, and the
   titles you've given the most time to.
 
-  Returns `%{seconds:, films:, episodes:, titles: [%Title{}], unknown:}` with
-  `titles` sorted by time spent.
+  Returns `%{seconds:, films:, episodes:, titles: [%Title{}], unknown:,
+  skipped:, measured:}` with `titles` sorted by time spent. `skipped` counts
+  only plays laev measured, so it starts at nothing and grows from here.
   """
   def all_time do
     entries = read_positions()
     runtimes = runtimes_for(entries)
+    played = read_played()
 
-    {titles, unknown} = fold(entries, runtimes)
+    {titles, unknown, skipped, measured} = fold(entries, runtimes, played)
 
     %{
       seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(),
       films: count_kind(entries, :movie),
       episodes: count_kind(entries, :episode),
       titles: Enum.sort_by(titles, & &1.seconds, :desc),
-      unknown: unknown
+      unknown: unknown,
+      skipped: skipped,
+      measured: measured
     }
   end
 
@@ -66,9 +70,7 @@ defmodule Laev.Stats do
 
     case File.ls(dir) do
       {:ok, names} ->
-        names
-        |> Enum.flat_map(&parse(&1, File.read(Path.join(dir, &1))))
-        |> Enum.to_list()
+        Enum.flat_map(names, &parse(&1, File.read(Path.join(dir, &1))))
 
       _ ->
         []
@@ -85,7 +87,7 @@ defmodule Laev.Stats do
     case {key_parts(name), progress} do
       {nil, _} -> []
       {_, nil} -> []
-      {{type, id, kind}, progress} -> [{type, id, kind, progress}]
+      {{type, id, kind}, progress} -> [{name, type, id, kind, progress}]
     end
   end
 
@@ -103,7 +105,32 @@ defmodule Laev.Stats do
     end
   end
 
-  defp count_kind(entries, kind), do: Enum.count(entries, fn {_t, _i, k, _p} -> k == kind end)
+  defp count_kind(entries, kind), do: Enum.count(entries, fn {_n, _t, _i, k, _p} -> k == kind end)
+
+  # What the mpv script measured: seconds truly played, and seconds seeked
+  # past. Only exists for plays since laev started counting, so it refines
+  # the estimate where it can and is simply absent everywhere else.
+  defp read_played do
+    dir = Path.join(data_dir(), "played")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        Map.new(names, fn name ->
+          with {:ok, body} <- File.read(Path.join(dir, name)),
+               [w, s] <- String.split(String.trim(body), " ", parts: 2),
+               {watched, _} <- Integer.parse(w),
+               {skipped, _} <- Integer.parse(s) do
+            {name, %{watched: watched, skipped: skipped}}
+          else
+            _ -> {name, nil}
+          end
+        end)
+        |> Map.reject(fn {_k, v} -> is_nil(v) end)
+
+      _ ->
+        %{}
+    end
+  end
 
   # ── runtimes, cached ──────────────────────────────────────────────
 
@@ -114,8 +141,8 @@ defmodule Laev.Stats do
 
     wanted =
       entries
-      |> Enum.reject(fn {_t, _i, kind, _p} -> kind == :series_mark end)
-      |> Enum.map(fn {type, id, _kind, _p} -> {type, id} end)
+      |> Enum.reject(fn {_n, _t, _i, kind, _p} -> kind == :series_mark end)
+      |> Enum.map(fn {_n, type, id, _kind, _p} -> {type, id} end)
       |> Enum.uniq()
       |> Enum.reject(&Map.has_key?(cached, cache_key(&1)))
 
@@ -179,22 +206,28 @@ defmodule Laev.Stats do
 
   # ── folding it together ───────────────────────────────────────────
 
-  defp fold(entries, runtimes) do
+  defp fold(entries, runtimes, played) do
     titles = Laev.Resume.all() |> Map.new(&{{&1["type"], &1["tmdb_id"]}, &1["title"]})
+    empty = {%{}, 0, 0, 0}
 
-    Enum.reduce(entries, {%{}, 0}, fn {type, id, kind, progress}, {acc, unknown} ->
-      case seconds_for(kind, progress, Map.get(runtimes, "#{type}-#{id}")) do
-        :skip ->
-          {acc, unknown}
+    Enum.reduce(entries, empty, fn {name, type, id, kind, progress}, {acc, unknown, skipped, measured} ->
+      case {kind, Map.get(played, name)} do
+        {:series_mark, _} ->
+          {acc, unknown, skipped, measured}
 
-        :unknown ->
-          {bump(acc, {type, id}, titles, 0, progress), unknown + 1}
+        # Measured: the seconds really played, and what was seeked past.
+        {_, %{watched: watched, skipped: past}} ->
+          {bump(acc, {type, id}, titles, watched, progress), unknown, skipped + past, measured + 1}
 
-        seconds ->
-          {bump(acc, {type, id}, titles, seconds, progress), unknown}
+        _ ->
+          case seconds_for(kind, progress, Map.get(runtimes, "#{type}-#{id}")) do
+            :skip -> {acc, unknown, skipped, measured}
+            :unknown -> {bump(acc, {type, id}, titles, 0, progress), unknown + 1, skipped, measured}
+            seconds -> {bump(acc, {type, id}, titles, seconds, progress), unknown, skipped, measured}
+          end
       end
     end)
-    |> then(fn {acc, unknown} -> {Map.values(acc), unknown} end)
+    |> then(fn {acc, unknown, skipped, measured} -> {Map.values(acc), unknown, skipped, measured} end)
   end
 
   # A part-watched entry is worth the seconds it reached; a finished one is

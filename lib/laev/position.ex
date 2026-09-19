@@ -19,7 +19,7 @@ defmodule Laev.Position do
   -- and remembers the selected subtitle/audio tracks per source.
   -- Written by laev on every launch; do not edit.
   local options = require "mp.options"
-  local opts = { file = "", tracks = "" }
+  local opts = { file = "", tracks = "", played = "" }
   options.read_options(opts, "laev")
 
   -- Per-series track memory: when the user switches audio/subtitle track,
@@ -35,6 +35,7 @@ defmodule Laev.Position do
   mp.register_event("file-loaded", function()
     ready = true
     settled = false
+    load_played()
     mp.add_timeout(2, function() settled = true end)
   end)
   mp.register_event("end-file", function() ready = false end)
@@ -56,6 +57,54 @@ defmodule Laev.Position do
 
   mp.observe_property("sid", "native", save_tracks)
   mp.observe_property("aid", "native", save_tracks)
+
+  -- Time actually watched, as opposed to time the playhead covered. The
+  -- timer fires every 5s, so a sample that moved the playhead about 5s is
+  -- playback and a sample that moved it minutes is a seek. Speed is folded
+  -- in (at 2x a real 5s tick advances 10s), and rewinds count as neither —
+  -- they are re-watching, already paid for. Totals accumulate across
+  -- sessions, so resuming an episode tomorrow adds to today.
+  local watched = 0
+  local skipped = 0
+  local last_pos = nil
+
+  local function write_played()
+    if opts.played == "" then return end
+    local f = io.open(opts.played, "w")
+    if f then
+      f:write(string.format("%d %d", math.floor(watched), math.floor(skipped)))
+      f:close()
+    end
+  end
+
+  local function load_played()
+    watched, skipped = 0, 0
+    last_pos = nil
+    if opts.played == "" then return end
+    local f = io.open(opts.played, "r")
+    if f then
+      local w, s = f:read("*a"):match("(%d+)%s+(%d+)")
+      f:close()
+      if w then watched = tonumber(w) skipped = tonumber(s) end
+    end
+  end
+
+  local function accumulate()
+    local pos = mp.get_property_number("time-pos")
+    if not pos then return end
+    if last_pos then
+      local delta = pos - last_pos
+      local speed = mp.get_property_number("speed") or 1
+      -- what one second of real playback can advance the playhead by
+      local budget = speed * 1.5 + 0.5
+      if delta > 0 and delta <= budget then
+        watched = watched + delta
+      elseif delta > budget then
+        skipped = skipped + delta
+      end
+    end
+    last_pos = pos
+  end
 
   local function write(n)
     if opts.file == "" then return end
@@ -83,6 +132,7 @@ defmodule Laev.Position do
   local function save()
     local pos = mp.get_property_number("time-pos")
     if not pos then return end
+    write_played()
     local dur = mp.get_property_number("duration")
 
     if dur and dur > 0 and pos < dur * 0.5 then saw_early = true end
@@ -96,6 +146,7 @@ defmodule Laev.Position do
     write(math.floor(pos))
   end
 
+  mp.add_periodic_timer(1, accumulate)
   mp.add_periodic_timer(5, save)
   mp.register_event("shutdown", save)
   mp.register_event("end-file", function(e)
@@ -118,6 +169,7 @@ defmodule Laev.Position do
         # Track memory is per-SERIES (not per-episode/file): a language
         # choice on one episode applies to every episode and season.
         tracks = tracks_file(series_key(ctx))
+        played = played_file(key)
 
         # -append: a plain --script-opts= would replace the whole list and
         # wipe other scripts' opts (e.g. the skip windows).
@@ -125,7 +177,8 @@ defmodule Laev.Position do
           [
             "--script=#{script_path()}",
             "--script-opts-append=laev-file=#{file}",
-            "--script-opts-append=laev-tracks=#{tracks}"
+            "--script-opts-append=laev-tracks=#{tracks}",
+            "--script-opts-append=laev-played=#{played}"
           ] ++ track_args(tracks)
 
         case read(file) do
@@ -289,6 +342,29 @@ defmodule Laev.Position do
     path = Path.join(data_dir(), "position.lua")
     File.write!(path, @script)
     path
+  end
+
+  @doc """
+  How much of this title was actually watched, and how much was skipped past,
+  in seconds — `nil` for anything played before laev started measuring. Only
+  the mpv script writes it, so it covers real playback and nothing else.
+  """
+  def played(ctx) do
+    with key when is_binary(key) <- key(ctx),
+         {:ok, body} <- File.read(played_file(key)),
+         [watched, skipped] <- String.split(String.trim(body), " ", parts: 2),
+         {watched, _} <- Integer.parse(watched),
+         {skipped, _} <- Integer.parse(skipped) do
+      %{watched: watched, skipped: skipped}
+    else
+      _ -> nil
+    end
+  end
+
+  defp played_file(key) do
+    dir = Path.join(data_dir(), "played")
+    File.mkdir_p(dir)
+    Path.join(dir, key)
   end
 
   defp position_file(key) do

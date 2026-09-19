@@ -3735,6 +3735,8 @@ defmodule Laev.CLI do
           films: s.films,
           episodes: s.episodes,
           unknown_runtime: s.unknown,
+          skipped: s.skipped,
+          measured_plays: s.measured,
           titles:
             Enum.map(s.titles, &%{title: &1.title, type: &1.type, tmdb_id: &1.tmdb_id, seconds: &1.seconds})
         })
@@ -3760,6 +3762,22 @@ defmodule Laev.CLI do
         " across #{length(s.titles)} titles · #{s.films} films · #{s.episodes} episodes\n"
       ])
     )
+
+    if s.measured > 0 do
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          "  ",
+          :bright,
+          Laev.Stats.duration(s.skipped),
+          :reset,
+          " skipped past",
+          :faint,
+          "  (measured on #{s.measured} #{if s.measured == 1, do: "play", else: "plays"} — laev only counts what it watched you watch)\n",
+          :reset
+        ])
+      )
+    end
 
     IO.puts(:stderr, IO.ANSI.format([:faint, "  Most time spent", :reset]))
 
