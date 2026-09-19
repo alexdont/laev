@@ -3746,9 +3746,11 @@ defmodule Laev.CLI do
     end
   end
 
-  # The most-watched list, ten at a time — the tail is long and mostly one
-  # film each, so the rest is there for whoever wants it rather than in the
-  # way of everyone who doesn't.
+  # The most-watched list, a page at a time. fzf filters what is loaded, so
+  # the page wants to be big enough that typing a title usually finds it
+  # without paging first.
+  @stats_page 50
+
   defp stats_list(titles, shown) do
     rows = Enum.take(titles, shown)
     items = if length(titles) > shown, do: rows ++ [:more], else: rows
@@ -3757,7 +3759,7 @@ defmodule Laev.CLI do
       "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · esc goes back"
 
     case pick(items, &stats_row/1, header) do
-      :more -> stats_list(titles, shown + 10)
+      :more -> stats_list(titles, shown + @stats_page)
       _ -> :ok
     end
   end
@@ -3840,7 +3842,7 @@ defmodule Laev.CLI do
     # A picker rather than a prompt: esc leaves it the way esc leaves every
     # other screen. Reading a single keypress isn't open to us — a System.cmd
     # child has no controlling terminal, so raw mode can't be set.
-    if s.titles != [], do: stats_list(s.titles, 10)
+    if s.titles != [], do: stats_list(s.titles, @stats_page)
   end
 
   # ── continue watching ─────────────────────────────────────────────
