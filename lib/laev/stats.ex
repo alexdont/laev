@@ -43,6 +43,7 @@ defmodule Laev.Stats do
       seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(),
       films: count_kind(entries, :movie),
       episodes: count_kind(entries, :episode),
+      marked: Enum.count(entries, fn {_n, _t, _i, _k, p} -> p == :seen end),
       titles: Enum.sort_by(titles, & &1.seconds, :desc),
       unknown: unknown,
       skipped: skipped,
@@ -81,6 +82,7 @@ defmodule Laev.Stats do
     progress =
       case String.trim(body) do
         "done" -> :done
+        "seen" -> :seen
         digits -> with {n, _} <- Integer.parse(digits), do: {:secs, n}, else: (_ -> nil)
       end
 
@@ -141,7 +143,7 @@ defmodule Laev.Stats do
 
     wanted =
       entries
-      |> Enum.reject(fn {_n, _t, _i, kind, _p} -> kind == :series_mark end)
+      |> Enum.reject(fn {_n, _t, _i, kind, p} -> kind == :series_mark or p == :seen end)
       |> Enum.map(fn {_n, type, id, _kind, _p} -> {type, id} end)
       |> Enum.uniq()
       |> Enum.reject(&Map.has_key?(cached, cache_key(&1)))
@@ -222,6 +224,7 @@ defmodule Laev.Stats do
         _ ->
           case seconds_for(kind, progress, Map.get(runtimes, "#{type}-#{id}")) do
             :skip -> {acc, unknown, skipped, measured}
+            :marked -> {bump(acc, {type, id}, titles, 0, progress), unknown, skipped, measured}
             :unknown -> {bump(acc, {type, id}, titles, 0, progress), unknown + 1, skipped, measured}
             seconds -> {bump(acc, {type, id}, titles, seconds, progress), unknown, skipped, measured}
           end
@@ -233,6 +236,8 @@ defmodule Laev.Stats do
   # A part-watched entry is worth the seconds it reached; a finished one is
   # worth its runtime, which is the only place the runtime lookup is needed.
   defp seconds_for(:series_mark, _progress, _runtime), do: :skip
+  # Marked by hand: watched, but not time laev can claim to have measured.
+  defp seconds_for(_kind, :seen, _runtime), do: :marked
   defp seconds_for(_kind, {:secs, seconds}, _runtime), do: seconds
   defp seconds_for(_kind, :done, runtime) when is_integer(runtime), do: runtime
   defp seconds_for(_kind, :done, _), do: :unknown
@@ -249,7 +254,7 @@ defmodule Laev.Stats do
 
     entry =
       case progress do
-        :done -> %{entry | finished: entry.finished + 1}
+        p when p in [:done, :seen] -> %{entry | finished: entry.finished + 1}
         _ -> %{entry | started: entry.started + 1}
       end
 

@@ -226,7 +226,10 @@ defmodule Laev.Position do
   def finished?(ctx) do
     with key when is_binary(key) <- key(ctx),
          {:ok, body} <- File.read(position_file(key)) do
-      String.trim(body) == "done"
+      # "done" is written by playback reaching the end; "seen" by hand. Both
+      # mean watched here — the difference only matters to the stats, which
+      # must not bill you for hours it never saw you spend.
+      String.trim(body) in ["done", "seen"]
     else
       _ -> false
     end
@@ -251,9 +254,15 @@ defmodule Laev.Position do
     _ -> false
   end
 
-  @doc "Manually mark an episode watched (write \"done\") or unwatched (clear it)."
+  @doc """
+  Mark a title or episode watched by hand, or clear the mark.
+
+  Writes "seen" rather than the "done" playback leaves behind: it says you
+  have watched this, not that laev watched you watch it, so the stats can
+  count it as watched without adding a runtime it never measured.
+  """
   def set_watched(ctx, true) do
-    with key when is_binary(key) <- key(ctx), do: File.write(position_file(key), "done")
+    with key when is_binary(key) <- key(ctx), do: File.write(position_file(key), "seen")
     :ok
   rescue
     _ -> :ok

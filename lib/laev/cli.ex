@@ -483,7 +483,7 @@ defmodule Laev.CLI do
         {:watchlist, watchlist_row()},
         {:calendar, calendar_row()},
         {:search, "⌕ Search — find something by name"},
-        {:stats, "▥ Stats — how much you've watched"},
+        {:stats, "⧗ Stats — how much you've watched"},
         {:settings, "⚙ Settings — toggles & preferences"}
       ])
 
@@ -3737,6 +3737,7 @@ defmodule Laev.CLI do
           unknown_runtime: s.unknown,
           skipped: s.skipped,
           measured_plays: s.measured,
+          marked_by_hand: s.marked,
           titles:
             Enum.map(s.titles, &%{title: &1.title, type: &1.type, tmdb_id: &1.tmdb_id, seconds: &1.seconds})
         })
@@ -3750,7 +3751,7 @@ defmodule Laev.CLI do
 
   defp print_stats(s) do
     clear_screen()
-    IO.puts(:stderr, IO.ANSI.format(["\n  ▥ ", :bright, "What you've watched", :reset, "\n"]))
+    IO.puts(:stderr, IO.ANSI.format(["\n  ⧗ ", :bright, "What you've watched", :reset, "\n"]))
 
     IO.puts(
       :stderr,
@@ -3762,6 +3763,17 @@ defmodule Laev.CLI do
         " across #{length(s.titles)} titles · #{s.films} films · #{s.episodes} episodes\n"
       ])
     )
+
+    if s.marked > 0 do
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          :faint,
+          "  #{s.marked} marked watched by hand — counted as seen, not as time\n",
+          :reset
+        ])
+      )
+    end
 
     if s.measured > 0 do
       IO.puts(
