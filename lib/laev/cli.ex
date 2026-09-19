@@ -3746,6 +3746,24 @@ defmodule Laev.CLI do
     end
   end
 
+  # The most-watched list, ten at a time — the tail is long and mostly one
+  # film each, so the rest is there for whoever wants it rather than in the
+  # way of everyone who doesn't.
+  defp stats_list(titles, shown) do
+    rows = Enum.take(titles, shown)
+    items = if length(titles) > shown, do: rows ++ [:more], else: rows
+
+    header =
+      "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · esc goes back"
+
+    case pick(items, &stats_row/1, header) do
+      :more -> stats_list(titles, shown + 10)
+      _ -> :ok
+    end
+  end
+
+  defp stats_row(:more), do: "⋯ show more"
+
   # One row of the most-watched list: title, time, and how it got there.
   defp stats_row(t) do
     counts =
@@ -3822,11 +3840,7 @@ defmodule Laev.CLI do
     # A picker rather than a prompt: esc leaves it the way esc leaves every
     # other screen. Reading a single keypress isn't open to us — a System.cmd
     # child has no controlling terminal, so raw mode can't be set.
-    rows = Enum.take(s.titles, 10)
-
-    if rows != [] do
-      pick(rows, &stats_row/1, "⧗ what you've watched · esc goes back")
-    end
+    if s.titles != [], do: stats_list(s.titles, 10)
   end
 
   # ── continue watching ─────────────────────────────────────────────
