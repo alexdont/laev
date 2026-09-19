@@ -27,7 +27,7 @@ defmodule Laev.StatsTest do
 
   defp runtimes(dir, map), do: File.write!(Path.join(dir, "runtimes.json"), Jason.encode!(map))
 
-  test "a film marked watched by hand is worth its runtime", %{dir: dir} do
+  test "a film marked watched by hand is worth its runtime, off laev", %{dir: dir} do
     position(dir, "movie-1122573", "seen")
     runtimes(dir, %{"movie-1122573" => 5820})
 
@@ -35,17 +35,34 @@ defmodule Laev.StatsTest do
 
     # The whole point: ctrl-w in search says you watched it, so the total moves.
     assert stats.seconds == 5820
+    assert stats.off_laev == 5820
+    assert stats.in_laev == 0
     assert stats.films == 1
     assert stats.marked == 1
     assert stats.unknown == 0
   end
 
-  test "a finished play and a hand mark are worth the same", %{dir: dir} do
+  test "a finished play and a hand mark are worth the same, in different buckets", %{dir: dir} do
     position(dir, "movie-1", "done")
     position(dir, "movie-2", "seen")
     runtimes(dir, %{"movie-1" => 6000, "movie-2" => 6000})
 
-    assert Stats.all_time().seconds == 12_000
+    stats = Stats.all_time()
+
+    assert stats.seconds == 12_000
+    assert stats.in_laev == 6000
+    assert stats.off_laev == 6000
+    assert stats.in_laev + stats.off_laev == stats.seconds
+  end
+
+  test "a title watched here and later marked again keeps both parts apart", %{dir: dir} do
+    position(dir, "tv-500-e1", "done")
+    position(dir, "tv-500-e2", "seen")
+    runtimes(dir, %{"tv-500" => 1440})
+
+    assert [title] = Stats.all_time().titles
+    assert title.seconds == 2880
+    assert title.off == 1440
   end
 
   test "a part-watched entry is worth the seconds it reached, not its runtime", %{dir: dir} do
@@ -66,12 +83,16 @@ defmodule Laev.StatsTest do
     assert stats.unknown == 1
   end
 
-  test "marking a whole series is watched, but never guesses hours", %{dir: dir} do
+  test "marking a whole series counts its whole run, all of it off laev", %{dir: dir} do
     position(dir, "tv-1399", "seen")
-    runtimes(dir, %{"tv-1399" => 3420})
+    # Its own cache key: the length of every episode there is, not one of them.
+    runtimes(dir, %{"tv-1399" => 3420, "series-1399" => 73 * 3420})
 
-    # laev has no idea how many of its 73 episodes you actually sat through.
-    assert Stats.all_time().seconds == 0
+    stats = Stats.all_time()
+
+    assert stats.seconds == 73 * 3420
+    assert stats.off_laev == stats.seconds
+    assert stats.in_laev == 0
   end
 
   test "episodes borrow their show's runtime and count their show once", %{dir: dir} do
@@ -81,6 +102,8 @@ defmodule Laev.StatsTest do
 
     stats = Stats.all_time()
     assert stats.seconds == 4 * 1440
+    assert stats.in_laev == 3 * 1440
+    assert stats.off_laev == 1440
     assert stats.episodes == 4
     assert stats.shows == 2
   end
@@ -92,6 +115,7 @@ defmodule Laev.StatsTest do
 
     stats = Stats.all_time()
     assert stats.seconds == 3000, "measured seconds should win over the runtime"
+    assert stats.in_laev == 3000
     assert stats.skipped == 600
     assert stats.measured == 1
   end

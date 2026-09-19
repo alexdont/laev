@@ -8,12 +8,18 @@ defmodule Laev.Stats do
   so runtimes come from TMDB and are cached in `runtimes.json`, one lookup per
   film and one per *show* rather than per episode.
 
+  Time comes in two kinds, kept apart because they are known to very
+  different degrees:
+
+    * **in laev** — played here. Either measured second by second by the mpv
+      script, or taken as the runtime of something laev watched you finish.
+    * **off laev** — marked watched by hand with ctrl-w. You watched it; laev
+      has no idea how much of it, or when, so it assumes the full runtime and
+      never pretends that figure was observed.
+
   Nothing is invented. An entry whose runtime can't be established is counted
   as watched but left out of the time, and reported separately, so the total
-  is only ever made of durations that were actually known. Marking something
-  watched by hand does count its runtime — you watched it, laev just wasn't
-  the one playing it — and how many totals were reached that way is reported
-  alongside.
+  is only ever made of durations that were actually known.
   """
 
   alias Laev.Tmdb
@@ -24,16 +30,17 @@ defmodule Laev.Stats do
 
   defmodule Title do
     @moduledoc false
-    defstruct [:type, :tmdb_id, :title, seconds: 0, finished: 0, started: 0]
+    defstruct [:type, :tmdb_id, :title, seconds: 0, off: 0, finished: 0, started: 0]
   end
 
   @doc """
   All-time totals: seconds watched, how many films and episodes, and the
   titles you've given the most time to.
 
-  Returns `%{seconds:, films:, episodes:, shows:, titles: [%Title{}], unknown:,
-  skipped:, measured:}` with `titles` sorted by time spent. `skipped` counts
-  only plays laev measured, so it starts at nothing and grows from here.
+  Returns `%{seconds:, in_laev:, off_laev:, films:, episodes:, shows:, titles:
+  [%Title{}], unknown:, skipped:, measured:}` with `titles` sorted by time
+  spent. `seconds` is the two buckets added together. `skipped` counts only
+  plays laev measured, so it starts at nothing and grows from here.
   """
   def all_time do
     entries = read_positions()
@@ -41,9 +48,13 @@ defmodule Laev.Stats do
     played = read_played()
 
     {titles, unknown, skipped, measured} = fold(entries, runtimes, played)
+    off = titles |> Enum.map(& &1.off) |> Enum.sum()
+    total = titles |> Enum.map(& &1.seconds) |> Enum.sum()
 
     %{
-      seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(),
+      seconds: total,
+      in_laev: total - off,
+      off_laev: off,
       films: count_kind(entries, :movie),
       episodes: count_kind(entries, :episode),
       shows: count_shows(entries),
@@ -157,8 +168,7 @@ defmodule Laev.Stats do
 
     wanted =
       entries
-      |> Enum.reject(fn {_n, _t, _i, kind, _p} -> kind == :series_mark end)
-      |> Enum.map(fn {_n, type, id, _kind, _p} -> {type, id} end)
+      |> Enum.map(fn {_n, type, id, kind, _p} -> runtime_key(type, id, kind) end)
       |> Enum.uniq()
       |> Enum.reject(&Map.has_key?(cached, cache_key(&1)))
 
@@ -182,6 +192,11 @@ defmodule Laev.Stats do
 
   defp cache_key({type, id}), do: "#{type}-#{id}"
 
+  # "I've seen all of it" needs the length of the whole run, so a series mark
+  # is looked up under its own key rather than borrowing the episode length.
+  defp runtime_key(_type, id, :series_mark), do: {"series", id}
+  defp runtime_key(type, id, _kind), do: {type, id}
+
   # Seconds, or `@unknown` when TMDB lists none — cached either way, so a show
   # without runtimes isn't looked up again on every run.
   defp fetch_runtime({"movie", id}) do
@@ -192,17 +207,27 @@ defmodule Laev.Stats do
   end
 
   defp fetch_runtime({"tv", id}) do
-    case Tmdb.tv(id) do
-      {:ok, %{"episode_run_time" => [minutes | _]}} when is_integer(minutes) and minutes > 0 ->
-        minutes * 60
+    with {:ok, show} <- Tmdb.tv(id), do: episode_seconds(show), else: (_ -> @unknown)
+  end
 
-      {:ok, %{"last_episode_to_air" => %{"runtime" => minutes}}} when is_integer(minutes) and minutes > 0 ->
-        minutes * 60
-
-      _ ->
-        @unknown
+  # Every episode there is — what marking a whole series claims you watched.
+  defp fetch_runtime({"series", id}) do
+    with {:ok, show} <- Tmdb.tv(id),
+         seconds when is_integer(seconds) <- episode_seconds(show),
+         count when is_integer(count) and count > 0 <- show["number_of_episodes"] do
+      count * seconds
+    else
+      _ -> @unknown
     end
   end
+
+  defp episode_seconds(%{"episode_run_time" => [minutes | _]}) when is_integer(minutes) and minutes > 0,
+    do: minutes * 60
+
+  defp episode_seconds(%{"last_episode_to_air" => %{"runtime" => minutes}}) when is_integer(minutes) and minutes > 0,
+    do: minutes * 60
+
+  defp episode_seconds(_), do: @unknown
 
   defp load_cache do
     with {:ok, body} <- File.read(Path.join(data_dir(), @cache)),
@@ -227,20 +252,23 @@ defmodule Laev.Stats do
     empty = {%{}, 0, 0, 0}
 
     Enum.reduce(entries, empty, fn {name, type, id, kind, progress}, {acc, unknown, skipped, measured} ->
-      case {kind, Map.get(played, name)} do
-        {:series_mark, _} ->
-          {acc, unknown, skipped, measured}
+      key = {type, id}
+      runtime = Map.get(runtimes, cache_key(runtime_key(type, id, kind)))
 
-        # Measured: the seconds really played, and what was seeked past.
-        {_, %{watched: watched, skipped: past}} ->
-          {bump(acc, {type, id}, titles, watched, progress), unknown, skipped + past, measured + 1}
+      case {Map.get(played, name), seconds_for(progress, runtime)} do
+        # Measured: the seconds really played here, and what was seeked past.
+        {%{watched: watched, skipped: past}, _} ->
+          {bump(acc, key, titles, watched, 0, progress), unknown, skipped + past, measured + 1}
 
-        _ ->
-          case seconds_for(kind, progress, Map.get(runtimes, "#{type}-#{id}")) do
-            :skip -> {acc, unknown, skipped, measured}
-            :unknown -> {bump(acc, {type, id}, titles, 0, progress), unknown + 1, skipped, measured}
-            seconds -> {bump(acc, {type, id}, titles, seconds, progress), unknown, skipped, measured}
-          end
+        {_, :unknown} ->
+          {bump(acc, key, titles, 0, 0, progress), unknown + 1, skipped, measured}
+
+        # Marked by hand: the full runtime, all of it off-laev.
+        {_, {:off, seconds}} ->
+          {bump(acc, key, titles, seconds, seconds, progress), unknown, skipped, measured}
+
+        {_, seconds} ->
+          {bump(acc, key, titles, seconds, 0, progress), unknown, skipped, measured}
       end
     end)
     |> then(fn {acc, unknown, skipped, measured} -> {Map.values(acc), unknown, skipped, measured} end)
@@ -248,14 +276,14 @@ defmodule Laev.Stats do
 
   # A part-watched entry is worth the seconds it reached; a finished one is
   # worth its runtime, which is the only place the runtime lookup is needed.
-  # A hand mark counts the same as a finished play: ctrl-w says you watched
-  # it, and a film you watched is worth its runtime wherever you saw it.
-  defp seconds_for(:series_mark, _progress, _runtime), do: :skip
-  defp seconds_for(_kind, {:secs, seconds}, _runtime), do: seconds
-  defp seconds_for(_kind, done, runtime) when done in [:done, :seen] and is_integer(runtime), do: runtime
-  defp seconds_for(_kind, done, _) when done in [:done, :seen], do: :unknown
+  # A hand mark is worth its runtime too — ctrl-w says you watched it — but
+  # comes back tagged, because that runtime is an assumption, not a reading.
+  defp seconds_for({:secs, seconds}, _runtime), do: seconds
+  defp seconds_for(:seen, runtime) when is_integer(runtime), do: {:off, runtime}
+  defp seconds_for(:done, runtime) when is_integer(runtime), do: runtime
+  defp seconds_for(progress, _runtime) when progress in [:done, :seen], do: :unknown
 
-  defp bump(acc, {type, id} = key, titles, seconds, progress) do
+  defp bump(acc, {type, id} = key, titles, seconds, off, progress) do
     entry =
       Map.get(acc, key, %Title{
         type: type,
@@ -263,7 +291,7 @@ defmodule Laev.Stats do
         title: Map.get(titles, key) || "#{type} ##{id}"
       })
 
-    entry = %{entry | seconds: entry.seconds + seconds}
+    entry = %{entry | seconds: entry.seconds + seconds, off: entry.off + off}
 
     entry =
       case progress do

@@ -3740,6 +3740,8 @@ defmodule Laev.CLI do
       IO.puts(
         Jason.encode!(%{
           seconds: s.seconds,
+          in_laev: s.in_laev,
+          off_laev: s.off_laev,
           films: s.films,
           episodes: s.episodes,
           shows: s.shows,
@@ -3748,7 +3750,10 @@ defmodule Laev.CLI do
           measured_plays: s.measured,
           marked_by_hand: s.marked,
           titles:
-            Enum.map(s.titles, &%{title: &1.title, type: &1.type, tmdb_id: &1.tmdb_id, seconds: &1.seconds})
+            Enum.map(
+              s.titles,
+              &%{title: &1.title, type: &1.type, tmdb_id: &1.tmdb_id, seconds: &1.seconds, off_laev: &1.off}
+            )
         })
       )
     end
@@ -3785,6 +3790,21 @@ defmodule Laev.CLI do
       String.pad_leading(Laev.Stats.duration(t.seconds), 8) <> "  " <> counts
   end
 
+  # One half of the total: what it was, and why it is known to the degree it is.
+  defp bucket_line(seconds, label, note) do
+    [
+      "    ",
+      :bright,
+      String.pad_leading(Laev.Stats.duration(seconds), 8),
+      :reset,
+      "  " <> String.pad_trailing(label, 9),
+      :faint,
+      "· " <> note,
+      :reset,
+      "\n"
+    ]
+  end
+
   defp print_stats(%{titles: []}) do
     IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  Nothing watched yet — play something and it lands here.\n", :reset]))
   end
@@ -3805,13 +3825,18 @@ defmodule Laev.CLI do
       ])
     )
 
-    if s.marked > 0 do
+    # Split only when there is something to split: with no hand marks the two
+    # lines would say the total twice.
+    if s.off_laev > 0 do
       IO.puts(
         :stderr,
         IO.ANSI.format([
-          :faint,
-          "  #{s.marked} of those you marked watched by hand, counted at runtime\n",
-          :reset
+          bucket_line(s.in_laev, "in laev", "played here"),
+          bucket_line(
+            s.off_laev,
+            "off laev",
+            "#{s.marked} marked watched, counted at full runtime"
+          )
         ])
       )
     end
