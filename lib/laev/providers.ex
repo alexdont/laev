@@ -61,7 +61,7 @@ defmodule Laev.Providers do
       true ->
         case resolve_magnet(source.magnet, resolve_opts) do
           {:ok, stream} ->
-            {:ok, with_tracks(stream)}
+            {:ok, if(resolve_opts[:tracks] == false, do: stream, else: with_tracks(stream))}
 
           {:error, {:rd, 451, _}} = err ->
             Blocklist.block(source.hash)
@@ -119,7 +119,9 @@ defmodule Laev.Providers do
   """
   def resolve_best(sources, opts \\ []) do
     notify = Keyword.get(opts, :notify, fn _ -> :ok end)
-    resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
+    # --auto plays the first hit and never shows a row, so the track lookup
+    # would only delay the launch.
+    resolve_opts = [patience: 5, tracks: false] ++ Keyword.take(opts, [:episode, :season])
     do_resolve_best(sources, notify, resolve_opts, [])
   end
 

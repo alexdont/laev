@@ -26,7 +26,8 @@ defmodule Laev.Tracks do
     "slk" => "sk", "slo" => "sk", "slv" => "sl", "ind" => "id", "may" => "ms",
     "msa" => "ms", "kaz" => "kk", "bel" => "be", "cat" => "ca", "tgl" => "tl",
     "uzb" => "uz", "aze" => "az", "kat" => "ka", "geo" => "ka", "hye" => "hy",
-    "arm" => "hy", "tgk" => "tg", "kir" => "ky"
+    "arm" => "hy", "tgk" => "tg", "kir" => "ky", "nob" => "no", "nno" => "no",
+    "fil" => "tl", "pob" => "pt"
   }
 
   # "Undetermined" and friends carry no information — a row saying 💬und
@@ -89,4 +90,12 @@ defmodule Laev.Tracks do
   end
 
   def label(_), do: ""
+
+  @doc """
+  Codes safe to rank on: `Config.lang/0` / `Config.subs_lang/0` are
+  two-letter, so a 639-2 code we couldn't fold ("pob") would never match
+  and must not sink a release — it stays visible in the row, that's all.
+  """
+  def rankable(codes) when is_list(codes), do: Enum.filter(codes, &(String.length(&1) == 2))
+  def rankable(_), do: []
 end

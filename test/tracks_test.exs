@@ -41,6 +41,11 @@ defmodule Laev.TracksTest do
     assert Tracks.from_media_info(%{"details" => %{"audio" => nil}}) == %{audio: [], subs: []}
   end
 
+  test "rankable keeps only two-letter codes the language preference can match" do
+    assert Tracks.rankable(["ru", "pob", "en", "xyz"]) == ["ru", "en"]
+    assert Tracks.rankable(nil) == []
+  end
+
   test "label shows audio and subtitles, omitting empty sections" do
     assert Tracks.label(%{audio: ["ru", "en"], subs: ["ru"]}) == "🔊ru·en 💬ru"
     assert Tracks.label(%{audio: ["en"], subs: []}) == "🔊en"

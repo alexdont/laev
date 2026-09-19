@@ -3601,9 +3601,18 @@ defmodule Laev.CLI do
 
   # Audio languages RD read from the container are authoritative — they
   # replace the release-name guess / Torrentio flags in `:langs`, which is
-  # what lang_score ranks on. Subtitles stay display-only (in `stream.tracks`).
-  defp with_track_langs(source, %{tracks: %{audio: [_ | _] = audio}}),
-    do: Map.put(source, :langs, audio)
+  # what lang_score ranks on; subtitle languages go to `:subs` so a release
+  # watchable with your subs isn't sunk as "wrong language". Only codes the
+  # ranking can compare (two-letter) are copied; untagged audio (all `und`)
+  # keeps whatever the name said.
+  defp with_track_langs(source, %{tracks: %{audio: audio, subs: subs}}) do
+    source = Map.put(source, :subs, Tracks.rankable(subs))
+
+    case Tracks.rankable(audio) do
+      [] -> source
+      langs -> Map.put(source, :langs, langs)
+    end
+  end
 
   defp with_track_langs(source, _stream), do: source
 
@@ -4177,24 +4186,22 @@ defmodule Laev.CLI do
 
     # BluRay/WEB/HDTV granularity stays in the details ("HD" alone doesn't
     # say remux vs webrip); CAM there would just repeat the column.
-    # Probed RD streams know their real audio/subtitle tracks; that replaces
-    # both the name-derived "lang:xx" hint and the Torrentio flag suffix.
+    # Probed RD streams know their real audio tracks; that replaces both the
+    # name-derived "lang:xx" hint and the Torrentio flag suffix. Audio tagged
+    # `und` is common, so subtitles alone don't retire the hint — they're
+    # appended to it.
     tracks = stream && Map.get(stream, :tracks)
-    known? = Tracks.label(tracks) != ""
+    audio_known? = match?(%{audio: [_ | _]}, tracks)
 
     details =
-      [s.codec, s.audio, !cam? && s.source, !known? && Map.get(s, :langs) in [nil, []] && lang && "lang:#{lang}", Map.get(s, :provider)]
+      [s.codec, s.audio, !cam? && s.source, !audio_known? && Map.get(s, :langs) in [nil, []] && lang && "lang:#{lang}", Map.get(s, :provider)]
       |> Enum.reject(&(&1 in [nil, false]))
       |> Enum.join(" · ")
 
     langs = Map.get(s, :langs) || []
-
-    lang_suffix =
-      cond do
-        known? -> "  " <> Tracks.label(tracks)
-        langs == [] -> ""
-        true -> "  " <> Enum.join(langs, "\u00b7")
-      end
+    flags = if audio_known? or langs == [], do: "", else: "  " <> Enum.join(langs, "\u00b7")
+    track_label = if Tracks.label(tracks) == "", do: "", else: "  " <> Tracks.label(tracks)
+    lang_suffix = flags <> track_label
 
     prefix <>
       String.pad_trailing(res, 6) <>

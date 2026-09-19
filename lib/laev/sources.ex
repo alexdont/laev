@@ -794,6 +794,10 @@ defmodule Laev.Sources do
   defp lang_score(source) do
     preferred = Laev.Config.lang()
     langs = Map.get(source, :langs) || []
+    # Real subtitle tracks (probed on RD). A file you can watch with your
+    # subtitles isn't a wrong-language release — Japanese audio with English
+    # subs is the normal anime case — so it stays neutral instead of sinking.
+    subs_ok? = subs_match?(source)
 
     cond do
       preferred == "en" ->
@@ -801,16 +805,19 @@ defmodule Laev.Sources do
         # wrong named language sinks — no boosting to reorder resolution.
         cond do
           langs != [] and "en" in langs -> 0
+          langs != [] and subs_ok? -> 0
           langs != [] -> @lang_wrong
           Map.get(source, :lang) in [nil, "multi", "en"] -> 0
           true -> @lang_wrong
         end
 
-      # Torrentio's parsed language list is authoritative when present.
+      # Torrentio's parsed language list (or RD's real tracks) is
+      # authoritative when present.
       langs != [] ->
         cond do
           preferred in langs and length(langs) == 1 -> @lang_exact
           preferred in langs -> @lang_multi
+          subs_ok? -> 0
           true -> @lang_wrong
         end
 
@@ -821,6 +828,14 @@ defmodule Laev.Sources do
           nil -> 0
           _ -> @lang_wrong
         end
+    end
+  end
+
+  defp subs_match?(source) do
+    case {Laev.Config.subs_lang(), Map.get(source, :subs)} do
+      {nil, _} -> false
+      {_, nil} -> false
+      {want, subs} -> want in subs
     end
   end
 
