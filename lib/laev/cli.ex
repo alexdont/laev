@@ -483,7 +483,7 @@ defmodule Laev.CLI do
         {:watchlist, watchlist_row()},
         {:calendar, calendar_row()},
         {:search, "⌕ Search — find something by name"},
-        {:stats, "📊 Stats — how much you've watched"},
+        {:stats, "▥ Stats — how much you've watched"},
         {:settings, "⚙ Settings — toggles & preferences"}
       ])
 
@@ -3750,7 +3750,7 @@ defmodule Laev.CLI do
 
   defp print_stats(s) do
     clear_screen()
-    IO.puts(:stderr, IO.ANSI.format(["\n  📊 ", :bright, "What you've watched", :reset, "\n"]))
+    IO.puts(:stderr, IO.ANSI.format(["\n  ▥ ", :bright, "What you've watched", :reset, "\n"]))
 
     IO.puts(
       :stderr,
