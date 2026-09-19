@@ -2858,11 +2858,44 @@ defmodule Laev.CLI do
     end
   end
 
+  # Every play writes to Resume and Position, so the pickers already know what
+  # you've seen — they just never said so outside the episode lists. A finished
+  # film goes faint with a ✓, exactly like a watched episode; anything started
+  # and not finished says where you left off. Shows are never greyed: laev
+  # can't tell a finished series from one you stopped watching, and guessing
+  # wrong would hide something you meant to continue.
   defp describe_title(t) do
     kind = if t.type == "tv", do: "series", else: "movie"
     rating = if t.vote && t.vote > 0, do: " · ★ #{Float.round(t.vote * 1.0, 1)}"
-    "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}"
+    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}"
+
+    if finished_film?(t),
+      do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset])),
+      else: text
   end
+
+  defp finished_film?(%{type: "movie", id: id}) when is_integer(id),
+    do: Laev.Position.finished?(%{type: "movie", tmdb_id: id, season: nil, episode: nil})
+
+  defp finished_film?(_), do: false
+
+  # Where you left off, for something already started — the episode you reached
+  # for a series, the timestamp for a film. Nothing for a title you've never
+  # played, and nothing for a finished one (its position reads as done).
+  defp watch_progress(%{type: type, id: id}) when is_integer(id) do
+    case Laev.Resume.get(type, id) do
+      nil ->
+        ""
+
+      resume ->
+        case Laev.Position.resume_at(entry_ctx(resume)) do
+          nil -> entry_ep(resume)
+          at -> entry_ep(resume) <> " · at #{at}"
+        end
+    end
+  end
+
+  defp watch_progress(_), do: ""
 
   defp describe_season(s) do
     count = if s["episode_count"], do: " · #{s["episode_count"]} episodes"
