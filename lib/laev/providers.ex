@@ -10,7 +10,7 @@ defmodule Laev.Providers do
   only blocklisted when no configured provider can play it.
   """
 
-  alias Laev.{Blocklist, RD, Torbox}
+  alias Laev.{Blocklist, RD, Torbox, Tracks}
 
   def any_configured?, do: RD.configured?() or Torbox.configured?()
 
@@ -61,7 +61,7 @@ defmodule Laev.Providers do
       true ->
         case resolve_magnet(source.magnet, resolve_opts) do
           {:ok, stream} ->
-            {:ok, stream}
+            {:ok, if(resolve_opts[:tracks] == false, do: stream, else: with_tracks(stream))}
 
           {:error, {:rd, 451, _}} = err ->
             Blocklist.block(source.hash)
@@ -72,6 +72,20 @@ defmodule Laev.Providers do
         end
     end
   end
+
+  # A probed RD stream also learns its real audio/subtitle languages, so the
+  # picker can show them and ranking can trust them over release-name
+  # guesses. Best-effort: if mediaInfos fails the stream simply has no
+  # `:tracks` and the row falls back to what the name says. TorBox streams
+  # have no equivalent endpoint.
+  defp with_tracks(%{provider: :rd, id: id} = stream) when is_binary(id) do
+    case RD.media_info(id) do
+      {:ok, body} -> Map.put(stream, :tracks, Tracks.from_media_info(body))
+      {:error, _} -> stream
+    end
+  end
+
+  defp with_tracks(stream), do: stream
 
   @doc """
   Concurrently resolve a batch of `{source, index}` tuples across all
@@ -105,7 +119,9 @@ defmodule Laev.Providers do
   """
   def resolve_best(sources, opts \\ []) do
     notify = Keyword.get(opts, :notify, fn _ -> :ok end)
-    resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
+    # --auto plays the first hit and never shows a row, so the track lookup
+    # would only delay the launch.
+    resolve_opts = [patience: 5, tracks: false] ++ Keyword.take(opts, [:episode, :season])
     do_resolve_best(sources, notify, resolve_opts, [])
   end
 

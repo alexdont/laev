@@ -41,6 +41,10 @@ a project.
   provider-confirmed-cached next, then resolution tier with bigger files
   first. Releases in languages other than yours sink to the bottom
   (`LAEV_LANG`, default English; dual-audio stays).
+- **Real track languages, not filename guesses.** On Real-Debrid every
+  probed source also reports the audio and subtitle tracks actually inside
+  the file (`🔊ru·en 💬ru`), so a "1080p" release with five dubs shows them —
+  and ranking uses those languages instead of whatever the name hints.
 - **Continue watching**: `laev continue` jumps back to the exact episode,
   source, **and second** you left off at — the position is checkpointed every
   5 seconds while mpv plays, so it survives player crashes and power loss.
