@@ -3938,7 +3938,7 @@ defmodule Laev.CLI do
   defp forget_media(type, tmdb_id, title) do
     %{seconds: seconds, entries: count} = Laev.Stats.for_title(type, tmdb_id)
 
-    if seconds <= @forget_confirm_seconds or confirm_forget(title || "this", seconds, count) do
+    if seconds <= @forget_confirm_seconds or confirm_forget(type, tmdb_id, title || "this", seconds, count) do
       Laev.Resume.delete(type, tmdb_id)
       Laev.Position.forget(type, tmdb_id)
       Laev.Sync.live_push()
@@ -3948,7 +3948,12 @@ defmodule Laev.CLI do
     end
   end
 
-  defp confirm_forget(title, seconds, count) do
+  defp confirm_forget(type, tmdb_id, title, seconds, count) do
+    # Wanting to watch something is not the same as having watched it, so a
+    # pin survives — said out loud here, because from this side "forget it"
+    # sounds like it should take everything.
+    pinned = if Laev.Watchlist.has?(type, tmdb_id), do: " Your watchlist pin stays.", else: ""
+
     IO.puts(
       :stderr,
       IO.ANSI.format([
@@ -3959,7 +3964,7 @@ defmodule Laev.CLI do
         "?\n",
         :faint,
         "  Drops #{Laev.Stats.duration(seconds)} across #{count} #{if count == 1, do: "entry", else: "entries"}" <>
-          " — its place in the list, its watched marks, and its time in your stats.\n",
+          " — its place in continue watching, its watched marks, and its time in your stats." <> pinned <> "\n",
         :reset
       ])
     )
