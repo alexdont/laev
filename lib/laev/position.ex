@@ -22,42 +22,6 @@ defmodule Laev.Position do
   local opts = { file = "", tracks = "", played = "" }
   options.read_options(opts, "laev")
 
-  -- Per-series track memory: when the user switches audio/subtitle track,
-  -- remember the LANGUAGE (not the track id — ids differ between releases,
-  -- languages carry across every episode/season). Saved as "ALANG SLANG"
-  -- (slang "off" = subtitles disabled). laev applies it to the whole series
-  -- via --alang/--slang, overriding the global default just for this show.
-  -- A 2s settle window after load ignores mpv's own initial auto-selection
-  -- so only a real manual change is recorded.
-  local ready = false
-  local settled = false
-
-  mp.register_event("file-loaded", function()
-    ready = true
-    settled = false
-    load_played()
-    mp.add_timeout(2, function() settled = true end)
-  end)
-  mp.register_event("end-file", function() ready = false end)
-
-  local function save_tracks()
-    if opts.tracks == "" or not ready or not settled then return end
-    local alang = mp.get_property("current-tracks/audio/lang")
-    local slang = mp.get_property("current-tracks/sub/lang")
-    -- No selected sub track = subtitles off (the user disabled them).
-    if slang == nil then slang = "off" end
-    -- Untagged audio has no language to remember — skip rather than store junk.
-    if alang == nil or alang == "" then return end
-    local f = io.open(opts.tracks, "w")
-    if f then
-      f:write(alang .. " " .. slang)
-      f:close()
-    end
-  end
-
-  mp.observe_property("sid", "native", save_tracks)
-  mp.observe_property("aid", "native", save_tracks)
-
   -- Time actually watched, as opposed to time the playhead covered. The
   -- timer fires every 5s, so a sample that moved the playhead about 5s is
   -- playback and a sample that moved it minutes is a seek. Speed is folded
@@ -105,6 +69,42 @@ defmodule Laev.Position do
     end
     last_pos = pos
   end
+
+  -- Per-series track memory: when the user switches audio/subtitle track,
+  -- remember the LANGUAGE (not the track id — ids differ between releases,
+  -- languages carry across every episode/season). Saved as "ALANG SLANG"
+  -- (slang "off" = subtitles disabled). laev applies it to the whole series
+  -- via --alang/--slang, overriding the global default just for this show.
+  -- A 2s settle window after load ignores mpv's own initial auto-selection
+  -- so only a real manual change is recorded.
+  local ready = false
+  local settled = false
+
+  mp.register_event("file-loaded", function()
+    ready = true
+    settled = false
+    load_played()
+    mp.add_timeout(2, function() settled = true end)
+  end)
+  mp.register_event("end-file", function() ready = false end)
+
+  local function save_tracks()
+    if opts.tracks == "" or not ready or not settled then return end
+    local alang = mp.get_property("current-tracks/audio/lang")
+    local slang = mp.get_property("current-tracks/sub/lang")
+    -- No selected sub track = subtitles off (the user disabled them).
+    if slang == nil then slang = "off" end
+    -- Untagged audio has no language to remember — skip rather than store junk.
+    if alang == nil or alang == "" then return end
+    local f = io.open(opts.tracks, "w")
+    if f then
+      f:write(alang .. " " .. slang)
+      f:close()
+    end
+  end
+
+  mp.observe_property("sid", "native", save_tracks)
+  mp.observe_property("aid", "native", save_tracks)
 
   local function write(n)
     if opts.file == "" then return end
@@ -378,6 +378,11 @@ defmodule Laev.Position do
   defp pad(n), do: String.pad_leading("#{n}", 2, "0")
 
   # Rewritten on every launch so it always matches this app version.
+  @doc false
+  # Exposed so the test suite can run the real script under a Lua interpreter:
+  # a script that dies on its first event is invisible to any Elixir test.
+  def script_source, do: @script
+
   defp script_path do
     File.mkdir_p!(data_dir())
     path = Path.join(data_dir(), "position.lua")
