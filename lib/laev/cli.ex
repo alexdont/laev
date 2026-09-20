@@ -3735,7 +3735,9 @@ defmodule Laev.CLI do
     s = Laev.Stats.all_time()
 
     if tty?() do
-      print_stats(s)
+      # A removal changes every figure on the page, so it is recomputed rather
+      # than patched — cheap, since the runtimes it needs are already cached.
+      if print_stats(s) == :refresh, do: stats()
     else
       IO.puts(
         Jason.encode!(%{
@@ -3769,11 +3771,23 @@ defmodule Laev.CLI do
     items = if length(titles) > shown, do: rows ++ [:more], else: rows
 
     header =
-      "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · esc goes back"
+      "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · ctrl-d forgets · esc goes back"
 
-    case pick(items, &stats_row/1, header) do
-      :more -> stats_list(titles, shown + @stats_page)
-      _ -> :ok
+    case pick(items, &stats_row/1, header, nil, 0, ["ctrl-d"]) do
+      {nil, :more} ->
+        stats_list(titles, shown + @stats_page)
+
+      # Nothing to forget about a paging row.
+      {"ctrl-d", :more} ->
+        stats_list(titles, shown)
+
+      {"ctrl-d", t} ->
+        if forget_media(t.type, t.tmdb_id, t.title),
+          do: :refresh,
+          else: stats_list(titles, shown)
+
+      _ ->
+        :ok
     end
   end
 
@@ -3919,13 +3933,14 @@ defmodule Laev.CLI do
   # positions, its watched marks, its time in the stats. Returns whether it
   # went. Anything with real time behind it asks first — ctrl-d sits next to
   # ctrl-o on the same row, and a show can be thirty hours.
-  defp forget_entry(entry) do
-    %{seconds: seconds, entries: count} = Laev.Stats.for_title(entry["type"], entry["tmdb_id"])
-    title = entry["title"] || "this"
+  defp forget_entry(entry), do: forget_media(entry["type"], entry["tmdb_id"], entry["title"])
 
-    if seconds <= @forget_confirm_seconds or confirm_forget(title, seconds, count) do
-      Laev.Resume.delete(entry["type"], entry["tmdb_id"])
-      Laev.Position.forget(entry["type"], entry["tmdb_id"])
+  defp forget_media(type, tmdb_id, title) do
+    %{seconds: seconds, entries: count} = Laev.Stats.for_title(type, tmdb_id)
+
+    if seconds <= @forget_confirm_seconds or confirm_forget(title || "this", seconds, count) do
+      Laev.Resume.delete(type, tmdb_id)
+      Laev.Position.forget(type, tmdb_id)
       Laev.Sync.live_push()
       true
     else
