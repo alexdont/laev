@@ -3766,25 +3766,31 @@ defmodule Laev.CLI do
   # without paging first.
   @stats_page 50
 
-  defp stats_list(titles, shown) do
+  defp stats_list(titles, shown, initial \\ 0) do
     rows = Enum.take(titles, shown)
     items = if length(titles) > shown, do: rows ++ [:more], else: rows
 
     header =
-      "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · ctrl-d forgets · esc goes back"
+      "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · " <>
+        "ctrl-o info · ctrl-d forgets · esc goes back"
 
-    case pick(items, &stats_row/1, header, nil, 0, ["ctrl-d"]) do
+    case pick(items, &stats_row/1, header, nil, initial, ["ctrl-d", "ctrl-o"]) do
+      # Land on the first row that wasn't there a moment ago.
       {nil, :more} ->
-        stats_list(titles, shown + @stats_page)
+        stats_list(titles, shown + @stats_page, shown)
 
-      # Nothing to forget about a paging row.
-      {"ctrl-d", :more} ->
-        stats_list(titles, shown)
+      # Neither key means anything on a paging row.
+      {key, :more} when key in ["ctrl-d", "ctrl-o"] ->
+        stats_list(titles, shown, initial)
+
+      {"ctrl-o", t} ->
+        open_media_page(t.type, t.tmdb_id, t.title)
+        stats_list(titles, shown, Enum.find_index(items, &(&1 == t)) || initial)
 
       {"ctrl-d", t} ->
         if forget_media(t.type, t.tmdb_id, t.title),
           do: :refresh,
-          else: stats_list(titles, shown)
+          else: stats_list(titles, shown, Enum.find_index(items, &(&1 == t)) || initial)
 
       _ ->
         :ok
