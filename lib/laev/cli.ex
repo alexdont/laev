@@ -3890,7 +3890,9 @@ defmodule Laev.CLI do
         nothing_here("Nothing in your history yet — watch something and it shows up here.")
 
       entries ->
-        case pick(entries, &describe_resume/1, "continue watching · ctrl-o info", nil, initial, ["ctrl-o"]) do
+        hint = "continue watching · enter resumes · ctrl-d forgets · ctrl-o info"
+
+        case pick(entries, &describe_resume/1, hint, nil, initial, ["ctrl-o", "ctrl-d"]) do
           nil ->
             back()
 
@@ -3898,9 +3900,58 @@ defmodule Laev.CLI do
             open_media_page(entry["type"], entry["tmdb_id"], entry["title"])
             continue(Enum.find_index(entries, &(&1 == entry)) || 0)
 
+          {"ctrl-d", entry} ->
+            at = Enum.find_index(entries, &(&1 == entry)) || 0
+            if forget_entry(entry), do: continue(min(at, length(entries) - 2)), else: continue(at)
+
           {nil, entry} ->
             continue_entry(entry)
         end
+    end
+  end
+
+  # Anything past this much watching gets a confirmation before it is erased.
+  # Low on purpose: the point is to catch the reflex press, and two minutes is
+  # already more than a mis-click ever leaves behind.
+  @forget_confirm_seconds 120
+
+  # Remove a title from the history: its place in the list, its saved
+  # positions, its watched marks, its time in the stats. Returns whether it
+  # went. Anything with real time behind it asks first — ctrl-d sits next to
+  # ctrl-o on the same row, and a show can be thirty hours.
+  defp forget_entry(entry) do
+    %{seconds: seconds, entries: count} = Laev.Stats.for_title(entry["type"], entry["tmdb_id"])
+    title = entry["title"] || "this"
+
+    if seconds <= @forget_confirm_seconds or confirm_forget(title, seconds, count) do
+      Laev.Resume.delete(entry["type"], entry["tmdb_id"])
+      Laev.Position.forget(entry["type"], entry["tmdb_id"])
+      Laev.Sync.live_push()
+      true
+    else
+      false
+    end
+  end
+
+  defp confirm_forget(title, seconds, count) do
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        "\n  Forget ",
+        :bright,
+        title,
+        :reset,
+        "?\n",
+        :faint,
+        "  Drops #{Laev.Stats.duration(seconds)} across #{count} #{if count == 1, do: "entry", else: "entries"}" <>
+          " — its place in the list, its watched marks, and its time in your stats.\n",
+        :reset
+      ])
+    )
+
+    case IO.gets("  remove it? [y/N] ") do
+      line when is_binary(line) -> String.trim(String.downcase(line)) in ["y", "yes"]
+      _ -> false
     end
   end
 

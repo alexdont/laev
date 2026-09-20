@@ -62,6 +62,17 @@ defmodule Laev.Resume do
     :ok
   end
 
+  @doc """
+  Forget a title's place entirely. The next sync turns the gap into a
+  tombstone, so the removal travels to your other devices rather than being
+  undone by the first pull.
+  """
+  def delete(type, tmdb_id) do
+    :ets.delete(@table, key(type, tmdb_id))
+    persist()
+    :ok
+  end
+
   defp load do
     with {:ok, body} <- File.read(path()),
          {:ok, map} when is_map(map) <- Jason.decode(body) do

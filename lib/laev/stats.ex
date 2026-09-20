@@ -66,6 +66,19 @@ defmodule Laev.Stats do
     }
   end
 
+  @doc """
+  What one title holds: seconds watched and how many saved entries it spans.
+
+  Asked before erasing it, so the question "remove this?" can say what is
+  actually at stake — a film is a couple of hours, a show can be thirty.
+  """
+  def for_title(type, tmdb_id) do
+    entries = Enum.filter(read_positions(), fn {_n, t, id, _k, _p} -> t == type and id == tmdb_id end)
+    {titles, _unknown, _skipped, _measured} = fold(entries, runtimes_for(entries), read_played())
+
+    %{seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(), entries: length(entries)}
+  end
+
   @doc "Seconds as `12h 04m`, or `48m` under an hour."
   def duration(seconds) when is_integer(seconds) and seconds > 0 do
     hours = div(seconds, 3600)

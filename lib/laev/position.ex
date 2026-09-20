@@ -275,6 +275,38 @@ defmodule Laev.Position do
     _ -> :ok
   end
 
+  @doc """
+  Erase every saved position and play record for a title — the title's own
+  file and each of its episodes. Returns how many files went.
+
+  This is the destructive half of removing something from your history: those
+  files are the watched marks and the only record of time spent, so a show
+  forgotten here leaves the stats too.
+  """
+  def forget(type, tmdb_id) do
+    prefix = "#{type}-#{tmdb_id}"
+
+    Enum.reduce(["positions", "played"], 0, fn sub, count ->
+      dir = Path.join(data_dir(), sub)
+
+      case File.ls(dir) do
+        {:ok, names} ->
+          names
+          # `-` guarded, or forgetting movie-15 would take movie-150 with it.
+          |> Enum.filter(&(&1 == prefix or String.starts_with?(&1, prefix <> "-")))
+          |> Enum.reduce(count, fn name, count ->
+            case File.rm(Path.join(dir, name)) do
+              :ok -> count + 1
+              _ -> count
+            end
+          end)
+
+        _ ->
+          count
+      end
+    end)
+  end
+
   defp saved_seconds(ctx) do
     with key when is_binary(key) <- key(ctx),
          {:ok, body} <- File.read(position_file(key)),
