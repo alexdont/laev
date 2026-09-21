@@ -1527,10 +1527,15 @@ defmodule Laev.CLI do
     _ -> "⧉ Calendar — when your watchlist drops"
   end
 
+  # How many are still to watch — the number you actually want off a shelf of
+  # things you mean to get to. A count of everything saved only goes up.
   defp watchlist_row do
-    case Laev.Watchlist.count() do
-      0 -> "≡ Watchlist — empty (ctrl-s on any title pins it)"
-      n -> "≡ Watchlist — #{n} saved"
+    entries = Laev.Watchlist.all()
+
+    case {length(entries), Enum.count(entries, &(not watched_entry?(&1)))} do
+      {0, _} -> "≡ Watchlist — empty (ctrl-s on any title pins it)"
+      {n, 0} -> "≡ Watchlist — #{n} saved · all watched"
+      {_, left} -> "≡ Watchlist — #{left} left"
     end
   end
 
@@ -1666,8 +1671,13 @@ defmodule Laev.CLI do
           entry_ep(resume) <> if(at, do: " · at #{at}", else: "")
       end
 
-    mark = if watched_entry?(entry), do: "✓ ", else: ""
-    "#{mark}#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}"
+    text = "#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}"
+
+    # Same treatment as search and Featured: watched sinks into the
+    # background rather than sitting there in full white with a tick.
+    if watched_entry?(entry),
+      do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset])),
+      else: text
   end
 
   defp play_next_episode(entry) do
