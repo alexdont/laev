@@ -461,6 +461,10 @@ defmodule Laev.CLI do
   defp scale({r, g, b}, f), do: {round(r * f), round(g * f), round(b * f)}
 
   defp main_menu do
+    # The default place to come back to, until a list screen claims it. Reset
+    # here so a dead end can never land on a screen you have already left.
+    screen(fn -> main_menu() end)
+
     # First run with no keys: go straight into the wizard instead of letting
     # every menu entry die with "RD_TOKEN is not set".
     unless Providers.any_configured?() and Tmdb.configured?() do
@@ -1289,6 +1293,7 @@ defmodule Laev.CLI do
           calendar_screen(Laev.Calendar.events(), 0)
 
         {nil, event} ->
+          screen(fn -> calendar_screen(events, Enum.find_index(events, &(&1 == event)) || 0) end)
           open_event(events, event)
       end
     end
@@ -1580,6 +1585,8 @@ defmodule Laev.CLI do
           open_pinned_franchise(entry, fn -> watchlist_menu(index) end)
 
         {nil, entry} ->
+          screen(fn -> watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0) end)
+
           play_title(%{
             type: entry["type"],
             id: entry["tmdb_id"],
@@ -1626,7 +1633,9 @@ defmodule Laev.CLI do
 
       franchise ->
         case franchise_screen(franchise, on_back) do
-          title when is_map(title) -> play_title(title)
+          title when is_map(title) ->
+            screen(fn -> open_pinned_franchise(entry, on_back) end)
+            play_title(title)
           other -> other
         end
     end
@@ -2015,6 +2024,7 @@ defmodule Laev.CLI do
     # A trailing year ("in the gray 2026") kills TMDB's text match — strip it
     # and use it to rank instead (soft, ±1: release dates shift).
     {q, year} = split_year(query)
+    screen(fn -> watch_title(query) end)
     title = pick_title(q, year, 1, []) || back()
     play_title(title)
   end
@@ -2110,7 +2120,7 @@ defmodule Laev.CLI do
             with_library(q, tor ++ sources) |> probe_and_pick([], ctx)
 
           {:error, reason} ->
-            die("anime source search failed: #{inspect(reason)}")
+            no_sources("anime source search failed: #{inspect(reason)}")
         end
 
       {"tv", []} ->
@@ -2332,6 +2342,11 @@ defmodule Laev.CLI do
         nil -> back()
       end
 
+    featured_browse(type)
+  end
+
+  defp featured_browse(type) do
+    screen(fn -> featured_browse(type) end)
     title = pick_featured(type, 1, []) || back()
     play_title(title)
   end
@@ -2786,7 +2801,7 @@ defmodule Laev.CLI do
 
   defp pick_episode(details, preselect \\ nil) do
     seasons = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
-    if seasons == [], do: die("TMDB lists no seasons for this show")
+    if seasons == [], do: no_sources("TMDB lists no seasons for this show")
 
     show = details["name"] || details["title"] || ""
 
@@ -2801,7 +2816,7 @@ defmodule Laev.CLI do
     episodes =
       case Tmdb.season(details["id"], season_number) do
         {:ok, %{"episodes" => episodes}} when episodes != [] -> episodes
-        {:ok, _} -> die("TMDB lists no episodes for season #{season_number}")
+        {:ok, _} -> no_sources("TMDB lists no episodes for season #{season_number}")
         {:error, reason} -> die(tmdb_error(reason, "season lookup"))
       end
 
@@ -2879,9 +2894,9 @@ defmodule Laev.CLI do
     opts = if torrentio, do: [backend: :apibay, torrentio: torrentio], else: [backend: :apibay]
 
     case Sources.search(query, opts) do
-      {:ok, []} -> die("no sources found for \"#{query}\"")
+      {:ok, []} -> no_sources("no sources found for \"#{query}\"")
       {:ok, sources} -> sources
-      {:error, reason} -> die("source search failed: #{inspect(reason)}")
+      {:error, reason} -> no_sources("source search failed: #{inspect(reason)}")
     end
   end
 
@@ -2968,7 +2983,7 @@ defmodule Laev.CLI do
   defp probe_and_pick(sources, rd_opts, ctx, playable_so_far \\ [], sub_task \\ nil)
 
   defp probe_and_pick([], _rd_opts, _ctx, [], _sub_task) do
-    die("no playable sources — try another title or release")
+    no_sources("no playable sources — try another title or release")
   end
 
   defp probe_and_pick(sources, rd_opts, ctx, playable_so_far, sub_task) do
@@ -3000,7 +3015,7 @@ defmodule Laev.CLI do
 
       {:error, {:all_failed, _skipped}} ->
         if sub_task, do: Task.shutdown(sub_task, :brutal_kill)
-        die("no playable sources — try again without --auto to see the full list")
+        no_sources("no playable sources — try again without --auto to see the full list")
     end
   end
 
@@ -3045,7 +3060,7 @@ defmodule Laev.CLI do
 
     case {playable, rest} do
       {[], []} ->
-        die("no playable sources — try another title or release")
+        no_sources("no playable sources — try another title or release")
 
       {[], rest} ->
         IO.puts(:stderr, "none playable yet — checking the next page…")
@@ -3925,6 +3940,7 @@ defmodule Laev.CLI do
             if forget_entry(entry), do: continue(min(at, length(entries) - 2)), else: continue(at)
 
           {nil, entry} ->
+            screen(fn -> continue(Enum.find_index(entries, &(&1 == entry)) || 0) end)
             continue_entry(entry)
         end
     end
@@ -3978,6 +3994,27 @@ defmodule Laev.CLI do
     case IO.gets("  remove it? [y/N] ") do
       line when is_binary(line) -> String.trim(String.downcase(line)) in ["y", "yes"]
       _ -> false
+    end
+  end
+
+  # Where a dead end goes back to: the list screen that launched the attempt.
+  # Set once per screen, so anything downstream — the season picker, the
+  # episode picker, the source probe — lands back on the page you came from
+  # rather than taking the app down with it.
+  defp screen(fun), do: Process.put(:laev_screen, fun)
+
+  # A title with nothing to play is not an error, it is an answer — most often
+  # "this isn't out yet". Say so and go back. Piped runs still get the JSON
+  # error and a non-zero exit, so a script driving laev can still tell.
+  defp no_sources(message) do
+    unless tty?(), do: die(message)
+
+    IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  #{message}\n", :reset]))
+    IO.gets("  press enter to go back… ")
+
+    case Process.get(:laev_screen) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> main_menu()
     end
   end
 
@@ -4096,7 +4133,7 @@ defmodule Laev.CLI do
 
         case Sources.search(q, backend: :anime) do
           {:ok, sources} -> with_library(q, sources) |> probe_and_pick([], ctx)
-          {:error, reason} -> die("anime source search failed: #{inspect(reason)}")
+          {:error, reason} -> no_sources("anime source search failed: #{inspect(reason)}")
         end
 
       true ->
