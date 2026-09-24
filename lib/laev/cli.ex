@@ -481,6 +481,7 @@ defmodule Laev.CLI do
 
     items =
       List.flatten([
+        now_playing_item(),
         up_next_item(),
         {:continue, "▶ Continue — pick up where you left off"},
         {:featured, "★ Featured — trending movies, shows & anime"},
@@ -494,6 +495,7 @@ defmodule Laev.CLI do
     case pick(items, &menu_label/1, "↑↓ to move · enter to select · esc to quit", nil, nil, [], :abort) do
       :resized -> main_menu()
       nil -> quit_laev()
+      {:now_playing, {ctx, stream}} -> post_play_menu(ctx, stream)
       {:up_next, entry} -> play_next_episode(entry)
       {:resume_last, entry} -> continue_entry(entry)
       {:continue, _} -> continue()
@@ -1196,6 +1198,16 @@ defmodule Laev.CLI do
   # The smart first row: if the most recent thing was an episode watched to
   # the end, offer its next episode; if it was left mid-way, offer to resume
   # it directly. Falls back to nothing (the plain menu) otherwise.
+  # mpv is detached, so it outlives the page that started it. When it is
+  # still up, the way back in goes first: that page is where you rate it,
+  # switch source, or line up the next episode.
+  defp now_playing_item do
+    case Laev.NowPlaying.current() do
+      nil -> []
+      playing -> [{:now_playing, playing}]
+    end
+  end
+
   defp up_next_item do
     case Laev.Resume.all() do
       [entry | _] ->
@@ -1216,6 +1228,9 @@ defmodule Laev.CLI do
         []
     end
   end
+
+  defp menu_label({:now_playing, {ctx, _stream}}),
+    do: "▶ Now Playing — #{playing_desc(ctx)} · still open in mpv"
 
   defp menu_label({:up_next, entry}),
     do: "⚡ Up Next — #{entry["title"]}#{entry_ep(entry)}"
@@ -3123,6 +3138,7 @@ defmodule Laev.CLI do
           await_subtitles(sub_task) ++ position_args(ctx, stream.filename) ++ Laev.Skip.script_args()
         )
 
+        Laev.NowPlaying.mark(ctx, stream)
         save_resume(ctx, source)
         start_mal_scrobbler(ctx)
 
@@ -3313,6 +3329,16 @@ defmodule Laev.CLI do
     end
   end
 
+  # Reached from Now Playing when laev didn't launch this itself — an mpv it
+  # adopted on startup, from before the stream was recorded. The source is
+  # still in the history, so re-resolve it the way `continue` does.
+  defp replay(ctx, %{url: url}) when not is_binary(url) do
+    case Laev.Resume.get(ctx.type, ctx.tmdb_id) do
+      nil -> play_entry(ctx_entry(ctx), rd_opts(ctx[:season], ctx[:episode]))
+      entry -> continue_entry(entry)
+    end
+  end
+
   # Same URL again; position args resume from wherever the tracker last
   # saved, so "replay" doubles as "reopen where I was" after closing mpv.
   defp replay(ctx, stream) do
@@ -3323,6 +3349,7 @@ defmodule Laev.CLI do
         position_args(ctx, stream.filename) ++ Laev.Skip.script_args()
 
     Player.open(:mpv, stream.url, args)
+    Laev.NowPlaying.mark(ctx, stream)
     IO.puts(:stderr, "playing in mpv: #{stream.filename}")
     post_play_menu(ctx, stream)
   end
@@ -4081,6 +4108,8 @@ defmodule Laev.CLI do
           stream.url,
           await_subtitles(sub_task) ++ position_args(ctx, stream.filename) ++ Laev.Skip.script_args()
         )
+        Laev.NowPlaying.mark(ctx, stream)
+
         Laev.Resume.put(
           entry["type"],
           entry["tmdb_id"],

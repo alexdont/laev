@@ -391,6 +391,24 @@ defmodule Laev.Position do
   end
 
   @doc """
+  When the play counter was last written (posix seconds), or nil.
+
+  The mpv script rewrites it every 5 seconds while the player is up, so this
+  is a heartbeat: recent means mpv is still there. Unlike the position file
+  it is never touched by a sync pull, so a sync can't fake one.
+  """
+  def heartbeat_at(ctx) do
+    with key when is_binary(key) <- key(ctx),
+         {:ok, %{mtime: mtime}} <- File.stat(played_file(key), time: :posix) do
+      mtime
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  @doc """
   How much of this title was actually watched, and how much was skipped past,
   in seconds — `nil` for anything played before laev started measuring. Only
   the mpv script writes it, so it covers real playback and nothing else.
