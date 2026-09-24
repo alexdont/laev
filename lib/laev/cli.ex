@@ -13,6 +13,10 @@ defmodule Laev.CLI do
   # episode dropped must not still believe it.
   @airing_ttl_s 30 * 60
 
+  # The check made at the click itself is allowed to be reused only for as
+  # long as one click takes.
+  @verify_ttl_s 60
+
   @backends %{"apibay" => :apibay, "nyaa" => :nyaa, "anime" => :anime}
 
   def main(argv) do
@@ -2114,6 +2118,8 @@ defmodule Laev.CLI do
         poster_path: details["poster_path"]
       )
 
+    verify_episode(ctx)
+
     title.type
     |> title_sources(title.title, title.year, imdb, season, episode)
     |> probe_and_pick(rd_opts(season, episode), ctx)
@@ -3438,6 +3444,59 @@ defmodule Laev.CLI do
   defp compute_next_target(ctx),
     do: %{season: ctx.season, episode: ctx.episode + 1, label: "next episode"}
 
+  # Does this episode exist, and is it out? Asked of TMDB at the moment you
+  # choose an episode — from the list, from "next", from "previous", from Up
+  # Next — rather than trusted from whatever the session last heard. A run
+  # left open for a week drove the menu that offered it; only this answer
+  # decides whether laev goes hunting for sources.
+  #
+  # Anime is exempt: it plays by absolute episode number against Kitsu, which
+  # doesn't line up with TMDB's per-season numbering, so there is nothing here
+  # to check it against without blocking legitimate plays.
+  defp verify_episode(%{type: "tv", tmdb_id: id, season: season, episode: episode} = ctx)
+       when is_integer(id) and is_integer(season) and is_integer(episode) do
+    if ctx[:anime] do
+      :ok
+    else
+      case episode_status(id, season, episode) do
+        :aired ->
+          :ok
+
+        {:unaired, date} ->
+          no_sources("#{playing_desc(ctx)} isn't out yet — airs #{date}#{days_until(date)}")
+
+        :missing ->
+          no_sources("TMDB doesn't list #{playing_desc(ctx)}")
+
+        # A network blip is not evidence that an episode doesn't exist.
+        :unknown ->
+          :ok
+      end
+    end
+  end
+
+  defp verify_episode(_ctx), do: :ok
+
+  # Freshly, but once per click: the source hunt that follows asks for the
+  # same season again, and a minute is far too short to hide a new episode.
+  defp episode_status(tmdb_id, season, episode) do
+    episodes =
+      SessionCache.fetch({:season_eps, tmdb_id, season}, @verify_ttl_s, fn ->
+        case Tmdb.season(tmdb_id, season) do
+          {:ok, %{"episodes" => eps}} when is_list(eps) -> eps
+          _ -> nil
+        end
+      end)
+
+    case episodes && Enum.find(episodes, &(&1["episode_number"] == episode)) do
+      nil when is_nil(episodes) -> :unknown
+      nil -> :missing
+      # Listed but undated happens on TMDB; that is not a reason to refuse.
+      %{"air_date" => date} when date in [nil, ""] -> :aired
+      %{"air_date" => date} -> if date <= Date.to_iso8601(Date.utc_today()), do: :aired, else: {:unaired, date}
+    end
+  end
+
   # Aired episodes in a TMDB season (air_date on or before today), or nil on
   # failure. Cached in-process.
   defp tv_season_episode_count(tmdb_id, season) do
@@ -4168,6 +4227,8 @@ defmodule Laev.CLI do
         end
 
       true ->
+        verify_episode(ctx)
+
         type
         |> title_sources(name, year, Tmdb.imdb_id(details), entry["season"], entry["episode"])
         |> probe_and_pick(rd_opts, ctx)
