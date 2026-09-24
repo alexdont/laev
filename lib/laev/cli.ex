@@ -7,7 +7,11 @@ defmodule Laev.CLI do
   a human-readable listing instead.
   """
 
-  alias Laev.{Config, Kitsu, Player, Providers, RD, Sources, Tmdb, Tracks}
+  alias Laev.{Config, Kitsu, Player, Providers, RD, SessionCache, Sources, Tmdb, Tracks}
+  # How long an answer about a show that is still airing may be reused inside
+  # one run. laev can sit open for days — a session that started before an
+  # episode dropped must not still believe it.
+  @airing_ttl_s 30 * 60
 
   @backends %{"apibay" => :apibay, "nyaa" => :nyaa, "anime" => :anime}
 
@@ -3120,8 +3124,10 @@ defmodule Laev.CLI do
 
   defp save_probe_state(nil, _playable, _rest, _rd_opts), do: :ok
 
+  # Kept so "try another source" doesn't re-probe, but not kept forever: a
+  # release that resolved an hour ago may be a takedown by now.
   defp save_probe_state(ctx, playable, rest, rd_opts),
-    do: Process.put({:laev_sources, sources_key(ctx)}, {playable, rest, rd_opts})
+    do: SessionCache.put({:laev_sources, sources_key(ctx)}, {playable, rest, rd_opts})
 
   defp sources_key(ctx), do: {ctx.type, ctx.tmdb_id, ctx[:season], ctx[:episode]}
 
@@ -3378,16 +3384,19 @@ defmodule Laev.CLI do
   # nothing left (last aired episode / last season). Cached per title+ep so
   # re-showing the menu doesn't re-hit the network.
   defp next_target(%{episode: e} = ctx) when is_integer(e) do
-    cache = {:next_target, ctx.tmdb_id, ctx.season, e, ctx[:anime]}
+    key = {:next_target, ctx.tmdb_id, ctx.season, e, ctx[:anime]}
 
-    case Process.get(cache, :miss) do
-      :miss ->
-        result = compute_next_target(ctx)
-        Process.put(cache, result)
-        result
+    case SessionCache.fetch(key, @airing_ttl_s, fn -> compute_next_target(ctx) end) do
+      nil ->
+        # "That was the last one" is the one answer worth paying for twice.
+        # It is also the answer that goes stale the moment an episode drops,
+        # so drop the counts behind it and ask TMDB again before saying it.
+        SessionCache.forget({:season_count, ctx.tmdb_id, ctx.season})
+        SessionCache.forget({:anime_count, ctx[:search_title] || ctx.title})
+        compute_next_target(ctx)
 
-      cached ->
-        cached
+      target ->
+        target
     end
   end
 
@@ -3432,45 +3441,27 @@ defmodule Laev.CLI do
   # Aired episodes in a TMDB season (air_date on or before today), or nil on
   # failure. Cached in-process.
   defp tv_season_episode_count(tmdb_id, season) do
-    key = {:season_count, tmdb_id, season}
+    SessionCache.fetch({:season_count, tmdb_id, season}, @airing_ttl_s, fn ->
+      case Tmdb.season(tmdb_id, season) do
+        {:ok, %{"episodes" => eps}} when is_list(eps) ->
+          # Today is read here, not at cache time: a session open past
+          # midnight would otherwise keep yesterday's idea of "aired".
+          today = Date.to_iso8601(Date.utc_today())
+          Enum.count(eps, &(&1["air_date"] not in [nil, ""] and &1["air_date"] <= today))
 
-    case Process.get(key, :miss) do
-      :miss ->
-        count =
-          case Tmdb.season(tmdb_id, season) do
-            {:ok, %{"episodes" => eps}} when is_list(eps) ->
-              today = Date.to_iso8601(Date.utc_today())
-              Enum.count(eps, &(&1["air_date"] not in [nil, ""] and &1["air_date"] <= today))
-
-            _ ->
-              nil
-          end
-
-        Process.put(key, count)
-        count
-
-      cached ->
-        cached
-    end
+        _ ->
+          nil
+      end
+    end)
   end
 
   defp anime_episode_count(title) do
-    key = {:anime_count, title}
-
-    case Process.get(key, :miss) do
-      :miss ->
-        count =
-          case Kitsu.search(title) do
-            {:ok, [%{episode_count: c} | _]} when is_integer(c) and c > 0 -> c
-            _ -> nil
-          end
-
-        Process.put(key, count)
-        count
-
-      cached ->
-        cached
-    end
+    SessionCache.fetch({:anime_count, title}, @airing_ttl_s, fn ->
+      case Kitsu.search(title) do
+        {:ok, [%{episode_count: c} | _]} when is_integer(c) and c > 0 -> c
+        _ -> nil
+      end
+    end)
   end
 
   # Bad source (broken file, wrong audio, stutters): re-run the source flow
@@ -3480,7 +3471,7 @@ defmodule Laev.CLI do
   defp switch_source(ctx) do
     clear_screen()
 
-    case ctx && Process.get({:laev_sources, sources_key(ctx)}) do
+    case ctx && SessionCache.get({:laev_sources, sources_key(ctx)}, @airing_ttl_s) do
       {playable, rest, rd_opts} ->
         IO.puts(
           :stderr,
@@ -3817,6 +3808,7 @@ defmodule Laev.CLI do
   # the page wants to be big enough that typing a title usually finds it
   # without paging first.
   @stats_page 50
+
 
   defp stats_list(titles, shown, initial \\ 0) do
     rows = Enum.take(titles, shown)
