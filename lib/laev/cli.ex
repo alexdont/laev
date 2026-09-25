@@ -2121,7 +2121,7 @@ defmodule Laev.CLI do
     verify_episode(ctx)
 
     title.type
-    |> title_sources(title.title, title.year, imdb, season, episode)
+    |> title_sources(title_variants(details, title.title), title.year, imdb, season, episode)
     |> probe_and_pick(rd_opts(season, episode), ctx)
   end
 
@@ -2333,23 +2333,108 @@ defmodule Laev.CLI do
     "E#{pad2(ep.number)}#{if name in [nil, ""], do: "", else: " #{name}"}#{date}"
   end
 
-  defp title_sources("movie", name, year, imdb, _season, _episode) do
-    q = Enum.join(Enum.reject([name, year], &is_nil/1), " ")
+  defp title_sources("movie", %{search: [primary | alternates], accept: accept}, year, imdb, _season, _episode) do
+    q = movie_query(primary, year)
+
+    # A film uploaded under its original name is found by nothing else: the
+    # English title returns none of it. Searched in addition, never instead —
+    # and an alternate that finds nothing is normal, not a dead end.
+    extra = Enum.flat_map(alternates, &extra_sources(movie_query(&1, year)))
 
     q
-    |> with_library(find_sources(q, imdb && {:movie, imdb}))
-    |> Enum.filter(&movie_source_ok?(&1, name, year))
+    |> with_library(find_sources(q, imdb && {:movie, imdb}) ++ extra)
+    |> Enum.filter(&source_names_title?(&1, accept, year, :movie))
   end
 
-  # Torrentio answers by IMDb id, so what comes back is already the right film
-  # whatever the uploader called it. Everything else arrived from a text query
-  # and has to prove it names this one.
-  defp movie_source_ok?(%{provider: "Torrentio" <> _}, _name, _year), do: true
-  defp movie_source_ok?(source, name, year), do: Sources.movie_release_ok?(source.name, name, year)
+  defp title_sources("tv", %{search: [primary | alternates], accept: accept}, year, imdb, season, episode) do
+    q = Sources.episode_query(Sources.query_title(primary), season, episode)
 
-  defp title_sources("tv", name, _year, imdb, season, episode) do
-    q = Sources.episode_query(name, season, episode)
-    with_library(q, find_sources(q, imdb && {:series, imdb, season, episode}))
+    extra =
+      Enum.flat_map(alternates, fn alt ->
+        extra_sources(Sources.episode_query(Sources.query_title(alt), season, episode))
+      end)
+
+    q
+    |> with_library(find_sources(q, imdb && {:series, imdb, season, episode}) ++ extra)
+    |> Enum.filter(&source_names_title?(&1, accept, year, :tv))
+  end
+
+  defp movie_query(title, year),
+    do: Enum.join(Enum.reject([Sources.query_title(title), year], &is_nil/1), " ")
+
+  # A second (or third) spelling of the title. Unlike the main search, coming
+  # back empty is expected — most films have one name that works.
+  defp extra_sources(query) do
+    IO.puts(:stderr, "also searching: #{query}")
+
+    case Sources.search(query, backend: :apibay) do
+      {:ok, sources} -> sources
+      _ -> []
+    end
+  end
+
+  # Torrentio answers by IMDb id, so what comes back is already the right
+  # title whatever the uploader called it. Everything else arrived from a text
+  # query and has to prove it names this one.
+  defp source_names_title?(%{provider: "Torrentio" <> _}, _titles, _year, _kind), do: true
+
+  defp source_names_title?(source, titles, year, kind),
+    do: Sources.release_ok?(source.name, titles, year, kind)
+
+  # What to search for, and what to accept — deliberately different sizes.
+  #
+  # Accepting is free, so it takes every name TMDB knows: its own, the
+  # original-language one, and every regional title. A release named "Entrega
+  # Al Límite" is still Runner.
+  #
+  # Searching costs a request per name, so it takes two at most: what TMDB
+  # calls it, and the original title when that differs. Between them they
+  # cover the case this is for — a film whose releases are all named in its
+  # own language.
+  defp title_variants(details, fallback) do
+    primary = details["title"] || details["name"] || fallback
+    original = details["original_title"] || details["original_name"]
+
+    regional = regional_titles(details)
+    accept = primary |> Sources.acceptable_titles([original | Enum.map(regional, &elem(&1, 1))]) |> clean_titles(fallback)
+
+    %{
+      search: clean_titles([primary, second_query(primary, original, regional, accept)], fallback),
+      accept: accept
+    }
+  end
+
+  defp regional_titles(details) do
+    case details["alternative_titles"] do
+      %{"titles" => titles} when is_list(titles) -> Enum.map(titles, &{&1["iso_3166_1"], &1["title"]})
+      %{"results" => titles} when is_list(titles) -> Enum.map(titles, &{&1["iso_3166_1"], &1["title"]})
+      _ -> []
+    end
+  end
+
+  # The one other name worth spending a request on. Normally the original
+  # title — but a title written in another script is no use to an indexer
+  # whose releases are all ASCII, so a romanised alias stands in for it:
+  # "O Paketas", not "Ο Πακετάς". An English-market alias is preferred over
+  # whichever happens to come first.
+  defp second_query(primary, original, regional, accept) do
+    usable = fn title -> is_binary(title) and title in accept and title != primary and latin?(title) end
+
+    cond do
+      usable.(original) -> original
+      alias = Enum.find_value(regional, fn {iso, t} -> iso in ["US", "GB"] and usable.(t) and t end) -> alias
+      true -> Enum.find_value(regional, fn {_iso, t} -> usable.(t) and t end)
+    end
+  end
+
+  defp latin?(title) when is_binary(title), do: Sources.query_title(title) =~ ~r/[a-z]/i
+  defp latin?(_title), do: false
+
+  defp clean_titles(titles, fallback) do
+    case titles |> Enum.reject(&(is_nil(&1) or &1 == "")) |> Enum.uniq_by(&String.downcase/1) do
+      [] -> [fallback]
+      cleaned -> cleaned
+    end
   end
 
   # Torrents already in the user's debrid account come first — instant and
@@ -4266,7 +4351,7 @@ defmodule Laev.CLI do
         verify_episode(ctx)
 
         type
-        |> title_sources(name, year, Tmdb.imdb_id(details), entry["season"], entry["episode"])
+        |> title_sources(title_variants(details, name), year, Tmdb.imdb_id(details), entry["season"], entry["episode"])
         |> probe_and_pick(rd_opts, ctx)
     end
   end

@@ -78,8 +78,11 @@ defmodule Laev.Tmdb do
 
   # Append external_ids so `imdb_id/1` works for both movies (top-level imdb_id)
   # and TV (external_ids.imdb_id) — used to query Torrentio for more sources.
-  def movie(id), do: get("/movie/#{id}", append_to_response: "external_ids")
-  def tv(id), do: get("/tv/#{id}", append_to_response: "external_ids")
+  # alternative_titles rides along free: a film uploaded under its original or
+  # a regional name is still the film, and the source filter needs to know
+  # every name it legitimately answers to.
+  def movie(id), do: get("/movie/#{id}", append_to_response: "external_ids,alternative_titles")
+  def tv(id), do: get("/tv/#{id}", append_to_response: "external_ids,alternative_titles")
   def season(tv_id, season_number), do: get("/tv/#{tv_id}/season/#{season_number}")
 
   @doc """

@@ -67,5 +67,92 @@ defmodule Laev.SourcesTitleTest do
     end
   end
 
-  defp ok?(title, year, name), do: Sources.movie_release_ok?(name, title, year)
+  describe "shows" do
+    test "a leading article separates two shows the same way" do
+      refute ok?("Runner", nil, "The.Runner.S01E01.1080p.WEB-DL", :tv)
+      assert ok?("The Runner", nil, "The.Runner.S01E01.1080p.WEB-DL", :tv)
+      assert ok?("Silo", nil, "Silo.S03E01.2160p.ATVP.WEB-DL.HDR.H265", :tv)
+    end
+
+    test "a year in the release name doesn't break the match" do
+      # Both readings are offered: "doctor who" at the year, "doctor who 2005"
+      # at the season tag — TMDB calls it the first.
+      assert ok?("Doctor Who", nil, "Doctor.Who.2005.S01E01.1080p.BluRay", :tv)
+      assert ok?("Doctor Who 2005", nil, "Doctor.Who.2005.S01E01.1080p.BluRay", :tv)
+    end
+
+    test "a country tag belongs to the release, not the title" do
+      assert ok?("The Office", nil, "The.Office.US.S05E01.1080p.WEB-DL", :tv)
+      assert ok?("Shameless", nil, "Shameless.UK.S01E01.720p", :tv)
+    end
+
+    test "season packs and season-only tags are read the same way" do
+      assert ok?("Silo", nil, "Silo.S03.COMPLETE.2160p.WEB-DL", :tv)
+      assert ok?("Silo", nil, "Silo Season 3 1080p WEB-DL", :tv)
+      refute ok?("Silo", nil, "The.Silo.S03.COMPLETE.2160p.WEB-DL", :tv)
+    end
+  end
+
+  describe "titles in other languages" do
+    test "a release named in the original language is the same film" do
+      titles = ["Amélie", "Le Fabuleux Destin d'Amélie Poulain"]
+
+      assert ok?(titles, "2001", "Le.Fabuleux.Destin.d.Amelie.Poulain.2001.1080p.BluRay.x264")
+      assert ok?(titles, "2001", "Amelie.2001.1080p.BluRay.x264")
+      # …and a different French film still isn't it
+      refute ok?(titles, "2001", "Le.Fabuleux.Destin.de.Quelqu.un.Dautre.2001.1080p")
+    end
+
+    test "an accented title matches its unaccented release name" do
+      assert ok?("Amélie", "2001", "Amelie.2001.1080p.BluRay.x264")
+      assert ok?("La Haine", "1995", "La.Haine.1995.1080p.BluRay.x264")
+    end
+
+    test "a non-Latin title judges nothing, rather than refusing everything" do
+      assert ok?(["기생충"], "2019", "Parasite.2019.1080p.BluRay.x264")
+      # with the romanised title known, it judges again
+      assert ok?(["Parasite", "기생충"], "2019", "Parasite.2019.1080p.BluRay.x264")
+      refute ok?(["Parasite", "기생충"], "2019", "The.Parasite.2019.1080p.BluRay.x264")
+    end
+
+    test "a show in its original language" do
+      titles = ["Money Heist", "La Casa de Papel"]
+
+      assert ok?(titles, nil, "La.Casa.de.Papel.S01E01.1080p.NF.WEB-DL", :tv)
+      assert ok?(titles, nil, "Money.Heist.S01E01.1080p.NF.WEB-DL", :tv)
+    end
+  end
+
+  describe "an alternative title that is the neighbour" do
+    # Real TMDB data: 2026 has at least four films called "Runner", and the
+    # Greek one (Ο Πακετάς) lists "The Runner" as its US title — which is the
+    # name of a different 2026 film. Accepting it would undo the whole thing.
+    test "the primary title plus an article is not accepted as an alias" do
+      accept = Sources.acceptable_titles("Runner", ["Ο Πακετάς", "Πακετάς", "The Runner", "O Paketas"])
+
+      refute "The Runner" in accept
+      assert "O Paketas" in accept
+      assert ok?(accept, "2026", "Runner.2026.1080p.WEB-DL")
+      assert ok?(accept, "2026", "O.Paketas.2026.1080p.WEB-DL")
+      refute ok?(accept, "2026", "The.Runner.2026.1080p.WEB.H264-CUPCAKES")
+    end
+
+    test "it works the other way round too" do
+      accept = Sources.acceptable_titles("The Runner", ["Runner", "Người chạy"])
+
+      refute "Runner" in accept
+      assert "Người chạy" in accept
+    end
+
+    test "a genuinely different regional name is kept" do
+      accept = Sources.acceptable_titles("Runner", ["Corredora", "Entrega Al Límite"])
+
+      assert "Corredora" in accept
+      assert ok?(accept, "2026", "Corredora.2026.1080p.WEB-DL")
+      assert ok?(accept, "2026", "Entrega.Al.Limite.2026.1080p.WEB-DL")
+    end
+  end
+
+  defp ok?(titles, year, name, kind \\ :movie),
+    do: Sources.release_ok?(name, List.wrap(titles), year, kind)
 end

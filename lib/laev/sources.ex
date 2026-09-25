@@ -658,48 +658,136 @@ defmodule Laev.Sources do
   end
 
   @doc """
-  Does this release name actually name this film?
+  Which of a title's other names are safe to accept, given its primary one.
+
+  Regional titles are mostly a gift — a film uploaded as "Corredora" or
+  "Le Fabuleux Destin d'Amélie Poulain" is still the film. But TMDB lists
+  "The Runner" as the US title of a *Greek* 2026 film called Runner, and
+  accepting that hands back every release of the other 2026 film called The
+  Runner — the exact confusion this is all here to end.
+
+  So an alternative name that is the primary one plus or minus a leading
+  article is dropped. It cannot be told apart from the neighbouring title,
+  and the primary name is the one the user picked.
+  """
+  def acceptable_titles(primary, others) when is_binary(primary) and is_list(others) do
+    base = article_stripped(primary)
+
+    kept =
+      Enum.reject(others, fn other ->
+        compact(other) != compact(primary) and article_stripped(other) == base
+      end)
+
+    [primary | kept]
+  end
+
+  @articles ~w(the a an le la les el los las il lo der die das)
+
+  defp article_stripped(title) do
+    case String.split(normalize_title(title), " ", parts: 2) do
+      [first, rest] when first in @articles -> String.replace(rest, " ", "")
+      _ -> compact(title)
+    end
+  end
+
+  @doc """
+  A title spelled the way indexers spell it: accents folded to plain letters
+  and anything still outside ASCII dropped, because that is what uploaders
+  type — "Amélie" is uploaded as "Amelie", and searching the accented form
+  finds none of it. Falls back to the title unchanged when folding leaves
+  nothing, as it does for a title written in another script.
+  """
+  def query_title(title) when is_binary(title) do
+    folded =
+      title
+      |> String.normalize(:nfd)
+      |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
+      |> String.replace(~r/[^\x00-\x7f]/u, " ")
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
+    if folded == "", do: title, else: folded
+  end
+
+  def query_title(title), do: title
+
+  @doc """
+  Does this release name actually name this title?
 
   2026 gave us both *Runner* and *The Runner*, and a text indexer asked for
   one hands back the other — every public source for "Runner 2026" is in fact
   The Runner. So the test is exact: the part of the name before the release
-  year must BE the title. A leading article makes it a different film, not a
-  near-enough match, which is the whole point.
+  year (or the SxxEyy tag, for a show) must BE the title. A leading article
+  makes it a different film, not a near-enough match, which is the point.
 
-  Anything the name gives no grounds to judge is let through — no year in it,
-  or a title that normalises to nothing, as a non-Latin one does. This is here
-  to tell two films apart, not to police release naming.
+  `titles` is every name the title legitimately goes by — TMDB's own, plus
+  its original-language one, since a foreign release is named in its own
+  language and is still the right film. Any of them matching is a match.
+
+  Anything the name gives no grounds to judge is let through: no year or
+  season tag in it, or titles that all normalise to nothing, as a Japanese
+  one does. This is here to tell two titles apart, not to police naming.
   """
-  def movie_release_ok?(name, title, year) when is_binary(name) and is_binary(title) do
-    wanted = normalize_title(title)
-    candidates = release_titles(name)
+  def release_ok?(name, titles, year, kind \\ :movie)
+
+  def release_ok?(name, titles, year, kind) when is_binary(name) and is_list(titles) do
+    wanted = titles |> Enum.map(&compact/1) |> Enum.reject(&(&1 == ""))
+    candidates = release_titles(name, kind)
 
     cond do
-      wanted == "" -> true
+      wanted == [] -> true
       candidates == [] -> true
-      true -> Enum.any?(candidates, fn {cand, y} -> cand == wanted and year_close?(y, year) end)
+      true -> Enum.any?(candidates, fn {cand, y} -> compact(cand) in wanted and year_close?(y, year) end)
     end
   end
 
-  def movie_release_ok?(_name, _title, _year), do: true
+  def release_ok?(name, title, year, kind) when is_binary(title),
+    do: release_ok?(name, [title], year, kind)
 
-  # The title part of a release name, read once per year found in it: "Blade
-  # Runner 2049 2017 1080p" gives both "blade runner" (at 2049) and "blade
-  # runner 2049" (at 2017), and only the second names the film.
-  defp release_titles(name) do
+  def release_ok?(_name, _titles, _year, _kind), do: true
+
+  # Where the title stops in a release name. A film's name is followed by its
+  # year; a show's by a season/episode tag, a year, or both — so every
+  # boundary is tried, which is what lets "Doctor Who 2005 S01E01" read as
+  # "doctor who" as well as "doctor who 2005".
+  @movie_boundary ~r/\b(?:19|20)\d{2}\b/
+  @tv_boundary ~r/\b(?:(?:19|20)\d{2}|s\d{1,2}(?:e\d{1,3})?|season[\s.]*\d{1,2})\b/i
+
+  # Country tags belong to the release, not the title: "The Office US" is
+  # still The Office, and TMDB doesn't carry the suffix.
+  @country_tags ~w(us uk gb au ca nz ie)
+
+  defp release_titles(name, kind) do
     cleaned = strip_site_tags(name)
+    boundary = if kind == :tv, do: @tv_boundary, else: @movie_boundary
 
-    ~r/\b(?:19|20)\d{2}\b/
+    boundary
     |> Regex.scan(cleaned, return: :index)
-    |> Enum.map(fn [{at, len}] ->
-      {normalize_title(String.slice(cleaned, 0, at)), String.to_integer(String.slice(cleaned, at, len))}
+    |> Enum.flat_map(fn [{at, len}] ->
+      candidate = normalize_title(String.slice(cleaned, 0, at))
+      year = year_int(String.slice(cleaned, at, len))
+
+      [{candidate, year} | without_country_tag(candidate, year)]
     end)
     |> Enum.reject(fn {cand, _year} -> cand == "" end)
+    |> Enum.uniq()
+  end
+
+  defp without_country_tag(candidate, year) do
+    case String.split(candidate, " ") do
+      parts when length(parts) > 1 ->
+        if List.last(parts) in @country_tags,
+          do: [{parts |> Enum.drop(-1) |> Enum.join(" "), year}],
+          else: []
+
+      _ ->
+        []
+    end
   end
 
   # Trackers stamp their own name on the front: "www.Tracker.com - Runner
   # 2026". Strip those before reading the title, or every one of them looks
-  # like a different film.
+  # like a different title.
   @site_tag ~r/\A\s*(?:www\.[^\s]+\s*[-–—]?\s*|\[[^\]]*\]\s*|\{[^}]*\}\s*)/i
 
   defp strip_site_tags(name) do
@@ -709,17 +797,31 @@ defmodule Laev.Sources do
     end
   end
 
-  defp normalize_title(text) do
+  defp normalize_title(text) when is_binary(text) do
     text
+    # Decompose, then drop the combining marks: "Amélie" and a release that
+    # calls it "Amelie" have to land on the same letters.
+    |> String.normalize(:nfd)
+    |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
     |> String.downcase()
-    |> String.replace(~r/['`’´]/u, "")
     |> String.replace("&", " and ")
     |> String.replace(~r/[^a-z0-9]+/u, " ")
     |> String.trim()
   end
 
+  defp normalize_title(_text), do: ""
+
+  # Compared without spaces at all, because release names disagree about
+  # them: "d'Amélie" is written "d.Amelie", "Spider-Man" is "Spider.Man",
+  # "WALL·E" is "WALL-E". Words still can't be added or dropped, so "The
+  # Runner" and "Runner" stay different titles.
+  defp compact(text), do: text |> normalize_title() |> String.replace(" ", "")
+
   # Release years drift by one against TMDB (festival vs wide release), but
-  # not by five: a same-named film a decade apart is a different film.
+  # not by five: a same-named film a decade apart is a different film. A
+  # season tag carries no year, and judges nothing.
+  defp year_close?(nil, _year), do: true
+
   defp year_close?(release_year, year) do
     case year_int(year) do
       nil -> true
@@ -731,7 +833,7 @@ defmodule Laev.Sources do
 
   defp year_int(year) when is_binary(year) do
     case Integer.parse(year) do
-      {n, _} -> n
+      {n, _} when n >= 1900 and n <= 2099 -> n
       _ -> nil
     end
   end
