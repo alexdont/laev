@@ -2788,7 +2788,13 @@ defmodule Laev.CLI do
 
   defp title_poster(:more), do: nil
   defp title_poster({:franchise, _}), do: nil
-  defp title_poster(title), do: title.poster
+
+  # {poster, meta}: the meta is what the quality watcher needs to ask the
+  # indexers about this row — including every name the title answers to, so
+  # the tally counts this film's releases and not its neighbour's.
+  defp title_poster(title) do
+    {title.poster, %{type: title.type, id: title.id, titles: [title.title], year: title.year}}
+  end
 
   # Exact-title matches first (newest first — a remake outranks the original),
   # then the rest by TMDB popularity. A requested year trumps both, softly
@@ -3065,12 +3071,25 @@ defmodule Laev.CLI do
   defp describe_title(t) do
     kind = if t.type == "tv", do: "series", else: "movie"
     rating = if t.vote && t.vote > 0, do: " · ★ #{Float.round(t.vote * 1.0, 1)}"
-    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}"
+    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}#{quality_badge(t)}"
 
     if seen?(t),
       do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset])),
       else: text
   end
+
+  # What the indexers had last time this title was looked at. Read from disk
+  # only — the list must never wait on a search — so it is blank the first
+  # time and there from then on, which is also how "finally out in HD" shows
+  # up: the tally is re-taken every six hours.
+  defp quality_badge(%{type: type, id: id}) when is_integer(id) do
+    case Laev.Quality.badge(Laev.Quality.cached(type, id)) do
+      nil -> ""
+      badge -> " · " <> badge
+    end
+  end
+
+  defp quality_badge(_title), do: ""
 
   # A film counts as seen once it is played through (85%/eof writes the same
   # marker), a series only when ctrl-w says so — laev can't tell a finished
@@ -4410,8 +4429,10 @@ defmodule Laev.CLI do
   # made the "file" the cache directory itself and every preview came out
   # blank; and a failed render retries as block symbols, so a terminal-specific
   # format the local chafa doesn't have degrades to art instead of nothing.
+  # QUALITY_FILE is the per-row file the quality watcher writes; it appears a
+  # moment after the cursor lands, and fzf is told to redraw the pane then.
   @poster_preview ~S"""
-  url={2}; if [ "$url" = "-" ]; then echo; else d="${TMPDIR:-/tmp}/laev-posters"; mkdir -p "$d"; h=$(printf %s "$url" | md5sum 2>/dev/null | cut -c1-16); [ -n "$h" ] || h=$(printf %s "$url" | md5 -q 2>/dev/null | cut -c1-16); [ -n "$h" ] || h=$(printf %s "$url" | tr -dc 'A-Za-z0-9' | tail -c 24); f="$d/$h"; [ -s "$f" ] || curl -sL "$url" -o "$f" 2>/dev/null; sz=--size=${FZF_PREVIEW_COLUMNS}x${FZF_PREVIEW_LINES}; chafa CHAFA_OPTS $sz "$f" 2>/dev/null || chafa -f symbols --symbols block $sz "$f" 2>/dev/null || echo; fi
+  q="QUALITY_FILE"; [ -s "$q" ] && { cat "$q"; echo; echo; }; url={2}; if [ "$url" = "-" ]; then echo; else d="${TMPDIR:-/tmp}/laev-posters"; mkdir -p "$d"; h=$(printf %s "$url" | md5sum 2>/dev/null | cut -c1-16); [ -n "$h" ] || h=$(printf %s "$url" | md5 -q 2>/dev/null | cut -c1-16); [ -n "$h" ] || h=$(printf %s "$url" | tr -dc 'A-Za-z0-9' | tail -c 24); f="$d/$h"; [ -s "$f" ] || curl -sL "$url" -o "$f" 2>/dev/null; sz=--size=${FZF_PREVIEW_COLUMNS}x${FZF_PREVIEW_LINES}; chafa CHAFA_OPTS $sz "$f" 2>/dev/null || chafa -f symbols --symbols block $sz "$f" 2>/dev/null || echo; fi
   """ |> String.trim()
 
   @poster_cache_max_age_s 30 * 24 * 3600
@@ -4441,7 +4462,7 @@ defmodule Laev.CLI do
   # protocol by terminal identity instead; block symbols only as last resort.
   # LAEV_POSTERS=ascii swaps the whole thing for colored ASCII art —
   # foreground glyphs only; =ascii-bg additionally paints cell backgrounds.
-  defp poster_preview_script do
+  defp poster_preview_script(path) do
     term = System.get_env("TERM") || ""
     program = System.get_env("TERM_PROGRAM") || ""
 
@@ -4456,7 +4477,9 @@ defmodule Laev.CLI do
         true -> "-f symbols --symbols block"
       end
 
-    String.replace(@poster_preview, "CHAFA_OPTS", chafa_opts)
+    @poster_preview
+    |> String.replace("CHAFA_OPTS", chafa_opts)
+    |> String.replace("QUALITY_FILE", quality_file(path, "{1}"))
   end
 
   # Poster pane sizing: scales with the live terminal (measured per picker,
@@ -4505,6 +4528,71 @@ defmodule Laev.CLI do
       end
     end)
   end
+
+  # What exists for the row the cursor is on, fetched only for that row.
+  #
+  # fzf reports its own state over the same --listen API the resize watcher
+  # uses, so laev can follow the cursor and ask the indexers about one title at
+  # a time — the alternative, pricing every row in the list up front, would be
+  # twenty searches to answer a question about one. The answer goes in a file
+  # named after the row, which the preview pane reads, and fzf is told to
+  # redraw the pane once it lands.
+  defp start_quality_watcher(_port_file, _api_key, [], _path), do: nil
+
+  defp start_quality_watcher(port_file, api_key, metas, path) do
+    if Enum.any?(metas) do
+      spawn(fn ->
+        case await_fzf_port(port_file, 50) do
+          nil -> :ok
+          port -> watch_quality(port, api_key, metas, path, nil)
+        end
+      end)
+    end
+  end
+
+  defp watch_quality(port, api_key, metas, path, last) do
+    Process.sleep(400)
+    index = fzf_current_index(port, api_key)
+    meta = index && Enum.at(metas, index)
+
+    if index != last and is_map(meta) do
+      write_quality_file(path, index, meta)
+      post_fzf(port, api_key, "refresh-preview")
+    end
+
+    watch_quality(port, api_key, metas, path, index)
+  end
+
+  defp write_quality_file(path, index, meta) do
+    tally = Laev.Quality.cached(meta.type, meta.id) || Laev.Quality.fetch(meta.type, meta.id, meta.titles, meta.year)
+
+    case Laev.Quality.line(tally) do
+      nil -> :ok
+      line -> File.write(quality_file(path, index), IO.ANSI.format([:faint, "  " <> line, :reset]))
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp quality_file(path, index), do: "#{path}-quality-#{index}"
+
+  # fzf's own view of itself: which row the cursor is on right now.
+  defp fzf_current_index(port, api_key) do
+    case Req.get("http://127.0.0.1:#{port}",
+           headers: [{"x-api-key", api_key}],
+           retry: false,
+           receive_timeout: 2_000
+         ) do
+      {:ok, %{status: 200, body: %{"current" => %{"index" => index}}}} -> index
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp poster_of({poster, _meta}), do: poster || "-"
+  defp poster_of(poster) when is_binary(poster), do: poster
+  defp poster_of(_), do: "-"
 
   # fzf picks a random port (--listen 0) and tells us via the start bind.
   defp await_fzf_port(_file, 0), do: nil
@@ -4596,12 +4684,18 @@ defmodule Laev.CLI do
         System.find_executable("chafa") != nil and posters_fit?()
     if preview?, do: prune_posters()
 
+    # A preview callback returns a poster URL, or {poster, meta} where meta
+    # names the title — enough for the quality watcher to look it up for
+    # whichever row the cursor lands on.
+    previews = if preview?, do: Enum.map(items, preview), else: []
+    metas = Enum.map(previews, fn {_poster, meta} -> meta; _ -> nil end)
+
     list =
       items
       |> Enum.with_index()
       |> Enum.map_join("\n", fn {item, i} ->
         if preview?,
-          do: "#{i}\t#{preview.(item) || "-"}\t#{describe.(item)}",
+          do: "#{i}\t#{poster_of(Enum.at(previews, i))}\t#{describe.(item)}",
           else: "#{i}\t#{describe.(item)}"
       end)
 
@@ -4620,7 +4714,7 @@ defmodule Laev.CLI do
           ~s(--header="$2" ) <>
           ~s[--preview-window='right,#{poster_width()}%,border-left,<#{@poster_min_pane}(hidden)' ] <>
           ~s[--listen 0 --bind 'start:execute-silent(echo "$FZF_PORT" > #{port_file})#{pos}' ] <>
-          ~s(--preview '#{poster_preview_script()}' < "$1")
+          ~s(--preview '#{poster_preview_script(path)}' < "$1")
       else
         ~s(fzf --ansi --delimiter='\t' --with-nth=2.. --no-multi --reverse --height=~60% ) <>
           sync <> expect_arg <>
@@ -4632,6 +4726,7 @@ defmodule Laev.CLI do
     marker = path <> "-resized"
     mode = if preview?, do: :preview, else: resize
     watcher = start_resize_watcher(port_file, api_key, mode, marker)
+    quality_watcher = start_quality_watcher(port_file, api_key, metas, path)
 
     try do
       # fzf draws its UI on /dev/tty, reads the list from the redirected file,
@@ -4668,6 +4763,8 @@ defmodule Laev.CLI do
       end
     after
       if watcher, do: Process.exit(watcher, :kill)
+      if quality_watcher, do: Process.exit(quality_watcher, :kill)
+      Enum.each(Path.wildcard(path <> "-quality-*"), &File.rm/1)
       File.rm(path)
       File.rm(port_file)
       File.rm(marker)
