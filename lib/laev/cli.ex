@@ -4542,24 +4542,54 @@ defmodule Laev.CLI do
       spawn(fn ->
         case await_fzf_port(port_file, 50) do
           nil -> :ok
-          port -> watch_quality(port, api_key, %{metas: metas, path: path, render: render, preview?: preview?}, nil)
+          port ->
+            watch_quality(
+              port,
+              api_key,
+              %{metas: metas, path: path, render: render, preview?: preview?},
+              %{seen: nil, tried: MapSet.new()}
+            )
         end
       end)
     end
   end
 
-  defp watch_quality(port, api_key, ctx, last) do
+  # One indexer search per row you settle on — never per row you pass over.
+  # A row has to still be under the cursor a tick later (~0.8s) before it is
+  # priced, so holding ↓ down the length of a list costs nothing, and each row
+  # is attempted at most once per screen, so an indexer having a bad day can't
+  # be asked twenty times about it.
+  defp watch_quality(port, api_key, ctx, seen) do
     Process.sleep(400)
     state = fzf_state(port, api_key)
     index = state[:index]
-    meta = index && Enum.at(ctx.metas, index)
+    meta = is_integer(index) && Enum.at(ctx.metas, index)
 
-    if index != last and is_map(meta) and is_nil(Laev.Quality.cached(meta.type, meta.id)) do
-      write_quality_file(ctx.path, index, meta)
-      show_quality(port, api_key, ctx, state)
+    settled? = is_integer(index) and index == seen.seen and not MapSet.member?(seen.tried, index)
+
+    seen =
+      if settled? and is_map(meta) do
+        price_row(port, api_key, ctx, state, index, meta)
+        %{seen | tried: MapSet.put(seen.tried, index)}
+      else
+        seen
+      end
+
+    watch_quality(port, api_key, ctx, %{seen | seen: index})
+  end
+
+  defp price_row(port, api_key, ctx, state, index, meta) do
+    case Laev.Quality.cached(meta.type, meta.id) do
+      # Already known: the row label was built with it, so only the preview
+      # pane needs telling.
+      nil ->
+        write_quality_file(ctx.path, index, meta)
+        show_quality(port, api_key, ctx, state)
+
+      tally ->
+        write_quality_line(ctx.path, index, tally)
+        if ctx.preview?, do: post_fzf(port, api_key, "refresh-preview")
     end
-
-    watch_quality(port, api_key, ctx, index)
   end
 
   # The tally has to reach two places: the preview pane reads its file, and the
@@ -4574,14 +4604,16 @@ defmodule Laev.CLI do
   end
 
   defp write_quality_file(path, index, meta) do
-    tally = Laev.Quality.cached(meta.type, meta.id) || Laev.Quality.fetch(meta.type, meta.id, meta.titles, meta.year)
+    write_quality_line(path, index, Laev.Quality.fetch(meta.type, meta.id, meta.titles, meta.year))
+  rescue
+    _ -> :ok
+  end
 
+  defp write_quality_line(path, index, tally) do
     case Laev.Quality.line(tally) do
       nil -> :ok
       line -> File.write(quality_file(path, index), IO.ANSI.format([:faint, "  " <> line, :reset]))
     end
-  rescue
-    _ -> :ok
   end
 
   defp quality_file(path, index), do: "#{path}-quality-#{index}"
