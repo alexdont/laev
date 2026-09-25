@@ -539,7 +539,6 @@ defmodule Laev.Sync do
     end
   end
 
-  defp normalize(_), do: %{}
 
   defp to_wire(bundle, secrets \\ nil) do
     wire = Map.put(for(coll <- @collections, into: %{}, do: {Atom.to_string(coll), Map.get(bundle, coll, %{})}), "version", 1)

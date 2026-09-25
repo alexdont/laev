@@ -1576,7 +1576,7 @@ defmodule Laev.CLI do
           entries,
           &describe_watchlist/1,
           "≡ watchlist · enter watches · ctrl-w watched · ctrl-d removes · ctrl-o info",
-          & &1["poster"],
+          &entry_preview(&1, &1["poster"]),
           initial,
           ["ctrl-d", "ctrl-w", "ctrl-o"]
         )
@@ -1694,7 +1694,7 @@ defmodule Laev.CLI do
           entry_ep(resume) <> if(at, do: " · at #{at}", else: "")
       end
 
-    text = "#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}"
+    text = "#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}#{entry_badge(entry)}"
 
     # Same treatment as search and Featured: watched sinks into the
     # background rather than sitting there in full white with a tick.
@@ -2430,6 +2430,15 @@ defmodule Laev.CLI do
   defp latin?(title) when is_binary(title), do: Sources.query_title(title) =~ ~r/[a-z]/i
   defp latin?(_title), do: false
 
+  # A pinned or half-watched row is a title like any other, so it can be priced
+  # the same way — which is where "is that thing out in HD yet?" gets asked in
+  # the first place.
+  defp entry_preview(%{"type" => type} = entry, poster) when type in ["movie", "tv"] do
+    {poster, %{type: type, id: entry["tmdb_id"], titles: [entry["title"]], year: entry["year"]}}
+  end
+
+  defp entry_preview(_entry, poster), do: poster
+
   defp clean_titles(titles, fallback) do
     case titles |> Enum.reject(&(is_nil(&1) or &1 == "")) |> Enum.uniq_by(&String.downcase/1) do
       [] -> [fallback]
@@ -2901,6 +2910,9 @@ defmodule Laev.CLI do
     if Laev.Watchlist.has?(pin.type, pin.id), do: "≡ ", else: ""
   end
 
+  defp pin_mark(t),
+    do: if(Laev.Watchlist.has?(t.type, t.id), do: "≡ ", else: "")
+
   # A curated franchise is remembered by name; one of TMDB's own collections by
   # its id, since there is nothing in the file to look it up in later.
   defp franchise_pin(franchise) do
@@ -2909,9 +2921,6 @@ defmodule Laev.CLI do
       _ -> %{type: "franchise", id: franchise.name, title: franchise.name, year: nil, poster: nil}
     end
   end
-
-  defp pin_mark(t),
-    do: if(Laev.Watchlist.has?(t.type, t.id), do: "≡ ", else: "")
 
   defp describe_title_item(:more), do: "⋯ more results"
 
@@ -2936,7 +2945,7 @@ defmodule Laev.CLI do
   defp fetch_details(%{type: "movie", id: id}), do: Tmdb.movie(id)
   defp fetch_details(%{type: "tv", id: id}), do: Tmdb.tv(id)
 
-  defp pick_episode(details, preselect \\ nil) do
+  defp pick_episode(details, preselect) do
     seasons = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
     if seasons == [], do: no_sources("TMDB lists no seasons for this show")
 
@@ -2986,7 +2995,7 @@ defmodule Laev.CLI do
   # `ctx_of` maps an episode to its position ctx, `rt_of` to runtime seconds.
   # Reopens at the same row after a change. (ctrl-shift-w is indistinguishable
   # from ctrl-w in a terminal, so alt-w carries the bulk action.)
-  defp pick_episodes(items, describe, header, ctx_of, rt_of, initial \\ 0) do
+  defp pick_episodes(items, describe, header, ctx_of, rt_of, initial) do
     hint = header <> " · ctrl-w toggles · alt-w marks through here"
 
     case pick(items, describe, hint, nil, initial, ["ctrl-w", "alt-w"]) do
@@ -3043,7 +3052,7 @@ defmodule Laev.CLI do
 
   defp tmdb_aired?(_episode), do: true
 
-  defp watched_label(ctx, text, runtime_s \\ nil) do
+  defp watched_label(ctx, text, runtime_s) do
     if Laev.Position.watched?(ctx, runtime_s) do
       IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset]))
     else
@@ -3090,6 +3099,9 @@ defmodule Laev.CLI do
   end
 
   defp quality_badge(_title), do: ""
+
+  defp entry_badge(%{"type" => type, "tmdb_id" => id}), do: quality_badge(%{type: type, id: id})
+  defp entry_badge(_entry), do: ""
 
   # A film counts as seen once it is played through (85%/eof writes the same
   # marker), a series only when ctrl-w says so — laev can't tell a finished
@@ -3801,7 +3813,7 @@ defmodule Laev.CLI do
   # Position tracking + exact resume: mpv gets a tiny Lua script that saves
   # the playback position every 5s (crash-safe), keyed by title+episode so
   # switching sources resumes from the same spot.
-  defp position_args(ctx, filename \\ nil)
+  defp position_args(ctx, filename)
   defp position_args(nil, _filename), do: []
 
   defp position_args(ctx, filename) do
@@ -4138,7 +4150,7 @@ defmodule Laev.CLI do
     # A picker rather than a prompt: esc leaves it the way esc leaves every
     # other screen. Reading a single keypress isn't open to us — a System.cmd
     # child has no controlling terminal, so raw mode can't be set.
-    if s.titles != [], do: stats_list(s.titles, @stats_page)
+    stats_list(s.titles, @stats_page)
   end
 
   # ── continue watching ─────────────────────────────────────────────
@@ -4155,7 +4167,7 @@ defmodule Laev.CLI do
       entries ->
         hint = "continue watching · enter resumes · ctrl-d forgets · ctrl-o info"
 
-        case pick(entries, &describe_resume/1, hint, nil, initial, ["ctrl-o", "ctrl-d"]) do
+        case pick(entries, &describe_resume/1, hint, &entry_preview(&1, nil), initial, ["ctrl-o", "ctrl-d"]) do
           nil ->
             back()
 
@@ -4732,7 +4744,7 @@ defmodule Laev.CLI do
     end
   end
 
-  defp pick_fzf(items, describe, header, preview, initial \\ nil, expect \\ [], resize \\ :reflow) do
+  defp pick_fzf(items, describe, header, preview, initial, expect, resize) do
     expect_arg = if expect == [], do: "", else: ~s(--expect=#{Enum.join(expect, ",")} )
     # fzf positions are 1-based; pos(1) is where it starts anyway. --sync
     # is required with start:pos — without it the jump races the async list
@@ -4799,6 +4811,7 @@ defmodule Laev.CLI do
     mode = if preview?, do: :preview, else: resize
     watcher = start_resize_watcher(port_file, api_key, mode, marker)
     quality_watcher = start_quality_watcher(port_file, api_key, metas, path, render, preview?)
+    if metas != [], do: spawn(fn -> Laev.Quality.prune() end)
 
     try do
       # fzf draws its UI on /dev/tty, reads the list from the redirected file,
@@ -4834,7 +4847,7 @@ defmodule Laev.CLI do
           end
       end
     after
-      if watcher, do: Process.exit(watcher, :kill)
+      Process.exit(watcher, :kill)
       if quality_watcher, do: Process.exit(quality_watcher, :kill)
       Enum.each(Path.wildcard(path <> "-quality-*"), &File.rm/1)
       File.rm(path)
@@ -4843,7 +4856,7 @@ defmodule Laev.CLI do
     end
   end
 
-  defp pick_number(items, describe, header, expect \\ []) do
+  defp pick_number(items, describe, header, expect) do
     items
     |> Enum.with_index(1)
     |> Enum.each(fn {item, i} ->

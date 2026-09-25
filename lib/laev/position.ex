@@ -159,7 +159,7 @@ defmodule Laev.Position do
   where `resume_at` is a human-readable time when resuming, else nil.
   Best-effort: any failure returns `{[], nil}` — never breaks playback.
   """
-  def mpv_args(ctx, filename \\ nil) do
+  def mpv_args(ctx, _filename \\ nil) do
     case key(ctx) do
       nil ->
         {[], nil}

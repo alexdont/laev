@@ -53,8 +53,16 @@ defmodule Laev.Quality do
   """
   def fetch(type, tmdb_id, titles, year) do
     [primary | _] = titles
-    query = Enum.join(Enum.reject([Sources.query_title(primary), year], &is_nil/1), " ")
     kind = if type == "tv", do: :tv, else: :movie
+
+    # A film's releases carry its year; a show's carry S03E01 instead, so
+    # asking for "Silo 2023" finds a dozen season packs and misses the hundred
+    # episode releases. The title filter does the disambiguating either way.
+    query =
+      case kind do
+        :tv -> Sources.query_title(primary)
+        :movie -> Enum.join(Enum.reject([Sources.query_title(primary), year], &is_nil/1), " ")
+      end
 
     case Sources.search(query, backend: :apibay) do
       {:ok, found} ->
@@ -118,6 +126,29 @@ defmodule Laev.Quality do
     :ok
   rescue
     _ -> :ok
+  end
+
+  @doc """
+  Drop tallies nobody will read again. They go stale after six hours, so
+  anything much older than that is only taking up a directory entry.
+  """
+  def prune do
+    cutoff = System.os_time(:second) - @ttl_s * 4
+
+    case File.ls(dir()) do
+      {:ok, names} ->
+        for name <- names,
+            path = Path.join(dir(), name),
+            {:ok, %{mtime: mtime}} <- [File.stat(path, time: :posix)],
+            mtime < cutoff do
+          File.rm(path)
+        end
+
+        :ok
+
+      _ ->
+        :ok
+    end
   end
 
   defp path(type, tmdb_id), do: Path.join(dir(), "#{type}-#{tmdb_id}")

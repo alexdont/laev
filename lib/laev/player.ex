@@ -55,6 +55,13 @@ defmodule Laev.Player do
     end
   end
 
+  def open(app, url, _extra_args) when is_map_key(@gui, app) and is_binary(url) do
+    case System.cmd("open", ["-a", @gui[app], url], stderr_to_stdout: true) do
+      {_out, 0} -> :ok
+      {out, _code} -> {:error, message(@gui[app], out)}
+    end
+  end
+
   # Auto-select the preferred audio + subtitle track inside a release so the
   # user doesn't have to switch manually. mpv picks the first track whose
   # language tag matches; multiple codes cover the tagging variants (ISO
@@ -101,13 +108,6 @@ defmodule Laev.Player do
   end
 
   defp aliases(lang), do: lang_codes(lang)
-
-  def open(app, url, _extra_args) when is_map_key(@gui, app) and is_binary(url) do
-    case System.cmd("open", ["-a", @gui[app], url], stderr_to_stdout: true) do
-      {_out, 0} -> :ok
-      {out, _code} -> {:error, message(@gui[app], out)}
-    end
-  end
 
   @doc """
   Hand a magnet link to the OS default handler (the user's torrent client) —
