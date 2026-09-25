@@ -4392,9 +4392,14 @@ defmodule Laev.CLI do
   # :resized so the caller can rebuild static content (banner, calendar
   # grid) and reopen.
   defp pick(items, describe, header, preview \\ nil, initial \\ nil, expect \\ [], resize \\ :reflow) do
-    if System.find_executable("fzf"),
-      do: pick_fzf(items, describe, header, preview, initial, expect, resize),
-      else: pick_number(items, describe, header, expect)
+    # The picker owns the screen while it draws: a line printed under fzf from
+    # a background sync or scrobble scrolls the frame without fzf knowing, and
+    # the cursor then sits a row off what you see.
+    Laev.Quiet.hold(fn ->
+      if System.find_executable("fzf"),
+        do: pick_fzf(items, describe, header, preview, initial, expect, resize),
+        else: pick_number(items, describe, header, expect)
+    end)
   end
 
   # Runs inside fzf's preview pane: {2} is the poster URL column. Downloads
@@ -4968,7 +4973,7 @@ defmodule Laev.CLI do
       total = anime_episode_count(ctx[:search_title] || ctx.title)
 
       case Laev.MAL.set_progress(mal_id, ctx.episode, total) do
-        :ok -> IO.puts(:stderr, IO.ANSI.format([:faint, "  ↑ MAL: #{ctx.title} ep #{ctx.episode}", :reset]))
+        :ok -> Laev.Quiet.puts(IO.ANSI.format([:faint, "  ↑ MAL: #{ctx.title} ep #{ctx.episode}", :reset]))
         _ -> :ok
       end
     end

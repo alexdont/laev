@@ -720,7 +720,10 @@ defmodule Laev.Sync do
 
   defp now, do: System.os_time(:second)
 
-  defp note(msg), do: IO.puts(:stderr, IO.ANSI.format([:faint, "  #{msg}", :reset]))
+  # Dropped rather than printed while a picker owns the screen — see Laev.Quiet.
+  # Sync notes arrive from a background process five seconds after a film ends,
+  # which is exactly when the post-play menu is up.
+  defp note(msg), do: Laev.Quiet.puts(IO.ANSI.format([:faint, "  #{msg}", :reset]))
 
   defp inspect_short(term) do
     term |> inspect() |> String.slice(0, 80)

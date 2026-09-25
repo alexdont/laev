@@ -242,7 +242,10 @@ defmodule Laev.Skip do
         []
 
       parts ->
-        IO.puts(:stderr, "🎬 stinger alert: #{stinger_label(parts)} — don't skip the credits!")
+        # From the async pre-launch task, so it can land while the source
+        # picker is drawing — dropped there rather than shifting its frame.
+        # The post-play menu repeats it where it stays visible anyway.
+        Laev.Quiet.puts("🎬 stinger alert: #{stinger_label(parts)} — don't skip the credits!")
 
         if Config.skip() == "off",
           do: [],
