@@ -2171,8 +2171,10 @@ defmodule Laev.CLI do
         rt_of = fn ep -> runtime_seconds(Map.get(ep, :runtime)) end
         describe = fn ep -> watched_label(ctx_of.(ep), describe_anime_episode(ep), rt_of.(ep)) end
 
+        initial = first_unwatched(episodes, ctx_of, rt_of, &(not Map.get(&1, :future, false)))
+
         episode =
-          pick_episodes(episodes, describe, "#{search_title} — which episode?", ctx_of, rt_of) ||
+          pick_episodes(episodes, describe, "#{search_title} — which episode?", ctx_of, rt_of, initial) ||
             back()
 
         n = episode.number
@@ -2862,8 +2864,10 @@ defmodule Laev.CLI do
     rt_of = fn e -> runtime_seconds(e["runtime"]) end
     describe = fn e -> watched_label(ctx_of.(e), describe_episode(e), rt_of.(e)) end
 
+    initial = first_unwatched(episodes, ctx_of, rt_of, &tmdb_aired?/1)
+
     episode =
-      pick_episodes(episodes, describe, "#{show} S#{pad2(season_number)} — which episode?", ctx_of, rt_of) ||
+      pick_episodes(episodes, describe, "#{show} S#{pad2(season_number)} — which episode?", ctx_of, rt_of, initial) ||
         back()
 
     {season_number, episode["episode_number"]}
@@ -2916,6 +2920,29 @@ defmodule Laev.CLI do
   # A watched episode reads as a grayed-out "✓ …" line so finished vs. unseen
   # is obvious at a glance (fzf renders the ANSI because pickers pass --ansi);
   # unwatched keeps a 2-space indent so the ✓ column stays aligned.
+  # Where the cursor opens: the first episode you haven't watched. Five of
+  # twelve seen puts it on six, so enter starts watching instead of making you
+  # walk down the list every time you come back to a show.
+  #
+  # It prefers one that has actually aired — being parked on next month's
+  # episode is no more useful than being parked on the first. When everything
+  # aired is watched it falls back to the next one due, whose row carries the
+  # date; when nothing is watched at all, or everything is, it stays at the
+  # top, which is where a rewatch starts.
+  defp first_unwatched(items, ctx_of, rt_of, aired?) do
+    unwatched = Enum.reject(items, &Laev.Position.watched?(ctx_of.(&1), rt_of.(&1)))
+    target = Enum.find(unwatched, aired?) || List.first(unwatched)
+
+    (target && Enum.find_index(items, &(&1 == target))) || 0
+  end
+
+  # An undated episode counts as available, the same way the pre-play check
+  # treats it: TMDB lists plenty of them, and refusing would be worse.
+  defp tmdb_aired?(%{"air_date" => date}) when is_binary(date) and date != "",
+    do: date <= Date.to_iso8601(Date.utc_today())
+
+  defp tmdb_aired?(_episode), do: true
+
   defp watched_label(ctx, text, runtime_s \\ nil) do
     if Laev.Position.watched?(ctx, runtime_s) do
       IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset]))
