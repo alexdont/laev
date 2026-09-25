@@ -4537,30 +4537,40 @@ defmodule Laev.CLI do
   # twenty searches to answer a question about one. The answer goes in a file
   # named after the row, which the preview pane reads, and fzf is told to
   # redraw the pane once it lands.
-  defp start_quality_watcher(_port_file, _api_key, [], _path), do: nil
-
-  defp start_quality_watcher(port_file, api_key, metas, path) do
+  defp start_quality_watcher(port_file, api_key, metas, path, render, preview?) do
     if Enum.any?(metas) do
       spawn(fn ->
         case await_fzf_port(port_file, 50) do
           nil -> :ok
-          port -> watch_quality(port, api_key, metas, path, nil)
+          port -> watch_quality(port, api_key, %{metas: metas, path: path, render: render, preview?: preview?}, nil)
         end
       end)
     end
   end
 
-  defp watch_quality(port, api_key, metas, path, last) do
+  defp watch_quality(port, api_key, ctx, last) do
     Process.sleep(400)
-    index = fzf_current_index(port, api_key)
-    meta = index && Enum.at(metas, index)
+    state = fzf_state(port, api_key)
+    index = state[:index]
+    meta = index && Enum.at(ctx.metas, index)
 
-    if index != last and is_map(meta) do
-      write_quality_file(path, index, meta)
-      post_fzf(port, api_key, "refresh-preview")
+    if index != last and is_map(meta) and is_nil(Laev.Quality.cached(meta.type, meta.id)) do
+      write_quality_file(ctx.path, index, meta)
+      show_quality(port, api_key, ctx, state)
     end
 
-    watch_quality(port, api_key, metas, path, index)
+    watch_quality(port, api_key, ctx, index)
+  end
+
+  # The tally has to reach two places: the preview pane reads its file, and the
+  # row label is built from the cache — so the list is rewritten and reloaded,
+  # with the cursor put back where it was. Without that the badge would only
+  # appear the next time the screen was opened.
+  defp show_quality(port, api_key, ctx, state) do
+    File.write(ctx.path, ctx.render.())
+
+    reload = "reload(cat #{ctx.path})+pos(#{(state[:position] || 0) + 1})"
+    post_fzf(port, api_key, if(ctx.preview?, do: reload <> "+refresh-preview", else: reload))
   end
 
   defp write_quality_file(path, index, meta) do
@@ -4576,18 +4586,23 @@ defmodule Laev.CLI do
 
   defp quality_file(path, index), do: "#{path}-quality-#{index}"
 
-  # fzf's own view of itself: which row the cursor is on right now.
-  defp fzf_current_index(port, api_key) do
+  # fzf's own view of itself: which item the cursor is on (`index`, stable
+  # across filtering) and where that sits on screen (`position`, which is what
+  # a reload has to be told to restore).
+  defp fzf_state(port, api_key) do
     case Req.get("http://127.0.0.1:#{port}",
            headers: [{"x-api-key", api_key}],
            retry: false,
            receive_timeout: 2_000
          ) do
-      {:ok, %{status: 200, body: %{"current" => %{"index" => index}}}} -> index
-      _ -> nil
+      {:ok, %{status: 200, body: %{"current" => %{"index" => index}} = body}} ->
+        %{index: index, position: body["position"]}
+
+      _ ->
+        %{}
     end
   rescue
-    _ -> nil
+    _ -> %{}
   end
 
   defp poster_of({poster, _meta}), do: poster || "-"
@@ -4687,10 +4702,20 @@ defmodule Laev.CLI do
     # A preview callback returns a poster URL, or {poster, meta} where meta
     # names the title — enough for the quality watcher to look it up for
     # whichever row the cursor lands on.
-    previews = if preview?, do: Enum.map(items, preview), else: []
-    metas = Enum.map(previews, fn {_poster, meta} -> meta; _ -> nil end)
+    # Asked of every list that has one, poster pane or not: what the quality
+    # watcher needs is the title, and that has nothing to do with whether
+    # chafa is installed.
+    previews = if preview != nil, do: Enum.map(items, preview), else: []
 
-    list =
+    metas =
+      Enum.map(previews, fn
+        {_poster, meta} -> meta
+        _ -> nil
+      end)
+
+    # Rebuilt rather than cached, so a reload picks up a badge that arrived
+    # since — the labels read the quality cache as they are built.
+    render = fn ->
       items
       |> Enum.with_index()
       |> Enum.map_join("\n", fn {item, i} ->
@@ -4698,9 +4723,10 @@ defmodule Laev.CLI do
           do: "#{i}\t#{poster_of(Enum.at(previews, i))}\t#{describe.(item)}",
           else: "#{i}\t#{describe.(item)}"
       end)
+    end
 
     path = Path.join(System.tmp_dir!(), "laev-fzf-#{System.os_time(:millisecond)}")
-    File.write!(path, list)
+    File.write!(path, render.())
     port_file = path <> "-port"
 
     fzf =
@@ -4726,7 +4752,7 @@ defmodule Laev.CLI do
     marker = path <> "-resized"
     mode = if preview?, do: :preview, else: resize
     watcher = start_resize_watcher(port_file, api_key, mode, marker)
-    quality_watcher = start_quality_watcher(port_file, api_key, metas, path)
+    quality_watcher = start_quality_watcher(port_file, api_key, metas, path, render, preview?)
 
     try do
       # fzf draws its UI on /dev/tty, reads the list from the redirected file,
