@@ -2335,8 +2335,17 @@ defmodule Laev.CLI do
 
   defp title_sources("movie", name, year, imdb, _season, _episode) do
     q = Enum.join(Enum.reject([name, year], &is_nil/1), " ")
-    with_library(q, find_sources(q, imdb && {:movie, imdb}))
+
+    q
+    |> with_library(find_sources(q, imdb && {:movie, imdb}))
+    |> Enum.filter(&movie_source_ok?(&1, name, year))
   end
+
+  # Torrentio answers by IMDb id, so what comes back is already the right film
+  # whatever the uploader called it. Everything else arrived from a text query
+  # and has to prove it names this one.
+  defp movie_source_ok?(%{provider: "Torrentio" <> _}, _name, _year), do: true
+  defp movie_source_ok?(source, name, year), do: Sources.movie_release_ok?(source.name, name, year)
 
   defp title_sources("tv", name, _year, imdb, season, episode) do
     q = Sources.episode_query(name, season, episode)

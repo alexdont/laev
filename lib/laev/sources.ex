@@ -657,6 +657,87 @@ defmodule Laev.Sources do
     }
   end
 
+  @doc """
+  Does this release name actually name this film?
+
+  2026 gave us both *Runner* and *The Runner*, and a text indexer asked for
+  one hands back the other — every public source for "Runner 2026" is in fact
+  The Runner. So the test is exact: the part of the name before the release
+  year must BE the title. A leading article makes it a different film, not a
+  near-enough match, which is the whole point.
+
+  Anything the name gives no grounds to judge is let through — no year in it,
+  or a title that normalises to nothing, as a non-Latin one does. This is here
+  to tell two films apart, not to police release naming.
+  """
+  def movie_release_ok?(name, title, year) when is_binary(name) and is_binary(title) do
+    wanted = normalize_title(title)
+    candidates = release_titles(name)
+
+    cond do
+      wanted == "" -> true
+      candidates == [] -> true
+      true -> Enum.any?(candidates, fn {cand, y} -> cand == wanted and year_close?(y, year) end)
+    end
+  end
+
+  def movie_release_ok?(_name, _title, _year), do: true
+
+  # The title part of a release name, read once per year found in it: "Blade
+  # Runner 2049 2017 1080p" gives both "blade runner" (at 2049) and "blade
+  # runner 2049" (at 2017), and only the second names the film.
+  defp release_titles(name) do
+    cleaned = strip_site_tags(name)
+
+    ~r/\b(?:19|20)\d{2}\b/
+    |> Regex.scan(cleaned, return: :index)
+    |> Enum.map(fn [{at, len}] ->
+      {normalize_title(String.slice(cleaned, 0, at)), String.to_integer(String.slice(cleaned, at, len))}
+    end)
+    |> Enum.reject(fn {cand, _year} -> cand == "" end)
+  end
+
+  # Trackers stamp their own name on the front: "www.Tracker.com - Runner
+  # 2026". Strip those before reading the title, or every one of them looks
+  # like a different film.
+  @site_tag ~r/\A\s*(?:www\.[^\s]+\s*[-–—]?\s*|\[[^\]]*\]\s*|\{[^}]*\}\s*)/i
+
+  defp strip_site_tags(name) do
+    case Regex.replace(@site_tag, name, "") do
+      ^name -> name
+      stripped -> strip_site_tags(stripped)
+    end
+  end
+
+  defp normalize_title(text) do
+    text
+    |> String.downcase()
+    |> String.replace(~r/['`’´]/u, "")
+    |> String.replace("&", " and ")
+    |> String.replace(~r/[^a-z0-9]+/u, " ")
+    |> String.trim()
+  end
+
+  # Release years drift by one against TMDB (festival vs wide release), but
+  # not by five: a same-named film a decade apart is a different film.
+  defp year_close?(release_year, year) do
+    case year_int(year) do
+      nil -> true
+      wanted -> abs(release_year - wanted) <= 1
+    end
+  end
+
+  defp year_int(year) when is_integer(year), do: year
+
+  defp year_int(year) when is_binary(year) do
+    case Integer.parse(year) do
+      {n, _} -> n
+      _ -> nil
+    end
+  end
+
+  defp year_int(_year), do: nil
+
   @doc "Wrap a torrent already downloaded in the debrid account as a top-ranked source."
   def account_source(%{name: name, hash: hash, size: size}) do
     build_source(%{name: name, hash: hash, seeders: 0, size: size})
