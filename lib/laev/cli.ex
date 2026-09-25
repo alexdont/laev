@@ -4103,30 +4103,54 @@ defmodule Laev.CLI do
       days = Date.day_of_week(today)
       grid = Laev.Days.recent(weeks * 7 - (7 - days))
 
-      if Enum.any?(grid, fn {_date, seconds} -> seconds > 0 end) do
-        IO.puts(:stderr, IO.ANSI.format([:faint, "  Watched", :reset]))
-        IO.puts(:stderr, "")
-        Enum.each(heat_rows(grid, weeks), &IO.puts(:stderr, &1))
-        IO.puts(:stderr, heat_legend(grid))
-        IO.puts(:stderr, "")
-      end
+      # Drawn even when there is nothing in it yet. An empty calendar says
+      # "starts here"; a missing one just looks broken.
+      before = watched_before_the_log(grid)
+
+      IO.puts(:stderr, IO.ANSI.format([:faint, "  Watched", :reset]))
+      IO.puts(:stderr, "")
+      Enum.each(heat_rows(grid, before), &IO.puts(:stderr, &1))
+      IO.puts(:stderr, heat_legend(grid, before))
+      IO.puts(:stderr, "")
     end
+  end
+
+  # Days laev can show but not measure. The day-by-day log only starts when it
+  # is first written, and the history before that is not recoverable — but the
+  # watch history does remember when each title was last played, which is
+  # enough to mark the day as one where something happened. Marked, not
+  # coloured: how long is genuinely unknown, and inventing a band for it would
+  # make the whole grid a guess.
+  defp watched_before_the_log(grid) do
+    {first, _} = hd(grid)
+
+    Laev.Resume.all()
+    |> Enum.flat_map(fn entry ->
+      with at when is_integer(at) <- entry["updated_at"],
+           {:ok, when_} <- DateTime.from_unix(at) do
+        date = when_ |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_naive() |> NaiveDateTime.to_date()
+        if Date.compare(date, first) in [:gt, :eq], do: [date], else: []
+      else
+        _ -> []
+      end
+    end)
+    |> MapSet.new()
   end
 
   defp heat_weeks(cols), do: min(53, div(cols - @heat_labels - 4, @heat_cell))
 
   # Seven rows of cells plus the month strip above them. The grid is padded at
   # the front so the first column starts on a Monday.
-  defp heat_rows(grid, _weeks) do
+  defp heat_rows(grid, before) do
     {first_date, _} = hd(grid)
     pad = Date.day_of_week(first_date) - 1
     cells = List.duplicate(nil, pad) ++ Enum.map(grid, fn {date, secs} -> {date, secs} end)
     columns = Enum.chunk_every(cells, 7, 7, List.duplicate(nil, 7))
 
-    [heat_months(columns) | Enum.map(0..6, &heat_row(&1, columns))]
+    [heat_months(columns) | Enum.map(0..6, &heat_row(&1, columns, before))]
   end
 
-  defp heat_row(weekday, columns) do
+  defp heat_row(weekday, columns, before) do
     label =
       case weekday do
         0 -> "Mon"
@@ -4138,7 +4162,7 @@ defmodule Laev.CLI do
     cells =
       Enum.map(columns, fn column ->
         case Enum.at(column, weekday) do
-          {_date, seconds} -> heat_cell(seconds)
+          {date, seconds} -> heat_cell(seconds, MapSet.member?(before, date))
           _ -> String.duplicate(" ", @heat_cell)
         end
       end)
@@ -4148,9 +4172,14 @@ defmodule Laev.CLI do
   end
 
   # An empty day is drawn, not skipped: the gaps are the point of a heatmap.
-  defp heat_cell(0), do: IO.ANSI.format([:faint, "·" <> String.duplicate(" ", @heat_cell - 1), :reset])
+  defp heat_cell(0, false),
+    do: IO.ANSI.format([:faint, "·" <> String.duplicate(" ", @heat_cell - 1), :reset])
 
-  defp heat_cell(seconds) do
+  # Watched, duration unknown — from before the log existed.
+  defp heat_cell(0, true),
+    do: IO.ANSI.format([:faint, "▪" <> String.duplicate(" ", @heat_cell - 1), :reset])
+
+  defp heat_cell(seconds, _before) do
     step = Enum.count(@heat_steps, &(seconds >= &1))
     {c0, c1} = ramp_anchors()
     {r, g, b} = lerp_rgb(c0, c1, step / length(@heat_steps))
@@ -4204,15 +4233,22 @@ defmodule Laev.CLI do
 
   defp month_abbr(month), do: Enum.at(~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec), month - 1)
 
-  defp heat_legend(grid) do
-    watched = Enum.count(grid, fn {_date, seconds} -> seconds > 0 end)
+  defp heat_legend(grid, before) do
+    measured = Enum.count(grid, fn {_date, seconds} -> seconds > 0 end)
     streak = Laev.Days.streak(grid)
     scale = Enum.map_join(0..length(@heat_steps), fn step -> heat_swatch(step) end)
+
+    counted =
+      cond do
+        measured > 0 -> "#{measured} of the last #{length(grid)} days"
+        MapSet.size(before) > 0 -> "▪ before laev kept a daily log — timed from your next play"
+        true -> "nothing yet — this fills in as you watch"
+      end
 
     IO.ANSI.format([
       :faint,
       "  " <> String.duplicate(" ", @heat_labels),
-      "#{watched} of the last #{length(grid)} days",
+      counted,
       if(streak > 1, do: " · #{streak}-day streak", else: ""),
       "   less ",
       :reset,
