@@ -4547,44 +4547,51 @@ defmodule Laev.CLI do
               port,
               api_key,
               %{metas: metas, path: path, render: render, preview?: preview?},
-              %{seen: nil, tried: MapSet.new()}
+              %{seen: nil, since: 0, tried: MapSet.new()}
             )
         end
       end)
     end
   end
 
-  # One indexer search per row you settle on — never per row you pass over.
-  # A row has to still be under the cursor a tick later (~0.8s) before it is
-  # priced, so holding ↓ down the length of a list costs nothing, and each row
-  # is attempted at most once per screen, so an indexer having a bad day can't
-  # be asked twenty times about it.
+  # A row is priced only once you have stayed on it, and each row is attempted
+  # at most once per screen. Rows passed over on the way somewhere cost
+  # nothing, and an indexer having a bad day can't be asked twenty times.
+  @quality_dwell_ms 1_500
+
   defp watch_quality(port, api_key, ctx, seen) do
     Process.sleep(400)
-    state = fzf_state(port, api_key)
-    index = state[:index]
+    index = fzf_state(port, api_key)[:index]
+    now = System.monotonic_time(:millisecond)
+
+    # The clock restarts whenever the cursor moves, so dwell is measured on the
+    # row itself rather than on how long the picker has been open.
+    seen = if index == seen.seen, do: seen, else: %{seen | seen: index, since: now}
+
+    stayed? =
+      is_integer(index) and now - seen.since >= @quality_dwell_ms and
+        not MapSet.member?(seen.tried, index)
+
     meta = is_integer(index) && Enum.at(ctx.metas, index)
 
-    settled? = is_integer(index) and index == seen.seen and not MapSet.member?(seen.tried, index)
-
     seen =
-      if settled? and is_map(meta) do
-        price_row(port, api_key, ctx, state, index, meta)
+      if stayed? and is_map(meta) do
+        price_row(port, api_key, ctx, index, meta)
         %{seen | tried: MapSet.put(seen.tried, index)}
       else
         seen
       end
 
-    watch_quality(port, api_key, ctx, %{seen | seen: index})
+    watch_quality(port, api_key, ctx, seen)
   end
 
-  defp price_row(port, api_key, ctx, state, index, meta) do
+  defp price_row(port, api_key, ctx, index, meta) do
     case Laev.Quality.cached(meta.type, meta.id) do
       # Already known: the row label was built with it, so only the preview
       # pane needs telling.
       nil ->
         write_quality_file(ctx.path, index, meta)
-        show_quality(port, api_key, ctx, state)
+        show_quality(port, api_key, ctx)
 
       tally ->
         write_quality_line(ctx.path, index, tally)
@@ -4593,13 +4600,20 @@ defmodule Laev.CLI do
   end
 
   # The tally has to reach two places: the preview pane reads its file, and the
-  # row label is built from the cache — so the list is rewritten and reloaded,
-  # with the cursor put back where it was. Without that the badge would only
-  # appear the next time the screen was opened.
-  defp show_quality(port, api_key, ctx, state) do
+  # row label is built from the cache — so the list is rewritten and reloaded.
+  # Without that the badge would only appear the next time the screen was
+  # opened.
+  #
+  # A reload resets fzf's cursor, so it has to be told where to put it back —
+  # and the answer is read *now*, not from before the lookup. A search takes
+  # about a second, which is long enough to have moved on: restoring the
+  # position the cursor had when the lookup started would drag you back to the
+  # row it was about, which is exactly what it must not do.
+  defp show_quality(port, api_key, ctx) do
     File.write(ctx.path, ctx.render.())
+    position = fzf_state(port, api_key)[:position] || 0
 
-    reload = "reload(cat #{ctx.path})+pos(#{(state[:position] || 0) + 1})"
+    reload = "reload(cat #{ctx.path})+pos(#{position + 1})"
     post_fzf(port, api_key, if(ctx.preview?, do: reload <> "+refresh-preview", else: reload))
   end
 
