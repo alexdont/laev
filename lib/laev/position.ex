@@ -19,7 +19,7 @@ defmodule Laev.Position do
   -- and remembers the selected subtitle/audio tracks per source.
   -- Written by laev on every launch; do not edit.
   local options = require "mp.options"
-  local opts = { file = "", tracks = "", played = "" }
+  local opts = { file = "", tracks = "", played = "", log = "" }
   options.read_options(opts, "laev")
 
   -- Time actually watched, as opposed to time the playhead covered. The
@@ -50,6 +50,28 @@ defmodule Laev.Position do
       local w, s = f:read("*a"):match("(%d+)%s+(%d+)")
       f:close()
       if w then watched = tonumber(w) skipped = tonumber(s) end
+    end
+
+    logged = watched
+  end
+
+  -- A day-by-day record of what was actually watched, appended as it happens:
+  -- one "<date> <seconds>" line per save. Written by the player rather than by
+  -- laev, so it survives laev being closed, mpv being killed, or the machine
+  -- losing power mid-film — none of which the escript would live through to
+  -- record. Dates are local, because a heatmap of your evenings should agree
+  -- with the calendar on your wall.
+  local logged = 0
+
+  local function log_watched()
+    if opts.log == "" then return end
+    local delta = math.floor(watched - logged)
+    if delta < 1 then return end
+    local f = io.open(opts.log, "a")
+    if f then
+      f:write(os.date("%Y-%m-%d") .. " " .. delta .. "\\n")
+      f:close()
+      logged = logged + delta
     end
   end
 
@@ -133,6 +155,7 @@ defmodule Laev.Position do
     local pos = mp.get_property_number("time-pos")
     if not pos then return end
     write_played()
+    log_watched()
     local dur = mp.get_property_number("duration")
 
     if dur and dur > 0 and pos < dur * 0.5 then saw_early = true end
@@ -178,7 +201,8 @@ defmodule Laev.Position do
             "--script=#{script_path()}",
             "--script-opts-append=laev-file=#{file}",
             "--script-opts-append=laev-tracks=#{tracks}",
-            "--script-opts-append=laev-played=#{played}"
+            "--script-opts-append=laev-played=#{played}",
+            "--script-opts-append=laev-log=#{log_file()}"
           ] ++ track_args(tracks)
 
         case read(file) do
@@ -423,6 +447,12 @@ defmodule Laev.Position do
     else
       _ -> nil
     end
+  end
+
+  @doc "Where the day-by-day watch log lives."
+  def log_file do
+    File.mkdir_p(data_dir())
+    Path.join(data_dir(), "watched.log")
   end
 
   defp played_file(key) do

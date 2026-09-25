@@ -21,11 +21,17 @@ defmodule Laev.PositionLuaTest do
 
     script = Path.join(dir, "position.lua")
     File.write!(script, Laev.Position.script_source())
-    paths = Enum.map(~w(pos tracks played), &Path.join(dir, &1))
+    paths = Enum.map(~w(pos tracks played log), &Path.join(dir, &1))
 
     {out, status} = System.cmd("lua", [@harness, script] ++ paths ++ [mode], stderr_to_stdout: true)
 
-    %{status: status, out: out, position: read(Enum.at(paths, 0)), played: read(Enum.at(paths, 2))}
+    %{
+      status: status,
+      out: out,
+      position: read(Enum.at(paths, 0)),
+      played: read(Enum.at(paths, 2)),
+      log: read(Enum.at(paths, 3))
+    }
   end
 
   defp read(path), do: with({:ok, body} <- File.read(path), do: String.trim(body), else: (_ -> nil))
@@ -59,6 +65,28 @@ defmodule Laev.PositionLuaTest do
     # A minute watched, an hour jumped, a minute watched.
     assert_in_delta watched, 120, 5
     assert_in_delta skipped, 3600, 5
+  end
+
+  test "the day log records what was watched, dated, as it happens" do
+    lines = run("full").log |> String.split("\n", trim: true)
+
+    today = Date.to_iso8601(Date.utc_today())
+    assert length(lines) > 1, "the log should be appended to as it plays, not written once"
+    assert Enum.all?(lines, &String.starts_with?(&1, today)), "every line carries the day it happened on"
+
+    total = Enum.reduce(lines, 0, fn line, sum -> sum + (line |> String.split(" ") |> List.last() |> String.to_integer()) end)
+    # The whole 6000s film, give or take the sampling.
+    assert_in_delta total, 6000, 60
+  end
+
+  test "a seek is not logged as time watched" do
+    total =
+      run("seek").log
+      |> String.split("\n", trim: true)
+      |> Enum.reduce(0, fn line, sum -> sum + (line |> String.split(" ") |> List.last() |> String.to_integer()) end)
+
+    # Two minutes watched around an hour-long jump; the jump is not watching.
+    assert_in_delta total, 120, 10
   end
 
   test "stopping partway leaves the second reached, not a marker" do

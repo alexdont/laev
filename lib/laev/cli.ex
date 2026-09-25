@@ -4080,6 +4080,158 @@ defmodule Laev.CLI do
     ]
   end
 
+  # ── the heatmap ───────────────────────────────────────────────────
+
+  # A year at a glance, GitHub-style: a column per week, a row per weekday,
+  # today in the bottom-right. Shrinks to whatever the terminal gives it
+  # rather than wrapping, because a wrapped calendar is not a calendar.
+  @heat_cell 2
+  @heat_labels 4
+
+  # Thresholds in seconds, not quantiles: "half an hour" and "a film" mean the
+  # same thing every week, while a quantile scale would repaint the whole year
+  # differently after one long evening.
+  @heat_steps [30 * 60, 90 * 60, 3 * 3600, 5 * 3600]
+
+  defp print_heatmap(cols) do
+    weeks = heat_weeks(cols)
+
+    if weeks >= 8 do
+      # Whole weeks back from the end of this one, so every column is a full
+      # Monday-to-Sunday and today sits in the last.
+      today = Laev.Days.today()
+      days = Date.day_of_week(today)
+      grid = Laev.Days.recent(weeks * 7 - (7 - days))
+
+      if Enum.any?(grid, fn {_date, seconds} -> seconds > 0 end) do
+        IO.puts(:stderr, IO.ANSI.format([:faint, "  Watched", :reset]))
+        IO.puts(:stderr, "")
+        Enum.each(heat_rows(grid, weeks), &IO.puts(:stderr, &1))
+        IO.puts(:stderr, heat_legend(grid))
+        IO.puts(:stderr, "")
+      end
+    end
+  end
+
+  defp heat_weeks(cols), do: min(53, div(cols - @heat_labels - 4, @heat_cell))
+
+  # Seven rows of cells plus the month strip above them. The grid is padded at
+  # the front so the first column starts on a Monday.
+  defp heat_rows(grid, _weeks) do
+    {first_date, _} = hd(grid)
+    pad = Date.day_of_week(first_date) - 1
+    cells = List.duplicate(nil, pad) ++ Enum.map(grid, fn {date, secs} -> {date, secs} end)
+    columns = Enum.chunk_every(cells, 7, 7, List.duplicate(nil, 7))
+
+    [heat_months(columns) | Enum.map(0..6, &heat_row(&1, columns))]
+  end
+
+  defp heat_row(weekday, columns) do
+    label =
+      case weekday do
+        0 -> "Mon"
+        2 -> "Wed"
+        4 -> "Fri"
+        _ -> ""
+      end
+
+    cells =
+      Enum.map(columns, fn column ->
+        case Enum.at(column, weekday) do
+          {_date, seconds} -> heat_cell(seconds)
+          _ -> String.duplicate(" ", @heat_cell)
+        end
+      end)
+
+    IO.ANSI.format([:faint, "  " <> String.pad_trailing(label, @heat_labels), :reset, cells])
+    |> IO.iodata_to_binary()
+  end
+
+  # An empty day is drawn, not skipped: the gaps are the point of a heatmap.
+  defp heat_cell(0), do: IO.ANSI.format([:faint, "·" <> String.duplicate(" ", @heat_cell - 1), :reset])
+
+  defp heat_cell(seconds) do
+    step = Enum.count(@heat_steps, &(seconds >= &1))
+    {c0, c1} = ramp_anchors()
+    {r, g, b} = lerp_rgb(c0, c1, step / length(@heat_steps))
+
+    ["\e[38;2;#{r};#{g};#{b}m", "█" <> String.duplicate(" ", @heat_cell - 1), IO.ANSI.reset()]
+  end
+
+  # Month names sit above the column their first week falls in.
+  #
+  # Painted into a fixed-width strip at an exact offset rather than joined cell
+  # by cell: a three-letter name in a two-column cell overruns by one, and
+  # joining would push every later month one column further right — eight
+  # months in, the labels point at the wrong season. Overrunning into the next
+  # cell is fine (months sit four weeks apart, so labels never collide); the
+  # drift is not.
+  defp heat_months(columns) do
+    width = length(columns) * @heat_cell
+
+    strip =
+      columns
+      |> Enum.with_index()
+      |> Enum.reduce({List.duplicate(" ", width), nil}, fn {column, i}, {buffer, last} ->
+        month =
+          Enum.find_value(column, fn
+            {date, _seconds} -> date.month
+            _ -> nil
+          end)
+
+        if month && month != last,
+          do: {paint(buffer, i * @heat_cell, month_abbr(month)), month},
+          else: {buffer, last || month}
+      end)
+      |> elem(0)
+      |> Enum.join()
+
+    IO.ANSI.format([:faint, "  " <> String.duplicate(" ", @heat_labels), strip, :reset])
+    |> IO.iodata_to_binary()
+  end
+
+  defp paint(buffer, at, text) do
+    chars = String.graphemes(text)
+
+    if at + length(chars) <= length(buffer) do
+      chars
+      |> Enum.with_index()
+      |> Enum.reduce(buffer, fn {char, offset}, acc -> List.replace_at(acc, at + offset, char) end)
+    else
+      buffer
+    end
+  end
+
+  defp month_abbr(month), do: Enum.at(~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec), month - 1)
+
+  defp heat_legend(grid) do
+    watched = Enum.count(grid, fn {_date, seconds} -> seconds > 0 end)
+    streak = Laev.Days.streak(grid)
+    scale = Enum.map_join(0..length(@heat_steps), fn step -> heat_swatch(step) end)
+
+    IO.ANSI.format([
+      :faint,
+      "  " <> String.duplicate(" ", @heat_labels),
+      "#{watched} of the last #{length(grid)} days",
+      if(streak > 1, do: " · #{streak}-day streak", else: ""),
+      "   less ",
+      :reset,
+      scale,
+      :faint,
+      " more",
+      :reset
+    ])
+    |> IO.iodata_to_binary()
+  end
+
+  defp heat_swatch(0), do: IO.ANSI.format([:faint, "·", :reset]) |> IO.iodata_to_binary()
+
+  defp heat_swatch(step) do
+    {c0, c1} = ramp_anchors()
+    {r, g, b} = lerp_rgb(c0, c1, step / length(@heat_steps))
+    "\e[38;2;#{r};#{g};#{b}m█" <> IO.ANSI.reset()
+  end
+
   defp print_stats(%{titles: []}) do
     IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  Nothing watched yet — play something and it lands here.\n", :reset]))
   end
@@ -4131,6 +4283,9 @@ defmodule Laev.CLI do
         ])
       )
     end
+
+    {_rows, cols} = tty_size()
+    print_heatmap(cols)
 
     IO.puts(:stderr, IO.ANSI.format([:faint, "  Most time spent", :reset]))
 

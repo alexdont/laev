@@ -3,12 +3,12 @@
 -- Errors are deliberately left to propagate — mpv kills a script whose
 -- handler raises, and that silence is exactly what this harness exists to
 -- turn into a failing test.
-local script, posfile, tracksfile, playedfile, mode = ...
+local script, posfile, tracksfile, playedfile, logfile, mode = ...
 
 package.preload["mp.options"] = function()
   return {
     read_options = function(opts, _name)
-      opts.file, opts.tracks, opts.played = posfile, tracksfile, playedfile
+      opts.file, opts.tracks, opts.played, opts.log = posfile, tracksfile, playedfile, logfile
     end
   }
 end
