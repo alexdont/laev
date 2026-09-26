@@ -98,6 +98,40 @@ defmodule Laev.FranchisesTest do
     assert length(Enum.uniq(Enum.map(shield, &String.slice(&1.date, 0, 4)))) > 1
   end
 
+  describe "where TMDB and IMDb disagree about what is one show" do
+    # The Netflix anthology is one IMDb series with four seasons and four
+    # separate TMDB shows. The scene numbers releases IMDb's way, and TMDB
+    # carries no IMDb id for any of them — so without this, Torrentio cannot be
+    # asked at all and the text search finds a fraction of what exists.
+    @anthology %{113_988 => 1, 225_634 => 2, 286_801 => 3, 299_939 => 4}
+
+    test "each season of Monster points at the one IMDb series" do
+      for {tmdb_id, season} <- @anthology do
+        assert %{imdb_id: "tt13207736", season: ^season} = Franchises.imdb_override("tv", tmdb_id),
+               "tv/#{tmdb_id} should map to season #{season}"
+      end
+    end
+
+    test "the seasons are distinct and in release order" do
+      monster = Enum.find(Franchises.all(), &(&1.name == "Monster"))
+      seasons = Enum.map(monster.entries, & &1.imdb_season)
+
+      assert seasons == [1, 2, 3, 4], "release order and IMDb numbering agree here"
+    end
+
+    test "a title TMDB files correctly has no override" do
+      assert Franchises.imdb_override("tv", elem(@alien_earth, 1)) == nil
+      assert Franchises.imdb_override("movie", elem(@logan, 1)) == nil
+    end
+
+    test "every override carries both halves, or it is no use" do
+      for f <- Franchises.all(), entry <- f.entries, entry.imdb_id do
+        assert is_binary(entry.imdb_id) and entry.imdb_id =~ ~r/^tt\d+$/
+        assert is_integer(entry.imdb_season) and entry.imdb_season > 0
+      end
+    end
+  end
+
   test "a single-year show stays one entry with no season" do
     alien = Enum.find(Franchises.all(), &(&1.name == "Alien"))
     earth = Enum.find(alien.entries, &(&1.title == "Alien: Earth"))

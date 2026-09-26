@@ -44,7 +44,11 @@ defmodule Laev.Franchises do
                         season: &1["season"],
                         title: &1["title"],
                         date: &1["date"],
-                        tiers: &1["tiers"] || []
+                        tiers: &1["tiers"] || [],
+                        # Where TMDB and IMDb disagree about what is one show:
+                        # the id and season number the release scene uses.
+                        imdb_id: &1["imdb_id"],
+                        imdb_season: &1["imdb_season"]
                       }
                     )
                     # release order, with the not-yet-dated last
@@ -62,6 +66,27 @@ defmodule Laev.Franchises do
          |> Enum.flat_map(fn f -> Enum.map(f.entries, &{{&1.type, &1.tmdb_id}, f}) end)
          |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
          |> Map.new(fn {key, franchises} -> {key, Enum.sort_by(franchises, &length(&1.entries))} end)
+
+  # {type, tmdb_id} => %{imdb_id, season}, for the entries that carry one.
+  @imdb_overrides @franchises
+                  |> Enum.flat_map(& &1.entries)
+                  |> Enum.filter(& &1.imdb_id)
+                  |> Map.new(&{{&1.type, &1.tmdb_id}, %{imdb_id: &1.imdb_id, season: &1.imdb_season}})
+
+  @doc """
+  The IMDb series this title belongs to, when TMDB files it separately.
+
+  A Netflix anthology is one series with four seasons on IMDb and four
+  unrelated shows on TMDB — and the release scene follows IMDb. Since TMDB then
+  carries no IMDb id for any of them, laev has nothing to ask Torrentio with
+  and falls back to a text search that finds almost nothing: for Monsters S2E7,
+  one release against Torrentio's fifteen.
+
+  So the curated file records what TMDB is missing, and this is how the play
+  path asks for it — by TMDB id, so it applies however the title was reached,
+  not only from inside the list.
+  """
+  def imdb_override(type, tmdb_id), do: Map.get(@imdb_overrides, {type, tmdb_id})
 
   @doc "Every curated franchise."
   def all, do: @franchises

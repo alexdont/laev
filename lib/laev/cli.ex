@@ -2346,7 +2346,7 @@ defmodule Laev.CLI do
     |> Enum.filter(&source_names_title?(&1, accept, year, :movie))
   end
 
-  defp title_sources("tv", %{search: [primary | alternates], accept: accept}, year, imdb, season, episode) do
+  defp title_sources("tv", %{search: [primary | alternates], accept: accept} = titles, year, imdb, season, episode) do
     q = Sources.episode_query(Sources.query_title(primary), season, episode)
 
     extra =
@@ -2355,9 +2355,25 @@ defmodule Laev.CLI do
       end)
 
     q
-    |> with_library(find_sources(q, imdb && {:series, imdb, season, episode}) ++ extra)
+    |> with_library(find_sources(q, torrentio_series(titles, imdb, season, episode)) ++ extra)
     |> Enum.filter(&source_names_title?(&1, accept, year, :tv))
   end
+
+  # What to ask Torrentio for, which is not always what TMDB says.
+  #
+  # A Netflix anthology is one IMDb series with four seasons and four separate
+  # TMDB shows — and the scene numbers releases IMDb's way. TMDB then carries no
+  # IMDb id for any of them, so without the override there is nothing to ask
+  # Torrentio with at all, and the text search alone finds a fraction of what
+  # exists: one release for Monsters S2E7 against Torrentio's fifteen.
+  defp torrentio_series(%{tmdb_id: id}, imdb, season, episode) do
+    case Laev.Franchises.imdb_override("tv", id) do
+      %{imdb_id: override, season: override_season} -> {:series, override, override_season, episode}
+      _ -> imdb && {:series, imdb, season, episode}
+    end
+  end
+
+  defp torrentio_series(_titles, imdb, season, episode), do: imdb && {:series, imdb, season, episode}
 
   defp movie_query(title, year),
     do: Enum.join(Enum.reject([Sources.query_title(title), year], &is_nil/1), " ")
@@ -2400,7 +2416,8 @@ defmodule Laev.CLI do
 
     %{
       search: clean_titles([primary, second_query(primary, original, regional, accept)], fallback),
-      accept: accept
+      accept: accept,
+      tmdb_id: details["id"]
     }
   end
 

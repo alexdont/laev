@@ -2639,25 +2639,33 @@
           "type": "tv",
           "tmdb_id": 113988,
           "title": "DAHMER — Monster: The Jeffrey Dahmer Story",
-          "date": "2022-09-21"
+          "date": "2022-09-21",
+          "imdb_id": "tt13207736",
+          "imdb_season": 1
         },
         {
           "type": "tv",
           "tmdb_id": 225634,
           "title": "Monsters: The Lyle and Erik Menendez Story",
-          "date": "2024-09-19"
+          "date": "2024-09-19",
+          "imdb_id": "tt13207736",
+          "imdb_season": 2
         },
         {
           "type": "tv",
           "tmdb_id": 286801,
           "title": "Monster: The Ed Gein Story",
-          "date": "2025-10-03"
+          "date": "2025-10-03",
+          "imdb_id": "tt13207736",
+          "imdb_season": 3
         },
         {
           "type": "tv",
           "tmdb_id": 299939,
           "title": "Monster: The Lizzie Borden Story",
-          "date": "2026-09-17"
+          "date": "2026-09-17",
+          "imdb_id": "tt13207736",
+          "imdb_season": 4
         }
       ]
     }
