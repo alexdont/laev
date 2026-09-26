@@ -3005,13 +3005,24 @@ defmodule Laev.CLI do
       "🎬 #{f.name} — #{kind}",
       :reset,
       :faint,
-      "  #{films} films#{if shows > 0, do: " · #{shows} TV", else: ""} · in release order",
+      "  #{franchise_makeup(films, shows)} · in release order",
       :reset
     ])
     |> IO.iodata_to_binary()
   end
 
   defp describe_title_item(title), do: describe_title(title)
+
+  # "0 films · 4 TV" is noise on an all-television franchise, and so is the
+  # other way round.
+  defp franchise_makeup(films, shows) do
+    [
+      films > 0 && "#{films} #{if films == 1, do: "film", else: "films"}",
+      shows > 0 && "#{shows} TV"
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" · ")
+  end
 
   defp fetch_details(%{type: "movie", id: id}), do: Tmdb.movie(id)
   defp fetch_details(%{type: "tv", id: id}), do: Tmdb.tv(id)

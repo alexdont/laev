@@ -2631,6 +2631,35 @@
           "date": "2011-07-12"
         }
       ]
+    },
+    {
+      "name": "Monster",
+      "entries": [
+        {
+          "type": "tv",
+          "tmdb_id": 113988,
+          "title": "DAHMER — Monster: The Jeffrey Dahmer Story",
+          "date": "2022-09-21"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 225634,
+          "title": "Monsters: The Lyle and Erik Menendez Story",
+          "date": "2024-09-19"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 286801,
+          "title": "Monster: The Ed Gein Story",
+          "date": "2025-10-03"
+        },
+        {
+          "type": "tv",
+          "tmdb_id": 299939,
+          "title": "Monster: The Lizzie Borden Story",
+          "date": "2026-09-17"
+        }
+      ]
     }
   ]
 }
