@@ -2745,7 +2745,7 @@ defmodule Laev.CLI do
         name -> "#{franchise.name} · #{name}"
       end
 
-    case pick_with_save(titles, "#{label} — #{length(titles)} titles, in release order") do
+    case pick_with_save(titles, "#{label} — #{franchise_summary(titles)}") do
       # Esc goes back a level: to the tier chooser where there is one, and to
       # the search results where there isn't.
       nil ->
@@ -2759,6 +2759,35 @@ defmodule Laev.CLI do
       chosen ->
         chosen
     end
+  end
+
+  # What the list holds, and what is left of it: "207 titles, 541h · 34 left,
+  # 140h". The pair is the point — a count of what remains means little without
+  # knowing it is an evening or a fortnight.
+  defp franchise_summary(titles) do
+    left = Enum.reject(titles, &seen?/1)
+    total = runtime_sum(titles)
+    remaining = runtime_sum(left)
+
+    cond do
+      left == [] -> "#{length(titles)} titles, #{hours(total)} · all watched"
+      length(left) == length(titles) -> "#{length(titles)} titles, #{hours(total)}, in release order"
+      true -> "#{length(titles)} titles, #{hours(total)} · #{length(left)} left, #{hours(remaining)}"
+    end
+  end
+
+  # Marked with a + when TMDB has no runtime for some of them, rather than
+  # reporting a total that is quietly short.
+  defp runtime_sum(titles) do
+    known = Enum.map(titles, &Map.get(&1, :seconds))
+    {sum, unknown} = {known |> Enum.reject(&is_nil/1) |> Enum.sum(), Enum.count(known, &is_nil/1)}
+
+    {sum, unknown > 0}
+  end
+
+  defp hours({seconds, partial?}) do
+    text = if seconds >= 3600, do: "#{div(seconds, 3600)}h", else: "#{div(seconds, 60)}m"
+    if partial?, do: text <> "+", else: text
   end
 
   defp season_title(name, nil), do: name
@@ -2776,7 +2805,8 @@ defmodule Laev.CLI do
           poster: Tmdb.poster_url(details["poster_path"], "w342"),
           overview: details["overview"],
           vote: details["vote_average"],
-          popularity: details["popularity"]
+          popularity: details["popularity"],
+          seconds: entry_runtime(details, entry)
         }
 
       _ ->
@@ -2790,8 +2820,48 @@ defmodule Laev.CLI do
           poster: nil,
           overview: nil,
           vote: nil,
-          popularity: nil
+          popularity: nil,
+          seconds: nil
         }
+    end
+  end
+
+  # How long this entry is, from the details the list already fetched — so the
+  # running time of a 207-title franchise costs nothing beyond what opening it
+  # costs anyway. nil where TMDB doesn't say, which the header owns up to
+  # rather than quietly under-counting.
+  defp entry_runtime(%{"runtime" => minutes}, %{type: "movie"}) when is_integer(minutes) and minutes > 0,
+    do: minutes * 60
+
+  defp entry_runtime(details, %{type: "tv", season: season}) do
+    case {episode_minutes(details), episodes_in(details, season)} do
+      {minutes, count} when is_integer(minutes) and is_integer(count) and minutes > 0 and count > 0 ->
+        minutes * 60 * count
+
+      _ ->
+        nil
+    end
+  end
+
+  defp entry_runtime(_details, _entry), do: nil
+
+  defp episode_minutes(%{"episode_run_time" => [minutes | _]}) when is_integer(minutes) and minutes > 0,
+    do: minutes
+
+  defp episode_minutes(%{"last_episode_to_air" => %{"runtime" => minutes}}) when is_integer(minutes) and minutes > 0,
+    do: minutes
+
+  defp episode_minutes(_details), do: nil
+
+  # A franchise entry is either a whole series or one of its seasons.
+  defp episodes_in(details, nil), do: details["number_of_episodes"]
+
+  defp episodes_in(details, season) do
+    (details["seasons"] || [])
+    |> Enum.find(&(&1["season_number"] == season))
+    |> case do
+      %{"episode_count" => count} -> count
+      _ -> nil
     end
   end
 
