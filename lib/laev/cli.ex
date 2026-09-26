@@ -2769,11 +2769,12 @@ defmodule Laev.CLI do
     total = runtime_sum(titles)
     remaining = runtime_sum(left)
 
-    cond do
-      left == [] -> "#{length(titles)} titles, #{hours(total)} · all watched"
-      length(left) == length(titles) -> "#{length(titles)} titles, #{hours(total)}, in release order"
-      true -> "#{length(titles)} titles, #{hours(total)} · #{length(left)} left, #{hours(remaining)}"
-    end
+    # Both pairs, always. Suppressing "left" on a list you haven't started is
+    # exactly backwards: that is the list where how much there is to get
+    # through is the whole question.
+    if left == [],
+      do: "#{length(titles)} titles, #{hours(total)} · all watched",
+      else: "#{length(titles)} titles, #{hours(total)} · #{length(left)} left, #{hours(remaining)}"
   end
 
   # Marked with a + when TMDB has no runtime for some of them, rather than
