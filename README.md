@@ -155,6 +155,12 @@ LAEV_AUTOPLAY=off
 | `laev sync` | sync watch state now (`laev sync status` shows config) |
 | `laev config` | show config status |
 
+`laev watch tt13207736` takes an IMDb id as well as a name — unambiguous where
+a name isn't (there are two 2026 films called *Runner*), and what you have when
+you came from IMDb. Where TMDB's own reverse lookup is wrong, the curated lists
+answer instead: that id is one series with four seasons on IMDb and four
+separate shows on TMDB, so it opens the curated list of all four.
+
 `laev watch --raw "<text>"` skips TMDB and searches indexers by text.
 
 ## Sync across devices (optional)

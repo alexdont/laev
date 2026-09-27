@@ -88,6 +88,21 @@ defmodule Laev.Franchises do
   """
   def imdb_override(type, tmdb_id), do: Map.get(@imdb_overrides, {type, tmdb_id})
 
+  # imdb id => the franchise whose entries carry it.
+  @by_imdb @franchises
+           |> Enum.flat_map(fn f -> Enum.map(Enum.filter(f.entries, & &1.imdb_id), &{&1.imdb_id, f}) end)
+           |> Map.new()
+
+  @doc """
+  The curated list an IMDb series id belongs to, or nil.
+
+  The reverse of `imdb_override/2`, and the answer for a search by IMDb id where
+  TMDB's own reverse lookup is broken: tt13207736 resolves on TMDB to an entity
+  that 404s when fetched, while the curated file knows exactly which four shows
+  it means.
+  """
+  def by_imdb(imdb_id), do: Map.get(@by_imdb, imdb_id)
+
   @doc "Every curated franchise."
   def all, do: @franchises
 

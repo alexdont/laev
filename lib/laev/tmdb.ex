@@ -24,6 +24,32 @@ defmodule Laev.Tmdb do
   end
 
   @doc """
+  The movie or show behind an IMDb id, as a normalized title — TMDB's reverse
+  lookup. `{:error, :not_found}` when TMDB has nothing filed under it.
+
+  TMDB's answer here can be a ghost: an entity that `find` names but `/tv/{id}`
+  then 404s on. Callers have to be able to cope with the title not resolving.
+  """
+  def find_imdb("tt" <> _ = imdb_id) do
+    case get("/find/#{imdb_id}", external_source: "imdb_id") do
+      {:ok, body} ->
+        [{"movie_results", "movie"}, {"tv_results", "tv"}]
+        |> Enum.find_value(fn {key, type} ->
+          case body[key] do
+            [first | _] -> {:ok, normalize(Map.put(first, "media_type", type))}
+            _ -> nil
+          end
+        end)
+        |> Kernel.||({:error, :not_found})
+
+      error ->
+        error
+    end
+  end
+
+  def find_imdb(_id), do: {:error, :not_found}
+
+  @doc """
   Trending movies or TV shows this week — `type` is `"movie"` or `"tv"`.
   Returns `{:ok, results, more?}` like `search/2`.
   """

@@ -2052,8 +2052,46 @@ defmodule Laev.CLI do
     end
   end
 
+  # An IMDb id is a perfectly good way to name a title — it is what you have
+  # when you came from IMDb, and unlike a name it is unambiguous, which is the
+  # whole point for the two 2026 films called Runner.
+  @imdb_id ~r/^\s*(tt\d{6,})\s*$/i
+
   # The title-first flow: TMDB titles → (season → episode for TV) → sources.
   defp watch_title(query) do
+    case Regex.run(@imdb_id, query) do
+      [_, imdb_id] -> watch_imdb(String.downcase(imdb_id))
+      _ -> watch_by_name(query)
+    end
+  end
+
+  defp watch_imdb(imdb_id) do
+    screen(fn -> watch_imdb(imdb_id) end)
+
+    # The curated file first: it is right where TMDB's reverse lookup is wrong.
+    # tt13207736 resolves on TMDB to an entity that 404s when fetched, while the
+    # curated list knows it means four separate shows.
+    case Laev.Franchises.by_imdb(imdb_id) do
+      nil -> watch_imdb_via_tmdb(imdb_id)
+      franchise -> franchise |> franchise_screen(fn -> back() end) |> play_found()
+    end
+  end
+
+  defp watch_imdb_via_tmdb(imdb_id) do
+    case Tmdb.find_imdb(imdb_id) do
+      {:ok, title} ->
+        IO.puts(:stderr, IO.ANSI.format([:faint, "  #{imdb_id} → #{title.title} (#{title.year || "?"})", :reset]))
+        play_title(title)
+
+      _ ->
+        no_sources("nothing on TMDB filed under #{imdb_id}")
+    end
+  end
+
+  defp play_found(title) when is_map(title), do: play_title(title)
+  defp play_found(other), do: other
+
+  defp watch_by_name(query) do
     # A trailing year ("in the gray 2026") kills TMDB's text match — strip it
     # and use it to rank instead (soft, ±1: release dates shift).
     {q, year} = split_year(query)

@@ -119,6 +119,17 @@ defmodule Laev.FranchisesTest do
       assert seasons == [1, 2, 3, 4], "release order and IMDb numbering agree here"
     end
 
+    test "an IMDb series id finds the list it means" do
+      # The answer TMDB's own reverse lookup gets wrong: it resolves this id to
+      # an entity that 404s when fetched.
+      assert %{name: "Monster"} = Franchises.by_imdb("tt13207736")
+    end
+
+    test "an ordinary IMDb id belongs to no curated list" do
+      refute Franchises.by_imdb("tt1375666")
+      refute Franchises.by_imdb("nonsense")
+    end
+
     test "a title TMDB files correctly has no override" do
       assert Franchises.imdb_override("tv", elem(@alien_earth, 1)) == nil
       assert Franchises.imdb_override("movie", elem(@logan, 1)) == nil
