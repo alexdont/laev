@@ -1222,6 +1222,12 @@ defmodule Laev.CLI do
         ctx = entry_ctx(entry)
 
         cond do
+          # A show marked watched has no next episode to offer. Without this the
+          # menu adds one to the last episode and hopes — and the click then has
+          # to tell you it doesn't exist, which is a worse way to find out.
+          Laev.Position.finished?(%{ctx | season: nil, episode: nil}) ->
+            []
+
           Laev.Position.finished?(ctx) and is_integer(entry["episode"]) ->
             [{:up_next, %{entry | "episode" => entry["episode"] + 1}}]
 
@@ -3110,6 +3116,7 @@ defmodule Laev.CLI do
     rt_of = fn e -> runtime_seconds(e["runtime"]) end
     describe = fn e -> watched_label(ctx_of.(e), describe_episode(e), rt_of.(e)) end
 
+    roll_up_single_season(details, episodes, ctx_of, rt_of)
     initial = first_unwatched(episodes, ctx_of, rt_of, &tmdb_aired?/1)
 
     episode =
@@ -3166,6 +3173,28 @@ defmodule Laev.CLI do
   # A watched episode reads as a grayed-out "✓ …" line so finished vs. unseen
   # is obvious at a glance (fzf renders the ANSI because pickers pass --ansi);
   # unwatched keeps a 2-space indent so the ✓ column stays aligned.
+  # A one-season show with every aired episode watched is a show you have
+  # watched, so the list says so on its way past — which is how a series
+  # finished before laev rolled anything up gets its mark without a rewatch.
+  #
+  # Only for a single-season show. With more than one, this list is one season
+  # of several and finishing it says nothing about the others; the playback path
+  # handles those, where "nothing next" has already rolled across seasons.
+  defp roll_up_single_season(%{"number_of_seasons" => 1} = details, episodes, ctx_of, rt_of) do
+    aired = Enum.filter(episodes, &tmdb_aired?/1)
+    series = %{type: "tv", tmdb_id: details["id"], season: nil, episode: nil}
+
+    if aired != [] and not Laev.Position.finished?(series) and
+         Enum.all?(aired, &Laev.Position.watched?(ctx_of.(&1), rt_of.(&1))) do
+      Laev.Position.set_watched(series, true)
+      Laev.Sync.live_push()
+    end
+
+    :ok
+  end
+
+  defp roll_up_single_season(_details, _episodes, _ctx_of, _rt_of), do: :ok
+
   # Where the cursor opens: the first episode you haven't watched. Five of
   # twelve seen puts it on six, so enter starts watching instead of making you
   # walk down the list every time you come back to a show.
@@ -3514,6 +3543,7 @@ defmodule Laev.CLI do
   defp countdown_next(ctx) do
     case next_target(ctx) do
       nil ->
+        mark_series_if_done(ctx, nil)
         IO.puts(:stderr, "\n  ✓ that was the last episode available — binge complete")
 
       next ->
@@ -3580,6 +3610,7 @@ defmodule Laev.CLI do
 
       episodic? = is_integer(ctx.episode)
       next = if episodic?, do: next_target(ctx)
+      if episodic?, do: mark_series_if_done(ctx, next)
 
       items =
         List.flatten([
@@ -3654,6 +3685,31 @@ defmodule Laev.CLI do
     IO.puts(:stderr, "playing in mpv: #{stream.filename}")
     post_play_menu(ctx, stream)
   end
+
+  # Finishing the last episode finishes the show.
+  #
+  # Episodes were being marked and the series itself never was, so a show you
+  # had watched end to end still showed up unwatched in every list — the ✓ and
+  # the greying are read at title level, and only ctrl-w ever wrote there.
+  #
+  # The moment to write it is this one: the episode is done and there is
+  # nothing after it, which is the same answer that decides whether to offer
+  # "next episode" — and it is checked against TMDB rather than assumed, so a
+  # show still airing is not declared finished on its mid-season break.
+  defp mark_series_if_done(ctx, nil) do
+    if Laev.Position.finished?(ctx) do
+      series = %{ctx | season: nil, episode: nil}
+
+      unless Laev.Position.finished?(series) do
+        Laev.Position.set_watched(series, true)
+        Laev.Sync.live_push()
+      end
+    end
+
+    :ok
+  end
+
+  defp mark_series_if_done(_ctx, _next), do: :ok
 
   # Next/previous episode: rebuild the play context with episode ± 1 and
   # rerun the full source flow (which respects --auto and re-enters this
