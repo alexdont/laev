@@ -3616,7 +3616,7 @@ defmodule Laev.CLI do
         List.flatten([
           if(next, do: [{:next, "⏭  #{next.label}"}], else: []),
           if(next, do: [{:binge, "⚡  autoplay — chain next episodes"}], else: []),
-          {:replay, "↻  replay"},
+          {:play, "▶  play — from where you stopped"},
           if(ctx[:anime],
             do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
             else: [{:imdb, "★  rate on IMDb — open in browser"}]
@@ -3637,7 +3637,7 @@ defmodule Laev.CLI do
         {:binge, _} ->
           Process.put(:laev_binge, true)
           binge_wait(ctx)
-        {:replay, _} -> replay(ctx, stream)
+        {:play, _} -> reopen(ctx, stream)
         {:switch, _} -> switch_source(ctx)
         {:previous, _} -> play_adjacent(ctx, -1)
         {:select, _} -> reselect(ctx)
@@ -3664,16 +3664,17 @@ defmodule Laev.CLI do
   # Reached from Now Playing when laev didn't launch this itself — an mpv it
   # adopted on startup, from before the stream was recorded. The source is
   # still in the history, so re-resolve it the way `continue` does.
-  defp replay(ctx, %{url: url}) when not is_binary(url) do
+  defp reopen(ctx, %{url: url}) when not is_binary(url) do
     case Laev.Resume.get(ctx.type, ctx.tmdb_id) do
       nil -> play_entry(ctx_entry(ctx), rd_opts(ctx[:season], ctx[:episode]))
       entry -> continue_entry(entry)
     end
   end
 
-  # Same URL again; position args resume from wherever the tracker last
-  # saved, so "replay" doubles as "reopen where I was" after closing mpv.
-  defp replay(ctx, stream) do
+  # Same URL again, and the position args start it wherever the tracker last
+  # saved — so this reopens what you were watching rather than restarting it.
+  # It was called "replay", which said the opposite of what it does.
+  defp reopen(ctx, stream) do
     args =
       subtitle_args(ctx) ++
         Laev.Skip.window_args(ctx) ++

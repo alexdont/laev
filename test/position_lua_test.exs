@@ -70,7 +70,9 @@ defmodule Laev.PositionLuaTest do
   test "the day log records what was watched, dated, as it happens" do
     lines = run("full").log |> String.split("\n", trim: true)
 
-    today = Date.to_iso8601(Date.utc_today())
+    # The script stamps local dates, so the check has to read the same clock:
+    # between midnight and UTC's, the two disagree and this would fail nightly.
+    today = Date.to_iso8601(Laev.Days.today())
     assert length(lines) > 1, "the log should be appended to as it plays, not written once"
     assert Enum.all?(lines, &String.starts_with?(&1, today)), "every line carries the day it happened on"
 
