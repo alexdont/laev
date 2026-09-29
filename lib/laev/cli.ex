@@ -525,7 +525,9 @@ defmodule Laev.CLI do
   # takes effect for the rest of the session.
 
   @settings [
-    {"LAEV_AUTO_SOURCE", "▶ Play the best source automatically", {:cycle, ["off", "on"]}},
+    {"LAEV_AUTO_SOURCE", "▶ Play the best source automatically", {:cycle, ["on", "off"]}},
+    {"LAEV_MAX_RESOLUTION", "🖥 …at this resolution, at most", {:cycle, ["1080p", "4K", "720p", "any"]}},
+    {"LAEV_STRICT_RESOLUTION", "🔒 …and don't even list higher ones", {:cycle, ["off", "on"]}},
     {"LAEV_AUTOPLAY", "⚡ Autoplay next episode", {:cycle, ["off", "on"]}},
     {"LAEV_SKIP", "⏭ Intro/credits skipping", {:cycle, ["ask", "auto", "off"]}},
     {"LAEV_POSTERS", "🖼 Poster previews", {:cycle, ["auto", "ascii", "ascii-bg", "off"]}},
@@ -1166,6 +1168,16 @@ defmodule Laev.CLI do
     do: "#{String.pad_trailing(label, 34)}  [#{setting_value(key)}]"
 
   defp setting_value("LAEV_AUTO_SOURCE"), do: if(Config.auto_source?(), do: "on", else: "off")
+
+  defp setting_value("LAEV_STRICT_RESOLUTION"), do: if(Config.strict_resolution?(), do: "on", else: "off")
+
+  defp setting_value("LAEV_MAX_RESOLUTION") do
+    case Config.max_resolution() do
+      "2160p" -> "4K"
+      nil -> "any"
+      resolution -> resolution
+    end
+  end
   defp setting_value("LAEV_AUTOPLAY"), do: if(Config.autoplay?(), do: "on", else: "off")
   defp setting_value("LAEV_SKIP"), do: Config.skip()
   defp setting_value("LAEV_POSTERS"), do: Config.posters()
@@ -3342,10 +3354,36 @@ defmodule Laev.CLI do
   end
 
   defp probe_and_pick(sources, rd_opts, ctx, playable_so_far, sub_task) do
+    sources = within_ceiling(sources)
+
     if Process.get(:laev_auto) do
       auto_play(sources, rd_opts, ctx)
     else
       do_probe_and_pick(sources, rd_opts, ctx, playable_so_far, sub_task)
+    end
+  end
+
+  # Strict mode only. Normally nothing is filtered: every release is found and
+  # listed, and the ceiling decides which one starts by itself — so the 4K you
+  # didn't want automatically is still there under "try another source". Strict
+  # drops the higher ones before anything is checked, for people who will never
+  # watch them and would rather not spend the check.
+  defp within_ceiling(sources) do
+    cap = Config.max_resolution()
+
+    if Config.strict_resolution?() and cap do
+      case Sources.at_most(sources, cap) do
+        # Everything was over the line. Saying so beats an empty list that
+        # looks like the film has no sources at all.
+        [] when sources != [] ->
+          no_sources("nothing at #{resolution_label(cap)} or below — #{length(sources)} found above it " <>
+                       "(Settings → don't even list higher ones)")
+
+        kept ->
+          kept
+      end
+    else
+      sources
     end
   end
 
@@ -3440,11 +3478,11 @@ defmodule Laev.CLI do
   # source" and "check more sources" both mean "show me the list", and playing
   # the same best pick again in answer to that is no answer at all. Remembered
   # per episode, so the next one still starts by itself.
-  defp offer_playable([best | _] = playable, rest, rd_opts, ctx, sub_task) do
+  defp offer_playable([_best | _] = playable, rest, rd_opts, ctx, sub_task) do
     save_probe_state(ctx, playable, rest, rd_opts)
 
     if Config.auto_source?() and not manual_pick?(ctx),
-      do: play_best(best, playable, ctx, sub_task),
+      do: play_best(playable, ctx, sub_task),
       else: offer_picker(playable, rest, rd_opts, ctx, sub_task)
   end
 
@@ -3454,12 +3492,15 @@ defmodule Laev.CLI do
   defp manual_pick?(ctx), do: ctx && Process.get({:laev_manual, sources_key(ctx)}, false)
   defp mark_manual_pick(ctx), do: ctx && Process.put({:laev_manual, sources_key(ctx)}, true)
 
-  defp play_best({source, stream}, playable, ctx, sub_task) do
+  defp play_best(playable, ctx, sub_task) do
+    cap = Config.max_resolution()
+    {{source, stream}, note} = best_within(playable, cap)
+
     IO.puts(
       :stderr,
       IO.ANSI.format([
         :faint,
-        "  best of #{length(playable)}: ",
+        "  best of #{length(playable)}#{note}: ",
         :reset,
         String.slice(source.name, 0, 64),
         :faint,
@@ -3470,6 +3511,37 @@ defmodule Laev.CLI do
 
     finish_play(ctx, source, stream, sub_task)
   end
+
+  # The best release you actually want: the top of the ranked list that is not
+  # above the ceiling. An untagged release passes, since refusing everything
+  # whose name doesn't say 2160p would throw away most of the list.
+  #
+  # When nothing fits — a new film that is 4K-only for a week — the smallest
+  # thing above it is played rather than nothing, and the line says so, because
+  # silently ignoring the ceiling is how you end up waiting on an 86GB remux you
+  # explicitly asked not to be given.
+  @doc false
+  # Public only so the suite can hold it to account: this is what decides what
+  # plays when nobody is asked.
+  def best_within(playable, nil), do: {hd(playable), ""}
+
+  def best_within(playable, cap) do
+    case Enum.filter(playable, fn {source, _stream} -> Sources.resolution_at_most?(source.resolution, cap) end) do
+      [best | _] -> {best, " at #{resolution_label(cap)} or below"}
+      [] -> {lowest_available(playable), " — nothing at #{resolution_label(cap)} or below"}
+    end
+  end
+
+  # @resolutions runs highest first, so the largest index is the smallest
+  # picture — which is what "least over the ceiling" means.
+  defp lowest_available(playable) do
+    Enum.max_by(playable, fn {source, _stream} ->
+      Enum.find_index(Sources.resolutions(), &(&1 == source.resolution)) || 0
+    end)
+  end
+
+  defp resolution_label("2160p"), do: "4K"
+  defp resolution_label(resolution), do: resolution
 
   defp offer_picker(playable, rest, rd_opts, ctx, sub_task) do
     items = if rest == [], do: playable, else: playable ++ [:more]

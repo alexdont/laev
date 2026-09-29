@@ -126,9 +126,15 @@ LAEV_POSTERS=auto
 #   ask (default): a "Skip — hold TAB" button appears on the video, skip is your call
 #   auto: skip immediately · off: disable (hold Tab = +85s works in ask/auto)
 LAEV_SKIP=ask
-# play the best source instead of asking which one ("on" to enable — off by
-# default; the list is still checked, ⇄ try another source opens it unchanged)
-LAEV_AUTO_SOURCE=off
+# play the best source instead of asking which one — on by default ("off" to
+# always pick yourself); ⇄ try another source opens the full list either way
+LAEV_AUTO_SOURCE=on
+# the highest resolution to start automatically: 720p | 1080p | 4K | any.
+# A ceiling on the pick, not on the search — every release is still found and
+# listed, so a 4K you didn't want to start by itself is one keypress away
+LAEV_MAX_RESOLUTION=1080p
+# ...unless this is on, which drops higher releases before they're even checked
+LAEV_STRICT_RESOLUTION=off
 # autoplay the next episode when one ends ("on" to enable — off by default;
 # --binge or the post-play menu's autoplay entry do it per session)
 LAEV_AUTOPLAY=off

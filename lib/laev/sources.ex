@@ -691,6 +691,34 @@ defmodule Laev.Sources do
   end
 
   @doc """
+  Highest picture first — the ladder a resolution ceiling is measured against.
+  """
+  def resolutions, do: ["2160p", "1080p", "720p", "480p"]
+
+  @doc """
+  Is this release at or below `cap`?
+
+  An untagged release passes. Most of a real list carries no resolution in the
+  name, and a missing tag is not evidence of 4K — refusing them would throw
+  away more than it protects.
+  """
+  def resolution_at_most?(_resolution, nil), do: true
+  def resolution_at_most?(nil, _cap), do: true
+
+  def resolution_at_most?(resolution, cap) do
+    ladder = resolutions()
+
+    case {Enum.find_index(ladder, &(&1 == resolution)), Enum.find_index(ladder, &(&1 == cap))} do
+      {nil, _} -> true
+      {_, nil} -> true
+      {res, ceiling} -> res >= ceiling
+    end
+  end
+
+  @doc "The sources at or below `cap`, order untouched."
+  def at_most(sources, cap), do: Enum.filter(sources, &resolution_at_most?(&1.resolution, cap))
+
+  @doc """
   A title spelled the way indexers spell it: accents folded to plain letters
   and anything still outside ASCII dropped, because that is what uploaders
   type — "Amélie" is uploaded as "Amelie", and searching the accented form

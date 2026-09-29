@@ -20,6 +20,8 @@ defmodule Laev.Config do
     "LAEV_SKIP" => :skip,
     "LAEV_AUTOPLAY" => :autoplay,
     "LAEV_AUTO_SOURCE" => :auto_source,
+    "LAEV_MAX_RESOLUTION" => :max_resolution,
+    "LAEV_STRICT_RESOLUTION" => :strict_resolution,
     "LAEV_DOWNLOAD_DIR" => :download_dir,
     "LAEV_LOGO_COLORS" => :logo_colors,
     "OPENSUBTITLES_API_KEY" => :opensubtitles_api_key,
@@ -195,15 +197,58 @@ defmodule Laev.Config do
   end
 
   @doc """
-  Play the best source instead of asking which one.
+  Play the best source instead of asking which one. **On** unless turned off.
 
   The sources are checked either way — this only decides whether the list is
-  put to the user or the top of it is simply played. Off by default: the first
-  time someone runs laev, seeing what was found and what was rejected is how
-  they learn to trust it.
+  put to the user or the top of it is simply played. On by default because
+  pressing enter on a film and having it start is what people expect; the list
+  is one key away for anyone who wants it, and off is one setting away for
+  anyone who always does.
   """
   def auto_source? do
     case Application.get_env(:laev_app, :auto_source) do
+      value when is_binary(value) -> String.downcase(String.trim(value)) not in ["off", "false", "no", "0"]
+      _ -> true
+    end
+  end
+
+  @doc """
+  The highest resolution to pick automatically — `nil` for no ceiling.
+
+  Best does not mean biggest. A 4K remux is 86GB and the wrong answer on a
+  connection that can't carry it or a screen that can't show it, so the
+  automatic pick looks for the best release *at or below* this and only goes
+  over when there is nothing under it. 1080p by default; the picker still
+  lists everything.
+  """
+  def max_resolution do
+    case Application.get_env(:laev_app, :max_resolution) do
+      value when is_binary(value) ->
+        case value |> String.trim() |> String.downcase() do
+          v when v in ["2160p", "4k", "uhd"] -> "2160p"
+          v when v in ["1080p", "fhd", "full hd"] -> "1080p"
+          v when v in ["720p", "hd"] -> "720p"
+          v when v in ["480p", "sd"] -> "480p"
+          _ -> nil
+        end
+
+      _ ->
+        "1080p"
+    end
+  end
+
+  @doc """
+  Look only at releases within the ceiling, rather than merely preferring them.
+
+  Off by default, and the difference matters: normally every release is found
+  and listed, and the ceiling decides only which one starts by itself — so the
+  4K you didn't want automatically is still one keypress away under "try
+  another source". On, releases above the ceiling are never probed at all,
+  which is what you want when you will never watch them and would rather not
+  spend the check on them.
+  """
+  def strict_resolution? do
+    case Application.get_env(:laev_app, :strict_resolution) do
       value when is_binary(value) -> String.downcase(String.trim(value)) in ["on", "true", "yes", "1"]
       _ -> false
     end
