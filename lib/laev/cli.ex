@@ -1243,7 +1243,7 @@ defmodule Laev.CLI do
             []
 
           Laev.Position.finished?(ctx) and is_integer(entry["episode"]) ->
-            [{:up_next, %{entry | "episode" => entry["episode"] + 1}}]
+            if more_episodes?(entry), do: [{:up_next, %{entry | "episode" => entry["episode"] + 1}}], else: []
 
           Laev.Position.resume_at(ctx) != nil ->
             [{:resume_last, entry}]
@@ -1256,6 +1256,23 @@ defmodule Laev.CLI do
         []
     end
   end
+
+  # Is there an episode after the one just finished?
+  #
+  # The series mark alone wasn't enough: it is written when the post-play menu
+  # draws, which happens as the last episode *starts*, long before it is
+  # finished — so watching a finale and quitting left nothing marked and the
+  # menu went back to adding one and hoping. This reads what laev learned about
+  # the season the last time it looked, and a season it has never looked at
+  # stays optimistic rather than hiding a row that probably exists.
+  defp more_episodes?(%{"tmdb_id" => tmdb_id, "season" => season, "episode" => episode}) do
+    case Laev.Seasons.aired(tmdb_id, season) do
+      nil -> true
+      aired -> episode + 1 <= aired
+    end
+  end
+
+  defp more_episodes?(_entry), do: true
 
   defp menu_label({:now_playing, {ctx, _stream}}),
     do: "▶ Now Playing — #{playing_desc(ctx)} · still open in mpv"
@@ -3118,7 +3135,8 @@ defmodule Laev.CLI do
 
     episodes =
       case Tmdb.season(details["id"], season_number) do
-        {:ok, %{"episodes" => episodes}} when episodes != [] -> episodes
+        {:ok, %{"episodes" => episodes}} when episodes != [] ->
+          remember_season(details["id"], season_number, episodes)
         {:ok, _} -> no_sources("TMDB lists no episodes for season #{season_number}")
         {:error, reason} -> die(tmdb_error(reason, "season lookup"))
       end
@@ -3920,6 +3938,13 @@ defmodule Laev.CLI do
   defp compute_next_target(ctx),
     do: %{season: ctx.season, episode: ctx.episode + 1, label: "next episode"}
 
+  # Every season laev looks at is written down, because the home screen can't
+  # look: it never fetches, and "the last episode plus one" is not a fact.
+  defp remember_season(tmdb_id, season, episodes) do
+    Laev.Seasons.put(tmdb_id, season, Enum.count(episodes, &tmdb_aired?/1))
+    episodes
+  end
+
   # Does this episode exist, and is it out? Asked of TMDB at the moment you
   # choose an episode — from the list, from "next", from "previous", from Up
   # Next — rather than trusted from whatever the session last heard. A run
@@ -3959,7 +3984,7 @@ defmodule Laev.CLI do
     episodes =
       SessionCache.fetch({:season_eps, tmdb_id, season}, @verify_ttl_s, fn ->
         case Tmdb.season(tmdb_id, season) do
-          {:ok, %{"episodes" => eps}} when is_list(eps) -> eps
+          {:ok, %{"episodes" => eps}} when is_list(eps) -> remember_season(tmdb_id, season, eps)
           _ -> nil
         end
       end)
@@ -4506,10 +4531,15 @@ defmodule Laev.CLI do
   defp heat_cell(0, true),
     do: IO.ANSI.format([:faint, "▪" <> String.duplicate(" ", @heat_cell - 1), :reset])
 
+  # Cold to hot, not the banner's gradient: a heatmap is read before it is
+  # looked at, and everyone already knows red means a lot and blue means a
+  # little. Matching the theme cost more than it was worth here.
+  @heat_cold {64, 132, 214}
+  @heat_hot {226, 58, 36}
+
   defp heat_cell(seconds, _before) do
     step = Enum.count(@heat_steps, &(seconds >= &1))
-    {c0, c1} = ramp_anchors()
-    {r, g, b} = lerp_rgb(c0, c1, step / length(@heat_steps))
+    {r, g, b} = lerp_rgb(@heat_cold, @heat_hot, step / length(@heat_steps))
 
     ["\e[38;2;#{r};#{g};#{b}m", "█" <> String.duplicate(" ", @heat_cell - 1), IO.ANSI.reset()]
   end
@@ -4590,8 +4620,7 @@ defmodule Laev.CLI do
   defp heat_swatch(0), do: IO.ANSI.format([:faint, "·", :reset]) |> IO.iodata_to_binary()
 
   defp heat_swatch(step) do
-    {c0, c1} = ramp_anchors()
-    {r, g, b} = lerp_rgb(c0, c1, step / length(@heat_steps))
+    {r, g, b} = lerp_rgb(@heat_cold, @heat_hot, step / length(@heat_steps))
     "\e[38;2;#{r};#{g};#{b}m█" <> IO.ANSI.reset()
   end
 
