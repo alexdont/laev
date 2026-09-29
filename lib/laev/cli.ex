@@ -3481,9 +3481,17 @@ defmodule Laev.CLI do
   defp offer_playable([_best | _] = playable, rest, rd_opts, ctx, sub_task) do
     save_probe_state(ctx, playable, rest, rd_opts)
 
-    if Config.auto_source?() and not manual_pick?(ctx),
-      do: play_best(playable, ctx, sub_task),
-      else: offer_picker(playable, rest, rd_opts, ctx, sub_task)
+    case Config.auto_source?() and not manual_pick?(ctx) && auto_choice(playable, Config.max_resolution()) do
+      {:play, pick, note} ->
+        play_best(pick, note, playable, ctx, sub_task)
+
+      {:ask, reason} ->
+        IO.puts(:stderr, IO.ANSI.format([:yellow, "  #{reason} — pick one yourself:", :reset]))
+        offer_picker(playable, rest, rd_opts, ctx, sub_task)
+
+      _ ->
+        offer_picker(playable, rest, rd_opts, ctx, sub_task)
+    end
   end
 
   defp offer_playable(playable, rest, rd_opts, ctx, sub_task),
@@ -3492,10 +3500,7 @@ defmodule Laev.CLI do
   defp manual_pick?(ctx), do: ctx && Process.get({:laev_manual, sources_key(ctx)}, false)
   defp mark_manual_pick(ctx), do: ctx && Process.put({:laev_manual, sources_key(ctx)}, true)
 
-  defp play_best(playable, ctx, sub_task) do
-    cap = Config.max_resolution()
-    {{source, stream}, note} = best_within(playable, cap)
-
+  defp play_best({source, stream}, note, playable, ctx, sub_task) do
     IO.puts(
       :stderr,
       IO.ANSI.format([
@@ -3523,22 +3528,33 @@ defmodule Laev.CLI do
   @doc false
   # Public only so the suite can hold it to account: this is what decides what
   # plays when nobody is asked.
-  def best_within(playable, nil), do: {hd(playable), ""}
+  #
+  # Two things it will not start on your behalf, both for the same reason —
+  # starting the wrong file wastes more of your evening than being asked does:
+  #
+  #   * anything above the ceiling. A 4K-only release the week a film lands is
+  #     exactly what someone capped at 1080p does not want begun for them.
+  #   * a cam rip, at any resolution. A phone pointed at a screen is not a
+  #     quality tier, and "1080p" in its name doesn't make it watchable.
+  #
+  # In both cases the full list is shown instead, which is where the answer
+  # actually is: either the 4K you'll take anyway, or the confirmation that
+  # nothing decent exists yet.
+  def auto_choice(playable, cap) do
+    usable =
+      Enum.filter(playable, fn {source, _stream} ->
+        Sources.resolution_at_most?(source.resolution, cap) and source.source != "CAM"
+      end)
 
-  def best_within(playable, cap) do
-    case Enum.filter(playable, fn {source, _stream} -> Sources.resolution_at_most?(source.resolution, cap) end) do
-      [best | _] -> {best, " at #{resolution_label(cap)} or below"}
-      [] -> {lowest_available(playable), " — nothing at #{resolution_label(cap)} or below"}
+    cond do
+      usable != [] -> {:play, hd(usable), note_for(cap)}
+      Enum.all?(playable, fn {source, _} -> source.source == "CAM" end) -> {:ask, "nothing but cam rips so far"}
+      true -> {:ask, "nothing at #{resolution_label(cap)} or below"}
     end
   end
 
-  # @resolutions runs highest first, so the largest index is the smallest
-  # picture — which is what "least over the ceiling" means.
-  defp lowest_available(playable) do
-    Enum.max_by(playable, fn {source, _stream} ->
-      Enum.find_index(Sources.resolutions(), &(&1 == source.resolution)) || 0
-    end)
-  end
+  defp note_for(nil), do: ""
+  defp note_for(cap), do: " at #{resolution_label(cap)} or below"
 
   defp resolution_label("2160p"), do: "4K"
   defp resolution_label(resolution), do: resolution

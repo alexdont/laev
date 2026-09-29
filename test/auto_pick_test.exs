@@ -1,52 +1,62 @@
 defmodule Laev.AutoPickTest do
   use ExUnit.Case, async: true
 
-  # What plays when nobody is asked. The ceiling exists because "best" and
-  # "biggest" are not the same answer: an 86GB 4K remux is the wrong pick on a
-  # connection that can't carry it, however highly it ranks.
-  defp source(resolution), do: {%{name: "release.#{resolution || "untagged"}", resolution: resolution}, :stream}
+  # What plays when nobody is asked. Two rules, both the same idea: starting
+  # the wrong file wastes more of an evening than being asked does.
+  defp src(resolution, kind \\ "WEB"),
+    do: {%{name: "release.#{resolution || "untagged"}", resolution: resolution, source: kind}, :stream}
 
-  defp pick(resolutions, cap) do
-    {{source, _stream}, note} = Laev.CLI.best_within(Enum.map(resolutions, &source/1), cap)
-    {source.resolution, note}
+  defp choose(list, cap), do: Laev.CLI.auto_choice(Enum.map(list, fn {r, k} -> src(r, k) end), cap)
+
+  defp resolution_of({:play, {source, _stream}, _note}), do: source.resolution
+
+  describe "the ceiling" do
+    test "plays the best release that isn't above it" do
+      have = [{"2160p", "BluRay"}, {"1080p", "BluRay"}, {"720p", "WEB"}]
+
+      assert resolution_of(choose(have, "1080p")) == "1080p"
+      assert resolution_of(choose(have, "720p")) == "720p"
+      assert resolution_of(choose(have, "2160p")) == "2160p"
+      assert resolution_of(choose(have, nil)) == "2160p"
+    end
+
+    test "says which ceiling it picked under" do
+      assert {:play, _, " at 1080p or below"} = choose([{"1080p", "WEB"}], "1080p")
+      assert {:play, _, " at 4K or below"} = choose([{"2160p", "WEB"}], "2160p")
+      assert {:play, _, ""} = choose([{"2160p", "WEB"}], nil)
+    end
+
+    test "an untagged release is allowed rather than thrown away" do
+      # Most of a real list carries no resolution in the name.
+      assert resolution_of(choose([{nil, "WEB"}, {"720p", "WEB"}], "1080p")) == nil
+    end
   end
 
-  test "picks the best release that isn't above the ceiling" do
-    have = ["2160p", "2160p", "1080p", "720p"]
+  describe "what it refuses to start for you" do
+    test "nothing under the ceiling means asking, not playing the 4K anyway" do
+      assert {:ask, reason} = choose([{"2160p", "BluRay"}, {"2160p", "WEB"}], "1080p")
+      assert reason =~ "nothing at 1080p or below"
+    end
 
-    assert {"1080p", note} = pick(have, "1080p")
-    assert note =~ "1080p or below"
-    assert {"720p", _} = pick(have, "720p")
-    assert {"2160p", _} = pick(have, "2160p")
-  end
+    test "a cam rip is never started, whatever its ceiling says" do
+      # The week a film lands, "1080p" in a cam's name means nothing.
+      assert {:ask, reason} = choose([{"1080p", "CAM"}, {"720p", "CAM"}], "1080p")
+      assert reason =~ "cam rips"
 
-  test "no ceiling takes the top of the ranked list" do
-    assert {"2160p", ""} = pick(["2160p", "1080p"], nil)
-  end
+      assert {:ask, _} = choose([{"1080p", "CAM"}], nil)
+    end
 
-  test "the list order decides between releases of the same size" do
-    # Ranking already put the best first; the ceiling only filters.
-    assert {"1080p", _} = pick(["1080p", "1080p", "720p"], "1080p")
-  end
+    test "one decent release among the cams is still played" do
+      assert resolution_of(choose([{"1080p", "CAM"}, {"720p", "WEB"}], "1080p")) == "720p"
+    end
 
-  test "an untagged release is allowed rather than thrown away" do
-    # Most of a real list has no resolution in the name.
-    assert {nil, _} = pick([nil, "720p"], "1080p")
-  end
-
-  test "when nothing fits, the smallest thing over the line plays, and says so" do
-    assert {"1080p", note} = pick(["2160p", "2160p", "1080p"], "720p")
-    assert note =~ "nothing at 720p or below"
-  end
-
-  test "4K-only means 4K, ceiling or not — playing nothing is worse" do
-    assert {"2160p", note} = pick(["2160p", "2160p"], "720p")
-    assert note =~ "nothing at 720p or below"
+    test "the reason names the real problem, so the list makes sense when it opens" do
+      assert {:ask, "nothing but cam rips so far"} = choose([{"2160p", "CAM"}], "2160p")
+      assert {:ask, "nothing at 720p or below"} = choose([{"1080p", "WEB"}], "720p")
+    end
   end
 
   describe "what the ceiling does not do" do
-    # The point of the default: the pick is capped, the list is not. A 4K you
-    # didn't want to start automatically is still one keypress away.
     test "it never filters the list itself" do
       have = Enum.map(["2160p", "1080p", "720p"], &%{name: "r", resolution: &1})
 
@@ -65,10 +75,5 @@ defmodule Laev.AutoPickTest do
       assert Laev.Sources.resolution_at_most?("1080p", "2160p")
       refute Laev.Sources.resolution_at_most?("2160p", "1080p")
     end
-  end
-
-  test "the note names the ceiling the way the setting does" do
-    assert {_, note} = pick(["2160p"], "2160p")
-    assert note =~ "4K", "2160p reads as 4K everywhere the user sees it"
   end
 end
