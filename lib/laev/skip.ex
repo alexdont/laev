@@ -13,7 +13,7 @@ defmodule Laev.Skip do
 
   What happens on detection is the LAEV_SKIP mode:
 
-    * "ask" (default) — a "⏭ Skip — TAB" button appears on the video while
+    * "ask" (default) — a "Skip opening · hold TAB" button appears briefly while
       the intro plays; Tab jumps past it, ignoring it watches it. Openings
       are part of the show — skipping is the user's call.
     * "auto" — jump immediately, with a brief OSD note.
@@ -73,21 +73,44 @@ defmodule Laev.Skip do
   local overlay = mp.create_osd_overlay("ass-events")
   local active = nil
 
+  -- Plain letters only. This used to lead with a skip glyph and warn with a
+  -- warning sign, both of which come out as an empty box in any font that
+  -- hasn't got them -- and mpv draws this with whatever sans the system hands
+  -- libass, so that is most of them.
+  --
+  -- It also used to sit there for the whole opening. Nobody watches an intro
+  -- with a button in the corner waiting to be dismissed: it says its piece for
+  -- a few seconds and goes. TAB keeps working for as long as the window lasts,
+  -- so the button leaving is not the offer leaving.
+  local PROMPT_SECONDS = 5
+  local prompt_timer = nil
+
+  local function clear_overlay()
+    overlay.data = ""
+    overlay:update()
+  end
+
   local function show_prompt(what, credits)
     local label = what:gsub("[{}\\\\]", "")
     local warn = ""
     if credits and opts.stinger ~= "" then
-      warn = "  ⚠ post-credit scene!"
+      warn = "   (post-credit scene)"
     end
-    overlay.data = "{\\\\an9\\\\fs30\\\\bord2\\\\shad1\\\\b1}  ⏭  Skip " ..
-      label .. " — hold TAB" .. warn .. "  "
+    overlay.data = "{\\\\an9\\\\fs30\\\\bord2\\\\shad1\\\\b1}  Skip " ..
+      label .. "  ·  hold TAB" .. warn .. "  "
     overlay:update()
     msg.info("offering skip: " .. what .. warn)
+
+    if prompt_timer then prompt_timer:kill() end
+    prompt_timer = mp.add_timeout(PROMPT_SECONDS, function()
+      prompt_timer = nil
+      clear_overlay()
+    end)
   end
 
   local function hide_prompt()
-    overlay.data = ""
-    overlay:update()
+    if prompt_timer then prompt_timer:kill() prompt_timer = nil end
+    clear_overlay()
   end
 
   local function mark_done(zone)
@@ -105,10 +128,25 @@ defmodule Laev.Skip do
     msg.info("skipped " .. zone.what)
   end
 
+  -- AniSkip doesn't say which end a window belongs to, but where it sits does:
+  -- one starting in the first quarter of an episode is the opening.
+  --
+  -- Measured against the episode length AniSkip submitted, not mpv's duration.
+  -- A transcoded or generated stream reports a duration that just tracks the
+  -- playhead — 5.1 seconds in at 5 seconds — which would call every opening an
+  -- ending. The submitted length is a fixed number and always present on a
+  -- real window.
+  local function window_kind(w)
+    local len = w.len
+    if len == 0 then len = mp.get_property_number("duration") or 0 end
+    if len > 0 and w.s > len * 0.25 then return "ending" end
+    return "opening"
+  end
+
   local function window_zone(t)
     for i, w in ipairs(windows) do
       if usable(w) and not w.done and t >= w.s and t < w.e - 1 then
-        return { target = w.e, what = "opening/ending", key = "w" .. i, window = w }
+        return { target = w.e, what = window_kind(w), key = "w" .. i, window = w }
       end
     end
     return nil
@@ -143,7 +181,7 @@ defmodule Laev.Skip do
     local dur = mp.get_property_number("duration")
     if dur and dur > 600 and t > dur - 150 then
       stinger_warned = true
-      mp.osd_message("laev: this movie has a post-credit scene — don't quit early", 6)
+      mp.osd_message("laev: this movie has a post-credit scene - don't quit early", 6)
       msg.info("stinger reminder shown (" .. opts.stinger .. ")")
     end
   end
@@ -190,7 +228,7 @@ defmodule Laev.Skip do
   mp.add_key_binding("TAB", "laev-skip", function(e)
     if e.event == "down" and not hold_timer then
       hold_timer = mp.add_timeout(0.6, fire)
-      mp.osd_message("keep holding to skip…", 0.6)
+      mp.osd_message("keep holding to skip...", 0.6)
     elseif e.event == "up" and hold_timer then
       hold_timer:kill()
       hold_timer = nil

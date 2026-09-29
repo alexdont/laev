@@ -123,7 +123,8 @@ LAEV_LANG=en
 # ascii-bg (ASCII with painted backgrounds), off
 LAEV_POSTERS=auto
 # intro/credits skipping — detected via AniSkip (anime) + named chapters:
-#   ask (default): a "Skip — hold TAB" button appears on the video, skip is your call
+#   ask (default): a "Skip opening · hold TAB" button appears for a few seconds;
+#     TAB keeps working for the whole window, the button just gets out of the way
 #   auto: skip immediately · off: disable (hold Tab = +85s works in ask/auto)
 LAEV_SKIP=ask
 # play the best source instead of asking which one — on by default ("off" to
