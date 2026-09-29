@@ -19,6 +19,7 @@ defmodule Laev.Config do
     "LAEV_POSTERS" => :posters,
     "LAEV_SKIP" => :skip,
     "LAEV_AUTOPLAY" => :autoplay,
+    "LAEV_AUTO_SOURCE" => :auto_source,
     "LAEV_DOWNLOAD_DIR" => :download_dir,
     "LAEV_LOGO_COLORS" => :logo_colors,
     "OPENSUBTITLES_API_KEY" => :opensubtitles_api_key,
@@ -190,6 +191,21 @@ defmodule Laev.Config do
 
       _ ->
         "ask"
+    end
+  end
+
+  @doc """
+  Play the best source instead of asking which one.
+
+  The sources are checked either way — this only decides whether the list is
+  put to the user or the top of it is simply played. Off by default: the first
+  time someone runs laev, seeing what was found and what was rejected is how
+  they learn to trust it.
+  """
+  def auto_source? do
+    case Application.get_env(:laev_app, :auto_source) do
+      value when is_binary(value) -> String.downcase(String.trim(value)) in ["on", "true", "yes", "1"]
+      _ -> false
     end
   end
 

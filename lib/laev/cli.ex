@@ -525,6 +525,7 @@ defmodule Laev.CLI do
   # takes effect for the rest of the session.
 
   @settings [
+    {"LAEV_AUTO_SOURCE", "▶ Play the best source automatically", {:cycle, ["off", "on"]}},
     {"LAEV_AUTOPLAY", "⚡ Autoplay next episode", {:cycle, ["off", "on"]}},
     {"LAEV_SKIP", "⏭ Intro/credits skipping", {:cycle, ["ask", "auto", "off"]}},
     {"LAEV_POSTERS", "🖼 Poster previews", {:cycle, ["auto", "ascii", "ascii-bg", "off"]}},
@@ -1164,6 +1165,7 @@ defmodule Laev.CLI do
   defp describe_setting({:setting, key, label, _kind}),
     do: "#{String.pad_trailing(label, 34)}  [#{setting_value(key)}]"
 
+  defp setting_value("LAEV_AUTO_SOURCE"), do: if(Config.auto_source?(), do: "on", else: "off")
   defp setting_value("LAEV_AUTOPLAY"), do: if(Config.autoplay?(), do: "on", else: "off")
   defp setting_value("LAEV_SKIP"), do: Config.skip()
   defp setting_value("LAEV_POSTERS"), do: Config.posters()
@@ -3429,8 +3431,47 @@ defmodule Laev.CLI do
   # post-play menu comes straight back here — every checked source still
   # listed, "check more" continuing from the unprobed remainder — instead
   # of re-searching and re-probing the same pages.
-  defp offer_playable(playable, rest, rd_opts, ctx, sub_task) do
+  # With auto-source on, the list is still built — probed, track languages read,
+  # ranked — and then the top of it is simply played. Everything that made the
+  # list stays remembered, so "try another source" opens exactly the picker this
+  # skipped, with nothing re-probed.
+  #
+  # Not once the user has asked to choose for this episode, though: "try another
+  # source" and "check more sources" both mean "show me the list", and playing
+  # the same best pick again in answer to that is no answer at all. Remembered
+  # per episode, so the next one still starts by itself.
+  defp offer_playable([best | _] = playable, rest, rd_opts, ctx, sub_task) do
     save_probe_state(ctx, playable, rest, rd_opts)
+
+    if Config.auto_source?() and not manual_pick?(ctx),
+      do: play_best(best, playable, ctx, sub_task),
+      else: offer_picker(playable, rest, rd_opts, ctx, sub_task)
+  end
+
+  defp offer_playable(playable, rest, rd_opts, ctx, sub_task),
+    do: offer_picker(playable, rest, rd_opts, ctx, sub_task)
+
+  defp manual_pick?(ctx), do: ctx && Process.get({:laev_manual, sources_key(ctx)}, false)
+  defp mark_manual_pick(ctx), do: ctx && Process.put({:laev_manual, sources_key(ctx)}, true)
+
+  defp play_best({source, stream}, playable, ctx, sub_task) do
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        :faint,
+        "  best of #{length(playable)}: ",
+        :reset,
+        String.slice(source.name, 0, 64),
+        :faint,
+        "  (⇄ try another source to change it)",
+        :reset
+      ])
+    )
+
+    finish_play(ctx, source, stream, sub_task)
+  end
+
+  defp offer_picker(playable, rest, rd_opts, ctx, sub_task) do
     items = if rest == [], do: playable, else: playable ++ [:more]
 
     case pick(items, &describe_playable/1, "which source? (all checked + playable)") do
@@ -3439,6 +3480,7 @@ defmodule Laev.CLI do
         back()
 
       :more ->
+        mark_manual_pick(ctx)
         probe_and_pick(rest, rd_opts, ctx, playable, sub_task)
 
       {source, stream} ->
@@ -3875,6 +3917,9 @@ defmodule Laev.CLI do
   # track memory correctly resets (ids don't carry across releases).
   defp switch_source(ctx) do
     clear_screen()
+    # Asking for another source is asking to choose one, so auto-source stands
+    # aside for this episode from here on.
+    mark_manual_pick(ctx)
 
     case ctx && SessionCache.get({:laev_sources, sources_key(ctx)}, @airing_ttl_s) do
       {playable, rest, rd_opts} ->

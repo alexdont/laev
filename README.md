@@ -126,6 +126,9 @@ LAEV_POSTERS=auto
 #   ask (default): a "Skip — hold TAB" button appears on the video, skip is your call
 #   auto: skip immediately · off: disable (hold Tab = +85s works in ask/auto)
 LAEV_SKIP=ask
+# play the best source instead of asking which one ("on" to enable — off by
+# default; the list is still checked, ⇄ try another source opens it unchanged)
+LAEV_AUTO_SOURCE=off
 # autoplay the next episode when one ends ("on" to enable — off by default;
 # --binge or the post-play menu's autoplay entry do it per session)
 LAEV_AUTOPLAY=off
