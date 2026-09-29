@@ -4852,6 +4852,41 @@ defmodule Laev.CLI do
     end
   end
 
+  # The season pack already playing, used for the next episode.
+  #
+  # Skipped once "try another source" has been used for this episode: with no
+  # probe state saved for an episode that came straight out of a pack, asking
+  # for another source would otherwise land back here and hand over the same
+  # file again.
+  #
+  # The last source for this title is remembered anyway, so when it was a pack
+  # the next episode is one resolve away instead of a search, eight probes and a
+  # pick. Only when the file that comes back really is the episode asked for:
+  # FilePick falls back to the largest file when nothing matches, which would
+  # otherwise replay episode 1 and call it 13.
+  defp reuse_pack(%{type: "tv", episode: episode} = ctx, rd_opts) when is_integer(episode) do
+    with false <- manual_pick?(ctx),
+         %{"source" => %{"magnet" => magnet, "name" => name} = source} <-
+           Laev.Resume.get(ctx.type, ctx.tmdb_id),
+         true <- Sources.pack?(name),
+         {:ok, stream} <- Providers.resolve_magnet(magnet, rd_opts),
+         true <- Laev.FilePick.names_episode?(stream.filename, ctx[:season], episode) do
+      IO.puts(:stderr, IO.ANSI.format([:faint, "  from the season you're already on: ", :reset, stream.filename]))
+
+      finish_play(ctx, pack_source(source), stream, start_subtitle_task(ctx))
+      :played
+    else
+      _ -> :no
+    end
+  rescue
+    _ -> :no
+  end
+
+  defp reuse_pack(_ctx, _rd_opts), do: :no
+
+  defp pack_source(%{"name" => name, "magnet" => magnet} = source),
+    do: %{name: name, magnet: magnet, hash: source["hash"]}
+
   # Run the full source flow for an entry map (a resume entry, or a ctx via
   # ctx_entry/1): fetch details, route anime vs standard, probe, pick, play.
   defp play_entry(entry, rd_opts) do
@@ -4872,36 +4907,46 @@ defmodule Laev.CLI do
     year = Tmdb.year(details["release_date"] || details["first_air_date"])
     ctx = entry_ctx(entry) |> Map.put(:title, name)
 
-    cond do
-      anime?(details) and type == "tv" and is_integer(entry["episode"]) ->
-        # The stored search_title is the exact Kitsu entry (= season) the
-        # user was watching — re-matching with it skips the season picker.
-        kitsu = kitsu_lookup(entry["search_title"] || name)
-        search_title = (kitsu.anime && kitsu.anime.title) || name
-        n = entry["episode"]
-        ctx = Map.merge(ctx, %{anime: true, search_title: search_title})
+    # An old show is usually one torrent for the whole season, and the file for
+    # the next episode is already inside the one just played. Reuse it rather
+    # than searching and probing the same handful of sources again — which for
+    # a finished show is the same handful every single time.
+    case reuse_pack(ctx, rd_opts) do
+      :played ->
+        :ok
 
-        Sources.anime_episode_query(search_title, n)
-        |> with_library(anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id))
-        |> probe_and_pick([episode: n], ctx)
+      :no ->
+      cond do
+        anime?(details) and type == "tv" and is_integer(entry["episode"]) ->
+          # The stored search_title is the exact Kitsu entry (= season) the
+          # user was watching — re-matching with it skips the season picker.
+          kitsu = kitsu_lookup(entry["search_title"] || name)
+          search_title = (kitsu.anime && kitsu.anime.title) || name
+          n = entry["episode"]
+          ctx = Map.merge(ctx, %{anime: true, search_title: search_title})
 
-      anime?(details) and type == "movie" ->
-        kitsu = kitsu_lookup(entry["search_title"] || name)
-        search_title = (kitsu.anime && kitsu.anime.title) || name
-        ctx = Map.merge(ctx, %{anime: true, search_title: search_title})
-        q = Sources.anime_movie_query(search_title)
+          Sources.anime_episode_query(search_title, n)
+          |> with_library(anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id))
+          |> probe_and_pick([episode: n], ctx)
 
-        case Sources.search(q, backend: :anime) do
-          {:ok, sources} -> with_library(q, sources) |> probe_and_pick([], ctx)
-          {:error, reason} -> no_sources("anime source search failed: #{inspect(reason)}")
-        end
+        anime?(details) and type == "movie" ->
+          kitsu = kitsu_lookup(entry["search_title"] || name)
+          search_title = (kitsu.anime && kitsu.anime.title) || name
+          ctx = Map.merge(ctx, %{anime: true, search_title: search_title})
+          q = Sources.anime_movie_query(search_title)
 
-      true ->
-        verify_episode(ctx)
+          case Sources.search(q, backend: :anime) do
+            {:ok, sources} -> with_library(q, sources) |> probe_and_pick([], ctx)
+            {:error, reason} -> no_sources("anime source search failed: #{inspect(reason)}")
+          end
 
-        type
-        |> title_sources(title_variants(details, name), year, Tmdb.imdb_id(details), entry["season"], entry["episode"])
-        |> probe_and_pick(rd_opts, ctx)
+        true ->
+          verify_episode(ctx)
+
+          type
+          |> title_sources(title_variants(details, name), year, Tmdb.imdb_id(details), entry["season"], entry["episode"])
+          |> probe_and_pick(rd_opts, ctx)
+      end
     end
   end
 

@@ -212,6 +212,14 @@ defmodule Laev.Sources do
     end
   end
 
+  @doc """
+  Does this release name look like a season pack rather than one episode?
+
+  "Complete", "Season 2", a bare S01 with no episode after it, a 01-24 range.
+  """
+  def pack?(name) when is_binary(name), do: batch?(name)
+  def pack?(_name), do: false
+
   defp batch?(name) do
     Regex.match?(~r/\bbatch|complete|\bseason\b|\bS\d+\b(?!E)|\d+\s*[-~]\s*\d+|\bvol\b/i, name)
   end

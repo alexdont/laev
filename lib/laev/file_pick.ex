@@ -39,6 +39,33 @@ defmodule Laev.FilePick do
   # TV), require an exact SxxExx match first so a multi-season pack can't grab
   # the same episode number from the wrong season; fall back to a looser
   # episode-only match (anime absolute numbering, single-season packs).
+  @doc """
+  Does this file actually hold the episode asked for?
+
+  `choose/3` falls back to the largest file when nothing matches, which is right
+  when a release is one episode named anything — and wrong as an answer to "is
+  episode 13 in this pack?". Anything reusing a pack has to ask this instead, or
+  it will happily play episode 1 again and call it 13.
+  """
+  def names_episode?(path, season, episode) when is_binary(path) and is_integer(episode) do
+    cond do
+      is_integer(season) and sxxexx_file?(path, season, episode) ->
+        true
+
+      # A file that names some other season's episode 13 is not this season's
+      # episode 13 — the loose matcher would say yes, because "s02e13" contains
+      # the episode number. Multi-season packs are exactly where reuse would go
+      # wrong, and quietly.
+      is_integer(season) and Regex.match?(~r/s\d{1,2}e\d{1,3}/i, Path.basename(path)) ->
+        false
+
+      true ->
+        episode_file?(path, episode)
+    end
+  end
+
+  def names_episode?(_path, _season, _episode), do: false
+
   defp pick_episode_file(files, episode, season) do
     (season && Enum.find(files, &sxxexx_file?(&1["path"], season, episode))) ||
       Enum.find(files, &episode_file?(&1["path"], episode))
