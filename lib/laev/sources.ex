@@ -698,6 +698,10 @@ defmodule Laev.Sources do
     end
   end
 
+  @doc "The resolution a release name claims, or nil when it doesn't say."
+  def resolution_of(name) when is_binary(name), do: detect(name, resolution_patterns())
+  def resolution_of(_name), do: nil
+
   @doc """
   Highest picture first — the ladder a resolution ceiling is measured against.
   """

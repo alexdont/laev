@@ -3499,7 +3499,7 @@ defmodule Laev.CLI do
   defp offer_playable([_best | _] = playable, rest, rd_opts, ctx, sub_task) do
     save_probe_state(ctx, playable, rest, rd_opts)
 
-    case Config.auto_source?() and not manual_pick?(ctx) && auto_choice(playable, Config.max_resolution()) do
+    case Config.auto_source?() and not manual_pick?(ctx) && auto_choice(playable, resolution_cap(ctx)) do
       {:play, pick, note} ->
         play_best(pick, note, playable, ctx, sub_task)
 
@@ -3590,6 +3590,7 @@ defmodule Laev.CLI do
         probe_and_pick(rest, rd_opts, ctx, playable, sub_task)
 
       {source, stream} ->
+        remember_resolution(ctx, source)
         finish_play(ctx, source, stream, sub_task)
     end
   end
@@ -3760,10 +3761,17 @@ defmodule Laev.CLI do
       next = if episodic?, do: next_target(ctx)
       if episodic?, do: mark_series_if_done(ctx, next)
 
+      # Nothing left in this show? Then the next thing is the next entry in the
+      # list this came from — the point of a curated list is watching it in
+      # order, and leaving the player to go and find season three by hand is
+      # exactly what it was meant to save you.
+      onward = if is_nil(next), do: next_in_list(ctx)
+
       items =
         List.flatten([
           if(next, do: [{:next, "⏭  #{next.label}"}], else: []),
           if(next, do: [{:binge, "⚡  autoplay — chain next episodes"}], else: []),
+          if(onward, do: [{:onward, "⏭  next in #{onward.list} — #{onward.entry.title}"}], else: []),
           {:play, "▶  play — from where you stopped"},
           if(ctx[:anime],
             do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
@@ -3782,6 +3790,7 @@ defmodule Laev.CLI do
 
       case pick(items, &elem(&1, 1), "what next? · esc goes back to the menu") do
         {:next, _} -> play_to(ctx, next)
+        {:onward, _} -> play_next_in_list(onward.entry)
         {:binge, _} ->
           Process.put(:laev_binge, true)
           binge_wait(ctx)
@@ -3833,6 +3842,92 @@ defmodule Laev.CLI do
     Laev.NowPlaying.mark(ctx, stream)
     IO.puts(:stderr, "playing in mpv: #{stream.filename}")
     post_play_menu(ctx, stream)
+  end
+
+  # The entry after this one in whatever list it belongs to — a curated
+  # franchise, or one of TMDB's own collections, which laev already treats the
+  # same way. nil when the title is in no list, or is the last thing in it.
+  defp next_in_list(ctx) do
+    with %{} = franchise <- list_for(ctx),
+         entries <- Laev.Franchises.entries(franchise, "all"),
+         index when is_integer(index) <- Enum.find_index(entries, &same_entry?(&1, ctx)),
+         %{} = entry <- Enum.at(entries, index + 1) do
+      %{list: franchise.name, entry: entry}
+    else
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp list_for(%{type: type, tmdb_id: id}) do
+    case Laev.Franchises.lookup(type, id) do
+      nil -> collection_for(type, id)
+      franchise -> franchise
+    end
+  end
+
+  defp list_for(_ctx), do: nil
+
+  # TMDB files most film series in a collection of its own; for the ones it gets
+  # right that is the same thing as a curated list.
+  defp collection_for("movie", id) do
+    with {:ok, %{"belongs_to_collection" => %{"id" => collection_id}}} <- fetch_details(%{type: "movie", id: id}) do
+      tmdb_collection(collection_id)
+    else
+      _ -> nil
+    end
+  end
+
+  defp collection_for(_type, _id), do: nil
+
+  # A curated list can name a single season of a show, so the season has to
+  # match too — otherwise finishing season two would offer season two again.
+  defp same_entry?(entry, ctx) do
+    entry.type == ctx.type and entry.tmdb_id == ctx.tmdb_id and
+      (is_nil(entry.season) or entry.season == ctx[:season])
+  end
+
+  # Straight into it, rather than dropping you on a list: a film just plays, and
+  # a show goes to the first episode you haven't seen — which is what "next"
+  # means when the last thing you did was finish the one before.
+  defp play_next_in_list(%{type: "tv"} = entry) do
+    season = entry.season || 1
+
+    with {:ok, %{"episodes" => episodes}} when episodes != [] <- Tmdb.season(entry.tmdb_id, season),
+         %{"episode_number" => number} <- next_unwatched_episode(entry.tmdb_id, season, episodes) do
+      clear_screen()
+      IO.puts(:stderr, "#{entry.title} S#{pad2(season)}E#{pad2(number)} — finding sources…")
+
+      play_entry(
+        %{
+          "type" => "tv",
+          "tmdb_id" => entry.tmdb_id,
+          "season" => season,
+          "episode" => number,
+          "title" => entry.title
+        },
+        rd_opts(season, number)
+      )
+    else
+      # Nothing unwatched, or TMDB unreachable: open it and let them choose.
+      _ -> play_title(%{type: "tv", id: entry.tmdb_id, title: entry.title, year: nil, season: entry.season})
+    end
+  end
+
+  defp play_next_in_list(entry),
+    do: play_title(%{type: entry.type, id: entry.tmdb_id, title: entry.title, year: nil})
+
+  defp next_unwatched_episode(tmdb_id, season, episodes) do
+    Enum.find(episodes, fn episode ->
+      number = episode["episode_number"]
+
+      is_integer(number) and tmdb_aired?(episode) and
+        not Laev.Position.watched?(
+          %{type: "tv", tmdb_id: tmdb_id, season: season, episode: number},
+          runtime_seconds(episode["runtime"])
+        )
+    end)
   end
 
   # Finishing the last episode finishes the show.
@@ -4249,13 +4344,41 @@ defmodule Laev.CLI do
 
   defp save_resume(ctx, source) do
     entry =
-      ctx_entry(ctx)
+      (Laev.Resume.get(ctx.type, ctx.tmdb_id) || %{})
+      |> Map.merge(ctx_entry(ctx))
       |> Map.merge(%{
         "source" => %{"name" => source.name, "magnet" => source.magnet, "hash" => source.hash},
         "updated_at" => System.os_time(:second)
       })
 
     Laev.Resume.put(ctx.type, ctx.tmdb_id, entry)
+  end
+
+  # Picking a source by hand says what quality you want this thing in, louder
+  # than a global setting does: going to the list and choosing the 1080p means
+  # the next episode should be 1080p too, whatever the ceiling says. Kept on the
+  # history entry, so it is per title and travels with sync.
+  defp remember_resolution(ctx, %{resolution: resolution}) when is_binary(resolution) do
+    if ctx do
+      entry = Laev.Resume.get(ctx.type, ctx.tmdb_id) || ctx_entry(ctx)
+      Laev.Resume.put(ctx.type, ctx.tmdb_id, Map.put(entry, "pref_resolution", resolution))
+    end
+
+    :ok
+  end
+
+  defp remember_resolution(_ctx, _source), do: :ok
+
+  # The ceiling for this title: what you last chose for it by hand, else the
+  # setting. A choice made for one show doesn't change what every other show
+  # starts at.
+  defp resolution_cap(ctx) do
+    with %{type: type, tmdb_id: id} <- ctx,
+         %{"pref_resolution" => resolution} when is_binary(resolution) <- Laev.Resume.get(type, id) do
+      resolution
+    else
+      _ -> Config.max_resolution()
+    end
   end
 
   # A ctx as a resume-style entry map — the inverse of entry_ctx/1, so the
@@ -4898,6 +5021,10 @@ defmodule Laev.CLI do
          %{"source" => %{"magnet" => magnet, "name" => name} = source} <-
            Laev.Resume.get(ctx.type, ctx.tmdb_id),
          true <- Sources.pack?(name),
+         # The pack has to clear the same bar an automatic pick does, or lowering
+         # the ceiling mid-season would go on quietly serving 4K from the
+         # torrent the season started in.
+         true <- Sources.resolution_at_most?(Sources.resolution_of(name), resolution_cap(ctx)),
          {:ok, stream} <- Providers.resolve_magnet(magnet, rd_opts),
          true <- Laev.FilePick.names_episode?(stream.filename, ctx[:season], episode) do
       IO.puts(:stderr, IO.ANSI.format([:faint, "  from the season you're already on: ", :reset, stream.filename]))
