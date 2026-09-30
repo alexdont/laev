@@ -3128,7 +3128,7 @@ defmodule Laev.CLI do
     # A franchise list names the season it means, so don't ask again.
     season =
       case preselect && Enum.find(seasons, &(&1["season_number"] == preselect)) do
-        nil -> pick(seasons, &describe_season/1, "#{show} — which season?") || back()
+        nil -> pick_season(details, seasons, show)
         chosen -> chosen
       end
     season_number = season["season_number"]
@@ -3330,9 +3330,93 @@ defmodule Laev.CLI do
 
   defp watch_progress(_), do: ""
 
-  defp describe_season(s) do
+  # The season list had no idea where you were: a season watched end to end
+  # looked exactly like one never started, on the screen whose entire job is
+  # telling you which is which. It says so now, and ctrl-w marks one off the way
+  # every other list lets you.
+  defp pick_season(details, seasons, show, initial \\ 0) do
+    describe = &describe_season(details["id"], &1)
+    hint = "#{show} — which season? · ctrl-w marks one watched"
+
+    case pick(seasons, describe, hint, nil, initial, ["ctrl-w"]) do
+      nil ->
+        back()
+
+      {"ctrl-w", season} ->
+        toggle_season_watched(details["id"], season)
+        pick_season(details, seasons, show, Enum.find_index(seasons, &(&1 == season)) || 0)
+
+      {nil, season} ->
+        season
+    end
+  end
+
+  defp describe_season(tmdb_id, s) do
+    number = s["season_number"]
     count = if s["episode_count"], do: " · #{s["episode_count"]} episodes"
-    "S#{pad2(s["season_number"])} #{s["name"]}#{count}"
+    {watched, aired} = season_progress(tmdb_id, number, s["episode_count"])
+    text = "S#{pad2(number)} #{s["name"]}#{count}"
+
+    cond do
+      aired > 0 and watched >= aired ->
+        IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset]))
+
+      watched > 0 ->
+        text <> IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, " · #{watched} watched", :reset]))
+
+      true ->
+        "  " <> text
+    end
+  end
+
+  # How much of a season is behind you: episodes marked watched, out of the ones
+  # that have aired. The aired count is what laev recorded the last time it
+  # looked at the season; TMDB's episode_count stands in for a season it has
+  # never opened, which counts unaired episodes and so only ever understates
+  # progress — better than claiming a half-watched season is finished.
+  defp season_progress(tmdb_id, season, episode_count) do
+    aired = Laev.Seasons.aired(tmdb_id, season) || episode_count || 0
+
+    watched =
+      if aired > 0 do
+        Enum.count(1..aired, fn episode ->
+          Laev.Position.finished?(%{type: "tv", tmdb_id: tmdb_id, season: season, episode: episode})
+        end)
+      else
+        0
+      end
+
+    {watched, aired}
+  end
+
+  # ctrl-w on a season: all of it, or none of it. Marks every aired episode,
+  # since that is what the greying reads — there is no season-level flag, and
+  # inventing one would leave two places to disagree about the same fact.
+  #
+  # Asks TMDB how much has aired unless laev already knows, because the count on
+  # the season list includes episodes that haven't come out — marking a season
+  # watched should not quietly tick off next month's finale. One request, on a
+  # key the user pressed deliberately, and the answer is kept for the display.
+  defp toggle_season_watched(tmdb_id, season) do
+    number = season["season_number"]
+
+    if is_nil(Laev.Seasons.aired(tmdb_id, number)) do
+      with {:ok, %{"episodes" => episodes}} when episodes != [] <- Tmdb.season(tmdb_id, number),
+           do: remember_season(tmdb_id, number, episodes)
+    end
+
+    {watched, aired} = season_progress(tmdb_id, number, season["episode_count"])
+    mark? = not (aired > 0 and watched >= aired)
+
+    if aired > 0 do
+      Enum.each(1..aired, fn episode ->
+        Laev.Position.set_watched(%{type: "tv", tmdb_id: tmdb_id, season: number, episode: episode}, mark?)
+      end)
+
+      Laev.Sync.live_push()
+    end
+
+    :ok
   end
 
   defp describe_episode(e) do
