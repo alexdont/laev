@@ -190,6 +190,70 @@ defmodule Laev.Tmdb do
     end
   end
 
+  @doc "Rate a whole series, 0.5–10 in half steps."
+  def rate_tv(tv_id, value), do: rate("/tv/#{tv_id}/rating", value)
+
+  @doc "Your rating for a whole series, or nil."
+  def tv_rating(tv_id) do
+    with true <- account?(),
+         {:ok, %{"rated" => %{"value" => value}}} <- get("/tv/#{tv_id}/account_states", session_id: session_id()) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
+  @doc "Remove your rating for a whole series."
+  def clear_tv_rating(tv_id), do: clear("/tv/#{tv_id}/rating")
+
+  @doc """
+  What you have given this show's episodes, as `{average, count}` — or nil when
+  you haven't rated any.
+
+  Asked of TMDB in bulk rather than episode by episode: it keeps a list of every
+  episode you have rated, so one request covers a whole series instead of one
+  per episode.
+  """
+  def episode_average(tv_id) do
+    ratings =
+      rated_episodes()
+      |> Enum.filter(&(&1["show_id"] == tv_id))
+      |> Enum.map(& &1["rating"])
+      |> Enum.filter(&is_number/1)
+
+    case ratings do
+      [] -> nil
+      values -> {Enum.sum(values) / length(values), length(values)}
+    end
+  end
+
+  # Every episode you have rated, across pages. Capped: a list long enough to
+  # need ten pages is long enough that the average will not move.
+  defp rated_episodes(page \\ 1, acc \\ [])
+
+  defp rated_episodes(page, acc) when page > 10, do: acc
+
+  defp rated_episodes(page, acc) do
+    with account when is_integer(account) <- account_id(),
+         {:ok, %{"results" => results} = body} <-
+           get("/account/#{account}/rated/tv/episodes", session_id: session_id(), page: page) do
+      acc = acc ++ results
+
+      if page < (body["total_pages"] || 1), do: rated_episodes(page + 1, acc), else: acc
+    else
+      _ -> acc
+    end
+  end
+
+  defp account_id do
+    with true <- account?(),
+         {:ok, %{"id" => id}} <- get("/account", session_id: session_id()) do
+      id
+    else
+      _ -> nil
+    end
+  end
+
   @doc "Your rating for a film, or nil when you haven't rated it."
   def movie_rating(movie_id) do
     with true <- account?(),

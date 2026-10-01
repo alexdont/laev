@@ -3867,6 +3867,12 @@ defmodule Laev.CLI do
             do: [{:tmdb_rate, "☆  rate #{if episodic?, do: "this episode", else: "it"} on TMDB"}],
             else: []
           ),
+          # Always, not only on a finale: deciding what you make of a show as a
+          # whole isn't something that only happens on its last episode.
+          if(Tmdb.account?() and ctx.type == "tv",
+            do: [{:tmdb_rate_series, "☆  rate the whole series on TMDB"}],
+            else: []
+          ),
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           if(episodic?,
@@ -3899,6 +3905,10 @@ defmodule Laev.CLI do
 
         {:tmdb_rate, _} ->
           rate_on_tmdb(ctx)
+          post_play_menu(ctx, stream)
+
+        {:tmdb_rate_series, _} ->
+          rate_series_on_tmdb(ctx)
           post_play_menu(ctx, stream)
         {:search, _} -> menu_search()
         {:home, _} -> back()
@@ -5920,35 +5930,57 @@ defmodule Laev.CLI do
 
   defp rate_on_tmdb(_ctx), do: :ok
 
+  # Rating the show itself, with what you made of its episodes in front of you.
+  # The average is the useful number here — you already decided episode by
+  # episode, so the question is only whether the whole is more than that or less.
+  defp rate_series_on_tmdb(%{type: "tv", tmdb_id: id, title: title}) do
+    prompt_rating(
+      "#{title} — the whole series",
+      Tmdb.tv_rating(id),
+      &Tmdb.rate_tv(id, &1),
+      fn -> Tmdb.clear_tv_rating(id) end,
+      suggest: Tmdb.episode_average(id)
+    )
+  end
+
+  defp rate_series_on_tmdb(_ctx), do: :ok
+
   # Scores with words next to them, highest first — a 7 means nothing on its own
   # and "good" does. Typing a number into a prompt is also the one moment in the
   # whole app where the arrow keys stop working, which is reason enough.
   @scores [
-    {10, "a masterpiece"},
-    {9, "superb"},
-    {8, "great"},
-    {7, "good"},
-    {6, "decent"},
-    {5, "watchable"},
-    {4, "weak"},
-    {3, "bad"},
-    {2, "awful"},
-    {1, "unwatchable"}
+    {10, "masterpiece"},
+    {9, "banger"},
+    {8, "really good"},
+    {7, "pretty decent"},
+    {6, "it's alright"},
+    {5, "passable"},
+    {4, "not good"},
+    {3, "truly bad"},
+    {2, "garbage"},
+    {1, "absolute trash"}
   ]
 
-  defp prompt_rating(what, current, submit, clear) do
+  defp prompt_rating(what, current, submit, clear, opts \\ []) do
     rated? = is_number(current)
     items = @scores ++ if(rated?, do: [:clear], else: [])
+    suggestion = opts[:suggest]
 
-    # Start on what you gave it last time, so changing an 8 to a 9 is one key.
-    initial =
-      if rated?,
-        do: Enum.find_index(@scores, fn {score, _} -> score == round(current) end) || 0,
-        else: Enum.find_index(@scores, fn {score, _} -> score == 7 end)
+    # Start on what you gave it last time; failing that, on what your episodes
+    # already say, so agreeing with yourself is one keypress.
+    start_at =
+      cond do
+        rated? -> round(current)
+        match?({_average, _count}, suggestion) -> round(elem(suggestion, 0))
+        true -> 7
+      end
+
+    initial = Enum.find_index(@scores, fn {score, _} -> score == clamp_score(start_at) end) || 0
 
     header =
       "how was #{what}?" <>
-        if(rated?, do: " · you gave it #{trim_score(current)}", else: "") <> " · esc to skip"
+        if(rated?, do: " · you gave it #{trim_score(current)}", else: "") <>
+        suggestion_note(suggestion) <> " · esc to skip"
 
     case pick(items, &describe_score/1, header, nil, initial) do
       {score, _label} -> submit_rating(fn -> submit.(score) end, "rated #{score}/10 on TMDB")
@@ -5956,6 +5988,17 @@ defmodule Laev.CLI do
       _ -> :ok
     end
   end
+
+  # "your episodes average 8.3 (12 rated)" — the number the decision hangs on.
+  defp suggestion_note({average, count}) when is_number(average) and count > 0 do
+    " · your episodes average #{Float.round(average, 1)} (#{count} rated)"
+  end
+
+  defp suggestion_note(_suggestion), do: ""
+
+  defp clamp_score(score) when score < 1, do: 1
+  defp clamp_score(score) when score > 10, do: 10
+  defp clamp_score(score), do: score
 
   defp describe_score(:clear), do: "✕  remove my rating"
 

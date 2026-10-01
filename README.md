@@ -156,21 +156,26 @@ you already have — and the Now Playing menu then offers `☆ rate this episode
 TMDB`: a list you arrow through, highest first, with a word against each score.
 
 ```
-10  a masterpiece
- 9  superb
- 8  great
- 7  good
- 6  decent
- 5  watchable
- 4  weak
- 3  bad
- 2  awful
- 1  unwatchable
+10  masterpiece      5  passable
+ 9  banger           4  not good
+ 8  really good      3  truly bad
+ 7  pretty decent    2  garbage
+ 6  it's alright     1  absolute trash
 ```
 
 It opens on whatever you gave it last time (7 if you haven't rated it), so
 changing your mind is one keypress, and offers `✕ remove my rating` once there
 is one to remove.
+
+`☆ rate the whole series on TMDB` sits under it, on every episode rather than
+only the finale, and brings your own episode scores with it:
+
+```
+how was Your Friends & Neighbors — the whole series? · your episodes average 8.3 (3 rated)
+```
+
+The cursor opens on that average, so agreeing with yourself is one keypress and
+the only question left is whether the whole was more than its parts or less.
 
 Per **episode**, which is the point: IMDb can't do this. Its official API is
 paid, enterprise and read-only, and submitting a rating there means driving a
