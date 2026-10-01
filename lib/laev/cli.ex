@@ -1577,7 +1577,7 @@ defmodule Laev.CLI do
     # keypress in, not somewhere alphabetical. Rows with no timestamp keep the
     # order they arrived in.
     ordered = fn section ->
-      grouped |> Map.get(section, []) |> Enum.sort_by(&{-(&1[:watched_at] || 0), &1[:order] || 0})
+      grouped |> Map.get(section, []) |> Enum.sort_by(&{-rank(&1, :watched_at), rank(&1, :order)})
     end
 
     ordered.(:behind) ++
@@ -1585,6 +1585,10 @@ defmodule Laev.CLI do
   end
 
   @doc "Which section a Watchlist row belongs to."
+  # Scenery that found its way in sits in the first section rather than taking
+  # the page down — the same reason title_poster/1 answers for anything.
+  def section_of(row) when not is_map(row), do: :behind
+
   def section_of(row) do
     cond do
       row[:held] == true -> :on_hold
@@ -1595,6 +1599,11 @@ defmodule Laev.CLI do
 
   defp divided(_divider, []), do: []
   defp divided(divider, rows), do: [divider | rows]
+
+  # Rows are maps; anything else is scenery and sorts as zero rather than raising
+  # on a field it hasn't got.
+  defp rank(row, key) when is_map(row), do: row[key] || 0
+  defp rank(_row, _key), do: 0
 
   # "2 of 4 seasons", and whether there is anything to watch right now.  # "2 of 4 seasons", and whether there is anything to watch right now.
   #
@@ -3487,8 +3496,11 @@ defmodule Laev.CLI do
   end
 
   defp title_poster(:more), do: nil
-  defp title_poster(:caught_up), do: nil
-  defp title_poster({:franchise, _}), do: nil
+  # Anything that isn't a title has no poster: the paging row, both section
+  # dividers, a franchise row. Written as one guard rather than a clause per
+  # sentinel, because the clause-per-sentinel version is a crash waiting for the
+  # next sentinel — which is exactly how `⌄ on hold` took the page down.
+  defp title_poster(row) when not is_map(row), do: nil
 
   # {poster, meta}: the meta is what the quality watcher needs to ask the
   # indexers about this row — including every name the title answers to, so

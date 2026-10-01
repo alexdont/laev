@@ -34,6 +34,14 @@ defmodule Laev.ToCompleteTest do
     assert CLI.section_of(silent("anime")) == :behind
   end
 
+  # Both of these took the page down once: a third sentinel row the list's
+  # helpers had never been told about. They answer for anything now.
+  test "a sentinel row is scenery, not a crash" do
+    assert CLI.section_of(:more) == :behind
+    assert CLI.section_of(:caught_up) == :behind
+    assert CLI.divide_sections([behind("A"), :more]) == [behind("A"), :more]
+  end
+
   test "rows with nothing said never raise" do
     assert CLI.divide_sections([silent("a"), silent("b")]) == [silent("a"), silent("b")]
   end
