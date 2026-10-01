@@ -38,8 +38,9 @@ defmodule Laev.Stats do
   titles you've given the most time to.
 
   Returns `%{seconds:, in_laev:, off_laev:, films:, episodes:, shows:, titles:
-  [%Title{}], unknown:, skipped:, measured:}` with `titles` sorted by time
-  spent. `seconds` is the two buckets added together. `skipped` counts only
+  [%Title{}], unknown:, skipped:, measured:, anime:, other:}` with `titles`
+  sorted by time spent, and `anime`/`other` holding the same counts for the two
+  halves of what you watch. `seconds` is the two buckets added together. `skipped` counts only
   plays laev measured, so it starts at nothing and grows from here.
   """
   def all_time do
@@ -63,7 +64,26 @@ defmodule Laev.Stats do
       titles: Enum.sort_by(titles, & &1.seconds, :desc),
       unknown: unknown,
       skipped: skipped,
-      measured: measured
+      measured: measured,
+      anime: slice(titles, entries, true),
+      other: slice(titles, entries, false)
+    }
+  end
+
+  # Anime kept apart from everything else, because they are not the same hobby:
+  # three hundred twenty-minute episodes and sixty films both come to "a year of
+  # evenings" and nothing else about them compares. The split costs nothing —
+  # the MAL cross-id list already says which TMDB ids are anime, offline.
+  defp slice(titles, entries, anime?) do
+    mine = Enum.filter(titles, &(Laev.AnimeMap.anime?(&1.type, &1.tmdb_id) == anime?))
+    rows = Enum.filter(entries, fn {_n, type, id, _k, _p} -> Laev.AnimeMap.anime?(type, id) == anime? end)
+
+    %{
+      seconds: mine |> Enum.map(& &1.seconds) |> Enum.sum(),
+      titles: length(mine),
+      films: count_kind(rows, :movie),
+      episodes: count_kind(rows, :episode),
+      shows: count_shows(rows)
     }
   end
 
@@ -334,30 +354,56 @@ defmodule Laev.Stats do
 
   defp fold(entries, runtimes, played) do
     titles = Laev.Resume.all() |> Map.new(&{{&1["type"], &1["tmdb_id"]}, &1["title"]})
-    known = Laev.Titles.all()
-    empty = {%{}, 0, 0, 0}
+    names = {titles, Laev.Titles.all()}
 
-    Enum.reduce(entries, empty, fn {name, type, id, kind, progress}, {acc, unknown, skipped, measured} ->
-      key = {type, id}
-      runtime = Map.get(runtimes, cache_key(runtime_key(type, id, kind)))
+    # Series marks go last, and knowingly: "I have seen this show" claims the
+    # whole run, and some of that run is already counted episode by episode. An
+    # anime imported from a list arrives both ways — 24 episode marks and the
+    # show marked finished — and billing both would charge the season twice.
+    {marks, rest} = Enum.split_with(entries, fn {_n, _t, _i, kind, _p} -> kind == :series_mark end)
 
-      case {Map.get(played, name), seconds_for(progress, runtime)} do
-        # Measured: the seconds really played here, and what was seeked past.
-        {%{watched: watched, skipped: past}, _} ->
-          {bump(acc, key, {titles, known}, watched, 0, progress), unknown, skipped + past, measured + 1}
-
-        {_, :unknown} ->
-          {bump(acc, key, {titles, known}, 0, 0, progress), unknown + 1, skipped, measured}
-
-        # Marked by hand: the full runtime, all of it off-laev.
-        {_, {:off, seconds}} ->
-          {bump(acc, key, {titles, known}, seconds, seconds, progress), unknown, skipped, measured}
-
-        {_, seconds} ->
-          {bump(acc, key, {titles, known}, seconds, 0, progress), unknown, skipped, measured}
-      end
-    end)
+    rest
+    |> Enum.reduce({%{}, 0, 0, 0}, &fold_entry(&1, &2, runtimes, played, names))
+    |> then(fn state -> Enum.reduce(marks, state, &fold_series(&1, &2, runtimes, names)) end)
     |> then(fn {acc, unknown, skipped, measured} -> {Map.values(acc), unknown, skipped, measured} end)
+  end
+
+  defp fold_entry({name, type, id, kind, progress}, {acc, unknown, skipped, measured}, runtimes, played, names) do
+    key = {type, id}
+    runtime = Map.get(runtimes, cache_key(runtime_key(type, id, kind)))
+
+    case {Map.get(played, name), seconds_for(progress, runtime)} do
+      # Measured: the seconds really played here, and what was seeked past.
+      {%{watched: watched, skipped: past}, _} ->
+        {bump(acc, key, names, watched, 0, progress), unknown, skipped + past, measured + 1}
+
+      {_, :unknown} ->
+        {bump(acc, key, names, 0, 0, progress), unknown + 1, skipped, measured}
+
+      # Marked by hand: the full runtime, all of it off-laev.
+      {_, {:off, seconds}} ->
+        {bump(acc, key, names, seconds, seconds, progress), unknown, skipped, measured}
+
+      {_, seconds} ->
+        {bump(acc, key, names, seconds, 0, progress), unknown, skipped, measured}
+    end
+  end
+
+  # What a whole-show mark adds on top of its episodes: the rest of the run. A
+  # show marked watched with nothing else known about it still counts for all of
+  # it; one whose every episode is already marked adds nothing.
+  defp fold_series({_name, type, id, _kind, progress}, {acc, unknown, skipped, measured}, runtimes, names) do
+    key = {type, id}
+    counted = with %Title{seconds: seconds} <- Map.get(acc, key), do: seconds, else: (_ -> 0)
+
+    case Map.get(runtimes, cache_key(runtime_key(type, id, :series_mark))) do
+      whole when is_integer(whole) ->
+        rest = max(whole - counted, 0)
+        {bump(acc, key, names, rest, rest, progress), unknown, skipped, measured}
+
+      _ ->
+        {bump(acc, key, names, 0, 0, progress), unknown + 1, skipped, measured}
+    end
   end
 
   # A part-watched entry is worth the seconds it reached; a finished one is

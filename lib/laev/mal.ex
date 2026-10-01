@@ -225,27 +225,103 @@ defmodule Laev.MAL do
   end
 
   @doc """
+  Every anime on the user's list, newest fields and all: `[%{mal_id:, title:,
+  status:, episodes_watched:, episodes:, episode_seconds:, kind:}]`.
+
+  Paged a thousand at a time — a long-standing list runs to several hundred
+  entries, and MAL will hand them all over, just not at once. `nsfw: true`
+  because a list laev imports has to be the list the user actually has.
+  """
+  def list(report \\ fn _line -> :ok end) do
+    case access_token() do
+      at when is_binary(at) -> pages(start_url(), at, [], report)
+      _ -> {:error, :not_linked}
+    end
+  end
+
+  defp start_url do
+    "#{@base}/users/@me/animelist?" <>
+      URI.encode_query(%{
+        "fields" => "list_status,num_episodes,average_episode_duration,media_type",
+        "limit" => "1000",
+        "nsfw" => "true"
+      })
+  end
+
+  defp pages(url, at, acc, report) do
+    case Req.get(url,
+           headers: [{"authorization", "Bearer #{at}"}],
+           retry: false,
+           receive_timeout: 30_000
+         ) do
+      {:ok, %{status: 200, body: %{"data" => data} = body}} ->
+        acc = acc ++ Enum.flat_map(data, &entry/1)
+        report.("#{length(acc)} anime…")
+
+        case get_in(body, ["paging", "next"]) do
+          next when is_binary(next) -> pages(next, at, acc, report)
+          _ -> {:ok, acc}
+        end
+
+      {:ok, %{status: status}} ->
+        {:error, {:mal, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  defp entry(%{"node" => %{"id" => id} = node, "list_status" => status}) when is_integer(id) do
+    [
+      %{
+        mal_id: id,
+        title: node["title"],
+        kind: node["media_type"],
+        episodes: node["num_episodes"],
+        # MAL knows how long an episode of this anime runs, which TMDB often
+        # doesn't for anime — it rides along so an import can say what it is
+        # claiming in hours, not just in episode counts.
+        episode_seconds: node["average_episode_duration"],
+        status: status["status"],
+        episodes_watched: status["num_episodes_watched"] || 0,
+        score: status["score"] || 0
+      }
+    ]
+  end
+
+  defp entry(_other), do: []
+
+  @doc """
   Record progress: set watched count and status. Never regresses a higher
   count already on MAL. `total` (episode count, optional) decides whether
   finishing marks the show *completed*. Returns :ok | {:error, reason} | :skip.
   """
   def set_progress(mal_id, episode, total \\ nil) do
     with at when is_binary(at) <- access_token() do
-      current = episodes_watched(mal_id)
-      count = max(episode, current)
-
-      status =
-        cond do
-          is_integer(total) and total > 0 and count >= total -> "completed"
-          true -> "watching"
-        end
-
-      fields = %{num_episodes_watched: count, status: status}
-      fields = if status == "completed", do: Map.put(fields, :finish_date, today()), else: fields
-
-      patch(mal_id, at, fields)
+      count = max(episode, episodes_watched(mal_id))
+      patch(mal_id, at, progress_fields(count, total))
     else
       _ -> :skip
+    end
+  end
+
+  @doc """
+  What to send for "watched episode N of M": the count, the status, and a finish
+  date on the episode that completes it.
+
+  The last episode is the whole point — a list that still says *watching* after
+  the finale is a list you have to go and tidy by hand — so reaching the episode
+  count flips the entry to completed and dates it today. An anime whose total
+  MAL doesn't know (a running series, a long-form shounen) stays *watching*,
+  because nothing here can tell when it ends.
+  """
+  def progress_fields(count, total) do
+    if is_integer(total) and total > 0 and count >= total do
+      %{num_episodes_watched: count, status: "completed", finish_date: today()}
+    else
+      %{num_episodes_watched: count, status: "watching"}
     end
   end
 

@@ -738,7 +738,8 @@ defmodule Laev.CLI do
         Laev.MAL.authenticated?() ->
           IO.puts(:stderr, "  Linked as #{Laev.MAL.username() || "?"}.\n")
           [
-            {:scrobble, "⚡ auto-scrobble progress  [#{if Config.mal_scrobble?(), do: "on", else: "off"}]"},
+            {:scrobble, "⇉ auto-scrobble progress  [#{if Config.mal_scrobble?(), do: "on", else: "off"}]"},
+            {:import, "⇣ import your list — mark watched anime, fix the stats"},
             {:logout, "unlink MyAnimeList"},
             {:set_id, "change MAL_CLIENT_ID"}
           ]
@@ -771,6 +772,11 @@ defmodule Laev.CLI do
 
       {:scrobble, _} ->
         save_setting("LAEV_MAL_SCROBBLE", if(Config.mal_scrobble?(), do: "off", else: "on"))
+        mal_integration_menu()
+
+      {:import, _} ->
+        mal(["import"])
+        IO.gets("\n  press enter to go back… ")
         mal_integration_menu()
     end
   end
@@ -2539,7 +2545,15 @@ defmodule Laev.CLI do
       {"tv", episodes} ->
         episodes = enrich_episodes(episodes, Kitsu.episode_details(kitsu.anime))
 
-        ctx_of = fn ep -> %{type: "tv", tmdb_id: title.id, season: nil, episode: ep.number} end
+        # Which TMDB season this Kitsu entry is, when anything knows: an import
+        # from MyAnimeList wrote its marks as season/episode, and this list
+        # counts episodes from one within the entry — so a finished anime pulled
+        # in from a list would otherwise show a page of unwatched episodes.
+        season = anime_tmdb_season(title, search_title)
+
+        ctx_of = fn ep ->
+          anime_mark_ctx(%{type: "tv", tmdb_id: title.id, season: nil, episode: ep.number}, season)
+        end
         rt_of = fn ep -> runtime_seconds(Map.get(ep, :runtime)) end
         describe = fn ep -> watched_label(ctx_of.(ep), describe_anime_episode(ep), rt_of.(ep)) end
 
@@ -2555,6 +2569,31 @@ defmodule Laev.CLI do
 
         with_library(q, sources)
         |> probe_and_pick([episode: n], anime_ctx(title, details, n, search_title))
+    end
+  end
+
+  # An anime episode can carry a mark under either numbering: the absolute number
+  # laev plays it by, or the TMDB season and episode an import wrote. Whichever
+  # of the two says more is the one the list reads — a tick is a tick, and
+  # nothing here writes, so playback keeps numbering episodes the way it does.
+  defp anime_mark_ctx(base, nil), do: base
+
+  defp anime_mark_ctx(base, season) do
+    seasoned = %{base | season: season}
+
+    case {Laev.Position.mark_state(base), Laev.Position.mark_state(seasoned)} do
+      {:none, other} when other != :none -> seasoned
+      _ -> base
+    end
+  end
+
+  defp anime_tmdb_season(title, search_title) do
+    with mal_id when is_integer(mal_id) <-
+           mal_id_for(%{type: "tv", tmdb_id: title.id, title: title.title, search_title: search_title}),
+         {"tv", _id, season} <- Laev.AnimeMap.tmdb(mal_id) do
+      season
+    else
+      _ -> nil
     end
   end
 
@@ -4266,12 +4305,19 @@ defmodule Laev.CLI do
             else: [{:imdb, "★  open in IMDb — in browser"}]
           ),
           # Always, not only on a finale: deciding what you make of a show as a
-          # whole isn't something that only happens on its last episode.
-          if(ctx.type == "tv",
-            do: [{:tmdb_rate_series, rating_row("rate the whole series on TMDB")}],
-            else: []
-          ),
-          if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
+          # whole isn't something that only happens on its last episode. Anime
+          # is scored where anime is scored — MAL holds the list the score
+          # belongs to, and it is the series it scores, never the episode.
+          cond do
+            ctx[:anime] and Laev.MAL.configured?() ->
+              [{:mal_rate, mal_rating_row(mal_rate_label(ctx))}]
+
+            ctx.type == "tv" ->
+              [{:tmdb_rate_series, rating_row("rate the whole series on TMDB")}]
+
+            true ->
+              []
+          end,
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           # ≡ rather than ☰, and ⇉ rather than ⚡: both of those are East-Asian
@@ -4304,7 +4350,7 @@ defmodule Laev.CLI do
           open_mal(ctx)
           post_play_menu(ctx, stream)
         {:mal_rate, _} ->
-          rate_on_mal(ctx)
+          if Laev.MAL.authenticated?(), do: rate_on_mal(ctx), else: explain_mal_login()
           post_play_menu(ctx, stream)
 
         {:tmdb_rate, _} ->
@@ -4968,6 +5014,10 @@ defmodule Laev.CLI do
 
   defp stats do
     IO.puts(:stderr, "reading your history…")
+    # Splitting anime from the rest needs the cross-id list, and this is the
+    # page that uses it — fetched here, where a one-time pause can say what it
+    # is for, rather than from a list that has to stay instant.
+    Laev.AnimeMap.ensure(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset])))
     s = Laev.Stats.all_time()
 
     if tty?() do
@@ -5059,14 +5109,47 @@ defmodule Laev.CLI do
     [
       "    ",
       :bright,
-      String.pad_leading(Laev.Stats.duration(seconds), 8),
+      # Nine, because a few thousand hours is four digits and a column that
+      # doesn't fit its own numbers stops being a column.
+      String.pad_leading(Laev.Stats.duration(seconds), 9),
       :reset,
-      "  " <> String.pad_trailing(label, 9),
+      "  " <> String.pad_trailing(label, 11),
       :faint,
       "· " <> note,
       :reset,
       "\n"
     ]
+  end
+
+  # Anime beside everything else. Only when there is some of each — one line
+  # holding the whole total and another holding nothing says less than the
+  # headline already did.
+  defp print_kinds(%{anime: anime, other: other}) do
+    if anime.seconds > 0 and other.seconds > 0 do
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          bucket_line(other.seconds, "films & tv", kind_note(other)),
+          bucket_line(anime.seconds, "anime", kind_note(anime))
+        ])
+      )
+    end
+  end
+
+  defp print_kinds(_stats), do: :ok
+
+  defp kind_note(%{films: films, episodes: episodes, shows: shows}) do
+    [
+      films > 0 && "#{films} #{if films == 1, do: "film", else: "films"}",
+      episodes > 0 &&
+        "#{episodes} episodes from #{shows} #{if shows == 1, do: "show", else: "shows"}"
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> "nothing yet"
+      note -> note
+    end
   end
 
   # Shows, as opposed to hours: how many you have finished and how many you are
@@ -5327,6 +5410,7 @@ defmodule Laev.CLI do
     )
 
     print_shelf_counts()
+    print_kinds(s)
 
     # Split only when there is something to split: with no hand marks the two
     # lines would say the total twice.
@@ -6452,6 +6536,15 @@ defmodule Laev.CLI do
       else: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "☆  ", label, " — needs a TMDB login", :reset]))
   end
 
+  defp mal_rating_row(label) do
+    if Laev.MAL.authenticated?(),
+      do: "☆  " <> label,
+      else:
+        IO.iodata_to_binary(
+          IO.ANSI.format_fragment([:faint, "☆  ", label, " — needs a MyAnimeList login", :reset])
+        )
+  end
+
   defp explain_tmdb_login do
     IO.puts(
       :stderr,
@@ -6486,6 +6579,7 @@ defmodule Laev.CLI do
   ]
 
   defp prompt_rating(what, current, submit, clear, opts \\ []) do
+    service = opts[:service] || "TMDB"
     rated? = is_number(current)
     items = @scores ++ if(rated?, do: [:clear], else: [])
     suggestion = opts[:suggest]
@@ -6507,8 +6601,8 @@ defmodule Laev.CLI do
         suggestion_note(suggestion) <> " · esc to skip"
 
     case pick(items, &describe_score/1, header, nil, initial) do
-      {score, _label} -> submit_rating(fn -> submit.(score) end, "rated #{score}/10 on TMDB")
-      :clear -> submit_rating(clear, "rating removed on TMDB")
+      {score, _label} -> submit_rating(fn -> submit.(score) end, "rated #{score}/10 on #{service}", service)
+      :clear -> submit_rating(clear, "rating removed on #{service}", service)
       _ -> :ok
     end
   end
@@ -6531,12 +6625,13 @@ defmodule Laev.CLI do
       "  " <> IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, label, :reset]))
   end
 
-  defp submit_rating(action, done) do
+  defp submit_rating(action, done, service) do
     case action.() do
       {:ok, _rating} -> IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ #{done}", :reset]))
       :ok -> IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ #{done}", :reset]))
+      :skip -> IO.puts(:stderr, "  not linked to #{service} — nothing sent")
       {:error, :no_session} -> IO.puts(:stderr, "  not linked to TMDB — run: laev tmdb login")
-      {:error, reason} -> IO.puts(:stderr, "  couldn't send that to TMDB (#{inspect(reason)})")
+      {:error, reason} -> IO.puts(:stderr, "  couldn't send that to #{service} (#{inspect(reason)})")
     end
   end
 
@@ -6566,6 +6661,42 @@ defmodule Laev.CLI do
     end
   end
 
+  defp mal(["import" | _]) do
+    unless Laev.MAL.authenticated?(), do: die("not linked to MyAnimeList — run: laev mal login")
+
+    IO.puts(:stderr, "")
+
+    case Laev.Ratings.import_from_mal(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset]))) do
+      %{} = counts ->
+        IO.puts(:stderr, IO.ANSI.format([:green, "\n  ✓ " <> describe_mal_import(counts), :reset, :faint, mal_import_rest(counts), :reset]))
+
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :faint,
+            "  from #{counts.anime} anime on your list · MAL counts #{counts.episodes} episodes, #{counts.hours}h\n",
+            :reset
+          ])
+        )
+
+        report_by_hand(counts)
+
+        if counts.marked > 0 do
+          IO.puts(:stderr, IO.ANSI.format([:faint, "  working out runtimes — one-time, then stats are instant…", :reset]))
+          totals = Laev.Stats.all_time()
+
+          IO.puts(
+            :stderr,
+            "  stats now: #{Laev.Stats.duration(totals.seconds)} in all · " <>
+              "#{Laev.Stats.duration(totals.anime.seconds)} of it anime"
+          )
+        end
+
+      {:error, reason} ->
+        die("couldn't read your MyAnimeList list (#{inspect(reason)})")
+    end
+  end
+
   defp mal(["logout" | _]) do
     Laev.MAL.logout()
     IO.puts(:stderr, "unlinked from MyAnimeList.")
@@ -6577,10 +6708,47 @@ defmodule Laev.CLI do
         IO.puts(:stderr, "MyAnimeList: not configured (owner sets MAL_CLIENT_ID). ")
 
       Laev.MAL.authenticated?() ->
-        IO.puts(:stderr, "MyAnimeList: linked as #{Laev.MAL.username() || "?"} — laev mal logout to unlink")
+        IO.puts(
+          :stderr,
+          "MyAnimeList: linked as #{Laev.MAL.username() || "?"} — " <>
+            "laev mal import pulls your list in, laev mal logout unlinks"
+        )
 
       true ->
         IO.puts(:stderr, "MyAnimeList: not linked — run: laev mal login")
+    end
+  end
+
+  # A second import has nothing to mark and should say so, rather than reporting
+  # a day's work it didn't do.
+  defp describe_mal_import(%{marked: 0, already: already}),
+    do: "nothing new — all #{already} of these were already marked here"
+
+  defp describe_mal_import(counts) do
+    [
+      counts.marked - counts.series > 0 && "marked #{counts.marked - counts.series} episodes watched",
+      counts.series > 0 && "#{counts.series} anime finished"
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" and ")
+  end
+
+  # The "and the rest" clause, minus the part the headline just said.
+  defp mal_import_rest(%{marked: 0}), do: ""
+  defp mal_import_rest(counts), do: describe_import_rest(counts)
+
+  # The handful an import can't place, named rather than counted: these are the
+  # ones only you can mark, and a number alone doesn't tell you which.
+  defp report_by_hand(counts) do
+    cases = [
+      {counts.unmapped, "not on TMDB under any id laev could find"},
+      {counts.overflow, "more episodes than the TMDB season has room for"}
+    ]
+
+    for {titles, why} <- cases, titles != [] do
+      IO.puts(:stderr, IO.ANSI.format([:faint, "  #{length(titles)} left for you — #{why}:", :reset]))
+      for title <- Enum.sort(titles), do: IO.puts(:stderr, IO.ANSI.format([:faint, "    · #{title}", :reset]))
+      IO.puts(:stderr, "")
     end
   end
 
@@ -6661,34 +6829,93 @@ defmodule Laev.CLI do
     _ -> :ok
   end
 
+  # The same list of words-beside-numbers the rest of laev rates with. MAL scores
+  # whole anime and nothing smaller, so this is always the series — and what you
+  # made of its episodes on TMDB is exactly the number to start the cursor on.
+  defp mal_rate_label(%{type: "tv"}), do: "rate the whole series on MyAnimeList"
+  defp mal_rate_label(_ctx), do: "rate it on MyAnimeList"
+
   defp rate_on_mal(ctx) do
-    with mal_id when is_integer(mal_id) <- mal_id_for(ctx),
-         line when is_binary(line) <- IO.gets("  score on MyAnimeList (1–10, enter to skip): "),
-         {score, _} <- Integer.parse(String.trim(line)),
-         true <- score in 1..10 do
-      case Laev.MAL.rate(mal_id, score) do
-        :ok -> IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ rated #{score}/10 on MAL", :reset]))
-        _ -> IO.puts(:stderr, "  couldn't submit the rating")
-      end
-    else
-      _ -> :ok
+    case mal_id_for(ctx) do
+      mal_id when is_integer(mal_id) ->
+        prompt_rating(
+          mal_rate_subject(ctx),
+          mal_score(mal_id),
+          &Laev.MAL.rate(mal_id, &1),
+          # MAL has no "unrate" of its own: a score of zero is how a list says
+          # this one is unscored.
+          fn -> Laev.MAL.rate(mal_id, 0) end,
+          service: "MyAnimeList",
+          suggest: mal_suggestion(ctx)
+        )
+
+      _ ->
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([:faint, "  couldn't work out which MyAnimeList entry this is — nothing sent.", :reset])
+        )
+
+        IO.gets("  press enter to go back… ")
     end
   end
 
-  # Resolve a MAL id for an anime ctx from its title (AniList idMal), cached.
+  defp mal_rate_subject(%{type: "tv", title: title}), do: "#{title} — the whole series"
+  defp mal_rate_subject(%{title: title}), do: title
+
+  defp mal_score(mal_id) do
+    case Laev.MAL.list_status(mal_id) do
+      %{score: score} when is_integer(score) and score > 0 -> score
+      _ -> nil
+    end
+  end
+
+  defp mal_suggestion(%{type: "tv", tmdb_id: id}) do
+    if Tmdb.account?(), do: Tmdb.episode_average(id)
+  end
+
+  defp mal_suggestion(_ctx), do: nil
+
+  defp explain_mal_login do
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        "\n  Scoring anime needs your MyAnimeList account — one browser approval.\n",
+        :bright,
+        "    laev mal login",
+        :reset,
+        :faint,
+        "   (or Settings → 🔌 Integrations → 🌸 MyAnimeList)\n",
+        :reset
+      ])
+    )
+
+    IO.gets("  press enter to go back… ")
+  end
+
+  # Resolve a MAL id for an anime ctx, cached for the session.
+  #
+  # AniList first, by title: the title laev searched with is the exact season
+  # being watched, which is the level MAL keeps entries at. The cross-id list is
+  # the fallback, and a good one — it answers from the TMDB id and season with
+  # no guessing at all — but only when it's already on disk, since asking for an
+  # id must never turn into a download.
   defp mal_id_for(ctx) do
     title = ctx[:search_title] || ctx[:title]
     key = {:mal_id, title}
 
     case Process.get(key, :miss) do
       :miss ->
-        id = anilist_mal_id(title)
+        id = anilist_mal_id(title) || mapped_mal_id(ctx)
         Process.put(key, id)
         id
 
       cached ->
         cached
     end
+  end
+
+  defp mapped_mal_id(ctx) do
+    if Laev.AnimeMap.ready?(), do: Laev.AnimeMap.mal_id(ctx[:type], ctx[:tmdb_id], ctx[:season])
   end
 
   defp anilist_mal_id(nil), do: nil

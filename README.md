@@ -152,7 +152,8 @@ LAEV_STRICT_RESOLUTION=off
 # autoplay the next episode when one ends ("on" to enable — off by default;
 # --binge or the post-play menu's autoplay entry do it per session)
 LAEV_AUTOPLAY=off
-# optional: scrobble anime to MyAnimeList (owner-provided app id; then `laev mal login`)
+# optional: anime scrobbling, scores and list import on MyAnimeList
+# (owner-provided app id; then `laev mal login`)
 #MAL_CLIENT_ID=...
 # optional: Jackett/Prowlarr (more indexers), OpenSubtitles, Jimaku
 # optional: cross-device sync to a server you run (see "Sync across devices")
@@ -174,6 +175,28 @@ watchlist, and the stats count them in the **off laev** bucket, where an assumed
 runtime belongs. Positions you are partway through are left alone — a rating is
 no reason to overwrite somebody's place in something. Run it as often as you
 like; it only ever fills gaps.
+
+`laev mal import` does the same for anime, from your MyAnimeList list. MAL keeps
+a count rather than a tick list — "24/24 watched" — so the count is laid out over
+the matching TMDB season, and a show you are seven episodes into reads as seven
+episodes here too. Matching the two sites is the hard part: MAL lists a *season*
+as its own anime while TMDB keeps one show with several, so laev uses the
+community cross-id list, which pins each MAL id to a TMDB id and the season
+number it is. Split cours are laid end to end, into episode 13 of a 24-episode
+season where TMDB merged them and into season 2 where it didn't.
+
+Anything it can't place it names rather than silently dropping — an OVA filed
+under a series id, an anime TMDB has no entry for — so the handful that need a
+`ctrl-w` by hand are in front of you:
+
+```
+  ✓ marked 5882 episodes watched and 109 anime finished — 61 already were
+  from 362 anime on your list · MAL counts 5970 episodes, 2442h
+
+  2 left for you — not on TMDB under any id laev could find:
+    · Home!
+    · Re:Zero kara Hajimeru Break Time
+```
 
 ### Rating what you watch
 
@@ -203,6 +226,12 @@ how was Your Friends & Neighbors — the whole series? · your episodes average 
 The cursor opens on that average, so agreeing with yourself is one keypress and
 the only question left is whether the whole was more than its parts or less.
 
+For anime the series row goes to MyAnimeList instead — `☆ rate the whole series
+on MyAnimeList` — because that is where an anime score belongs and where your
+list already is. MAL scores whole anime and nothing smaller, so **episode**
+ratings still go to TMDB, which is the one service that takes them; the cursor
+opens on your TMDB episode average either way.
+
 Per **episode**, which is the point: IMDb can't do this. Its official API is
 paid, enterprise and read-only, and submitting a rating there means driving a
 logged-in imdb.com session through an internal GraphQL endpoint — laev would
@@ -221,7 +250,8 @@ the IMDb page for anything, and anime scores can go to MyAnimeList.
 | `laev play <magnet\|url>` | resolve and launch mpv directly |
 | `laev setup` | first-run wizard: keys in, validated live |
 | `laev doctor` | health-check binaries, keys, and services |
-| `laev mal login` | link MyAnimeList (anime scrobbling) |
+| `laev mal login` | link MyAnimeList (anime scrobbling and scores) |
+| `laev mal import` | mark your MyAnimeList list watched here |
 | `laev tmdb login` | link your TMDB account, to rate episodes and films |
 | `laev sync` | sync watch state now (`laev sync status` shows config) |
 | `laev config` | show config status |
