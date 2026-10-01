@@ -115,7 +115,8 @@ defmodule Laev.Ratings do
       episodes: entry.episodes,
       seconds: entry.episode_seconds,
       status: entry.status,
-      score: entry.score
+      score: entry.score,
+      updated: entry.updated
     }
   end
 

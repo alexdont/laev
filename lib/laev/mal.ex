@@ -286,7 +286,11 @@ defmodule Laev.MAL do
         episode_seconds: node["average_episode_duration"],
         status: status["status"],
         episodes_watched: status["num_episodes_watched"] || 0,
-        score: status["score"] || 0
+        score: status["score"] || 0,
+        # When you last touched this anime on MAL — which is when you last
+        # watched an episode of it. It is what puts the thing you are in the
+        # middle of at the top of a list instead of somewhere alphabetical.
+        updated: unix(status["updated_at"])
       }
     ]
   end
@@ -364,6 +368,17 @@ defmodule Laev.MAL do
     end
   end
 
+  @doc """
+  Set the list status of an anime — "watching", "on_hold", "completed",
+  "dropped", "plan_to_watch" — without touching the episode count.
+  """
+  def set_status(mal_id, status) when is_binary(status) do
+    case access_token() do
+      at when is_binary(at) -> patch(mal_id, at, %{status: status})
+      _ -> :skip
+    end
+  end
+
   @doc "Set the user's score (1–10) for an anime."
   def rate(mal_id, score) when score in 0..10 do
     case access_token() do
@@ -400,4 +415,13 @@ defmodule Laev.MAL do
   end
 
   defp today, do: Date.utc_today() |> Date.to_iso8601()
+
+  defp unix(stamp) when is_binary(stamp) do
+    case DateTime.from_iso8601(stamp) do
+      {:ok, at, _offset} -> DateTime.to_unix(at)
+      _ -> nil
+    end
+  end
+
+  defp unix(_stamp), do: nil
 end

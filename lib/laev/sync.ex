@@ -23,7 +23,7 @@ defmodule Laev.Sync do
 
   ## What is synced (and what is deliberately not)
 
-  Synced: watchlist, resume/history, per-episode positions, watched flags,
+  Synced: watchlist, resume/history, per-episode positions, holds, watched flags,
   and per-series audio/subtitle track choices. Optionally (`LAEV_SYNC_KEYS`)
   also the API keys, encrypted — see "Secrets" below. Never synced: MAL OAuth
   tokens (`mal.json`), because the refresh token rotates on every refresh and
@@ -58,7 +58,7 @@ defmodule Laev.Sync do
   # day-by-day log behind the calendar. Without them a second machine shows the
   # same watched marks and a different number of hours, which is the one thing a
   # synced account should never do.
-  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched]
+  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched, :holds]
 
   # The whole bundle lives in one document per token. The server treats the
   # last path segment as a free-form doc name — `<base>/<token>/<doc>`.
@@ -356,7 +356,8 @@ defmodule Laev.Sync do
       positions: read_dir(Path.join(data_dir(), "positions")),
       tracks: read_dir(Path.join(data_dir(), "tracks")),
       played: read_dir(Path.join(data_dir(), "played")),
-      watched: read_dir(Path.join(data_dir(), "watched"))
+      watched: read_dir(Path.join(data_dir(), "watched")),
+      holds: read_dir(Path.join(data_dir(), "holds"))
     }
   end
 
@@ -469,6 +470,7 @@ defmodule Laev.Sync do
     apply_dir(Path.join(data_dir(), "tracks"), merged[:tracks] || %{})
     apply_dir(Path.join(data_dir(), "played"), merged[:played] || %{})
     apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{})
+    apply_dir(Path.join(data_dir(), "holds"), merged[:holds] || %{})
 
     # Watchlist and resume are cached in ETS at boot — without a reload the
     # continue page keeps showing pre-sync state, and the next put/persist

@@ -47,6 +47,21 @@ defmodule Laev.Anime do
   def title(mal_id), do: with(%{title: title} <- get(mal_id), do: title, else: (_ -> nil))
 
   @doc """
+  Change the status laev has for an anime — "on_hold", "watching", "completed".
+
+  Written after laev tells MyAnimeList the same thing, so the page you are
+  looking at is right immediately instead of at the next import.
+  """
+  def set_status(mal_id, status) when is_integer(mal_id) and is_binary(status) do
+    case get(mal_id) do
+      %{} = fields -> put_many(%{mal_id => %{fields | status: status}})
+      _ -> :ok
+    end
+  end
+
+  def set_status(_mal_id, _status), do: :ok
+
+  @doc """
   How many episodes the anime has, or nil.
 
   Read from the list, so it answers offline — which is what lets the home screen
@@ -101,7 +116,8 @@ defmodule Laev.Anime do
       episodes: fields["episodes"],
       seconds: fields["seconds"],
       status: fields["status"],
-      score: fields["score"]
+      score: fields["score"],
+      updated: fields["updated"]
     }
   end
 

@@ -493,9 +493,11 @@ defmodule Laev.CLI do
         now_playing_item(),
         up_next_item(),
         {:continue, "▶ Continue — pick up where you left off"},
-        {:watchlist, watchlist_row()},
+        # What you are in the middle of comes before what you might start: this
+        # row, then enter, then enter again is the whole path back to last night.
+        watching_row(),
         {:featured, "★ Featured — trending movies, shows & anime"},
-        finish_row(),
+        {:saved, saved_row()},
         {:calendar, calendar_row()},
         {:search, "⌕ Search — find something by name"},
         {:stats, "⧗ Stats — how much you've watched"},
@@ -509,9 +511,9 @@ defmodule Laev.CLI do
       {:up_next, entry} -> play_next_episode(entry)
       {:resume_last, entry} -> continue_entry(entry)
       {:continue, _} -> continue()
-      {:finish, _} -> finish_menu()
+      {:watching, _} -> watching_menu()
       {:featured, _} -> featured()
-      {:watchlist, _} -> watchlist_menu()
+      {:saved, _} -> saved_menu()
       {:calendar, _} -> calendar()
       {:search, _} -> menu_search()
       {:stats, _} ->
@@ -548,7 +550,7 @@ defmodule Laev.CLI do
     items =
       Enum.map(@settings, fn {key, label, kind} -> {:setting, key, label, kind} end) ++
         [
-          {:sync, nil, "🔄 Cross-device sync — watchlist & progress  [#{sync_status}]", nil},
+          {:sync, nil, "🔄 Cross-device sync — saved titles & progress  [#{sync_status}]", nil},
           {:integrations, nil, "🔌 Integrations — optional API keys & services", nil},
           {:keys, nil, "🔑 Core keys (RD / TorBox / TMDB) — rerun setup wizard", nil}
         ]
@@ -804,7 +806,7 @@ defmodule Laev.CLI do
       :stderr,
       IO.ANSI.format([
         :faint,
-        "  Watchlist, history, resume points & watched flags. Never your keys.\n",
+        "  Saved titles, history, resume points & watched flags. Never your keys.\n",
         :reset
       ])
     )
@@ -932,8 +934,8 @@ defmodule Laev.CLI do
 
     carried =
       if Laev.Sync.keys_enabled?(),
-        do: "  Watchlist, history, resume points, watched flags — and your API keys, encrypted.\n",
-        else: "  Watchlist, history, resume points & watched flags — not your keys.\n"
+        do: "  Saved titles, history, resume points, watched flags — and your API keys, encrypted.\n",
+        else: "  Saved titles, history, resume points & watched flags — not your keys.\n"
 
     IO.puts(:stderr, IO.ANSI.format([:faint, carried, :reset]))
 
@@ -1206,7 +1208,7 @@ defmodule Laev.CLI do
   # moved this sync (↓ pulled from server, ↑ pushed up).
   defp sync_summary_lines(summary) do
     labels = [
-      watchlist: "watchlist",
+      watchlist: "saved",
       resume: "history",
       positions: "positions",
       tracks: "track prefs",
@@ -1305,12 +1307,12 @@ defmodule Laev.CLI do
   # Shows with a season or two behind them and no finish line. Hidden when there
   # are none, because an empty shelf is not worth a row — and the count is a
   # single directory read, which the home screen can afford.
-  defp finish_row do
+  defp watching_row do
     # Shows and anime both: the page lists what you left in the middle, and which
     # site keeps the record is not something the count should care about.
-    case length(shows_behind()) + length(unfinished_anime()) do
+    case length(shows_behind()) + length(anime_behind()) do
       0 -> []
-      n -> [{:finish, "◴ To Complete — #{n} you've started"}]
+      n -> [{:watching, "≡ Watchlist — #{n} you're watching"}]
     end
   end
 
@@ -1320,8 +1322,16 @@ defmodule Laev.CLI do
   # nothing. A show laev has never looked at counts as behind: better to offer it
   # and find out than to hide it on a guess.
   defp shows_behind do
-    Enum.reject(unfinished_shows(), fn {{_type, id}, marks} -> caught_up_by_cache?(id, marks) end)
+    held = Laev.Holds.set()
+
+    Enum.reject(unfinished_shows(), fn {{type, id}, marks} ->
+      MapSet.member?(held, {type, id}) or caught_up_by_cache?(id, marks)
+    end)
   end
+
+  # Anime you are actually in the middle of — what you put down is not something
+  # to do tonight, which is the only thing these counts are for.
+  defp anime_behind, do: Enum.reject(unfinished_anime(), fn {_mal_id, anime} -> anime.status == "on_hold" end)
 
   defp caught_up_by_cache?(id, marks) do
     case Laev.Seasons.aired_seasons(id) do
@@ -1353,17 +1363,17 @@ defmodule Laev.CLI do
     end)
   end
 
-  defp finish_menu do
+  defp watching_menu do
     clear_screen()
 
-    case to_complete_rows(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset]))) do
+    case watching_rows(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset]))) do
       [] ->
         nothing_here("Nothing half-watched — everything you've started is marked finished.")
 
       titles ->
-        behind = Enum.count(titles, &(is_map(&1) and &1[:caught_up] != true))
+        behind = Enum.count(titles, &(is_map(&1) and section_of(&1) == :behind))
 
-        case pick_with_save(titles, "◴ to complete — #{behind} to watch, the rest caught up") do
+        case pick_with_save(titles, "≡ watchlist — #{behind} to watch, the rest caught up or on hold") do
           nil -> back()
           title when is_map(title) -> play_title(title)
           other -> other
@@ -1372,14 +1382,14 @@ defmodule Laev.CLI do
   end
 
   @doc """
-  Every row of the To Complete page, in the order it shows them — shows you are
+  Every row of the Watchlist page, in the order it shows them — shows you are
   partway through, then anime, then whatever you are merely caught up on, with
   the divider between.
 
   Separated from the screen that draws it so the page can be checked without a
   terminal: this is the part with the fetching, the ordering and the rules in it.
   """
-  def to_complete_rows(report \\ fn _line -> :ok end) do
+  def watching_rows(report \\ fn _line -> :ok end) do
     shows = unfinished_shows()
     anime = unfinished_anime()
     marks = anime_marks()
@@ -1402,12 +1412,8 @@ defmodule Laev.CLI do
       |> Enum.with_index()
       |> gather(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order) end)
       |> Enum.concat(anime_rows)
-      # Caught up means there is nothing to watch yet — it belongs under the
-      # shows you are actually behind on, not above them. Within each group the
-      # order stands: most recently watched first.
-      |> Enum.sort_by(&{if(&1[:caught_up], do: 1, else: 0), &1[:order] || 0})
       |> remember_aired_seasons()
-      |> divide_at_caught_up()
+      |> divide_sections()
     end
   end
 
@@ -1437,7 +1443,11 @@ defmodule Laev.CLI do
           Laev.Sync.live_push()
           nil
         else
-          details |> unfinished_row(type, id) |> Map.merge(season_progress_note(details, seasons)) |> Map.put(:order, order)
+          details
+          |> unfinished_row(type, id)
+          |> Map.merge(season_progress_note(details, seasons))
+          |> hold_note()
+          |> Map.put(:order, order)
         end
 
       _ ->
@@ -1450,10 +1460,24 @@ defmodule Laev.CLI do
           overview: nil,
           vote: nil,
           popularity: nil,
+          held: Laev.Holds.held?(type, id),
+          watched_at: last_watched_at(type, id),
           order: order
         }
     end
   end
+
+  defp last_watched_at(type, id) do
+    case Laev.Resume.get(type, id) do
+      %{"updated_at" => at} when is_integer(at) -> at
+      _ -> 0
+    end
+  end
+
+  # Said on the row as well as over the section, so typing "hold" in the filter
+  # finds everything you put down, shows and anime alike.
+  defp hold_note(%{held: true} = row), do: Map.put(row, :note, " · on hold" <> (row[:note] || ""))
+  defp hold_note(row), do: row
 
   # Anime you have episodes of and have not finished — which is the page's whole
   # job, and anime was missing from it because the page counts TMDB shows and
@@ -1501,6 +1525,10 @@ defmodule Laev.CLI do
       # Said rather than left out: every row on this page is asked whether it is
       # caught up, and an anime in progress has episodes waiting by definition.
       caught_up: false,
+      held: anime.status == "on_hold",
+      # MAL's own timestamp, or laev's if it played this here more recently —
+      # either way, when you last watched it.
+      watched_at: max(anime[:updated] || 0, last_watched_at(type, tmdb_id)),
       order: order
     })
   end
@@ -1528,24 +1556,47 @@ defmodule Laev.CLI do
   end
 
   @doc """
-  One dim line between the two halves of the To Complete page, so the eye can
-  stop at the boundary instead of reading forty rows to find where "behind" ends.
+  The Watchlist page in order, with a dim line before each section that isn't
+  the first.
 
-  Public because it is the one part of that page with a rule in it, and a rule
-  worth a test: a row that says nothing about being caught up is behind, which is
-  how anime rows arrive.
+  Three sections, because there are three answers to "why isn't this finished":
+  you are in the middle of it, you are up to date and waiting, or you put it
+  down. Only the first is a list of things to do tonight, which is what the home
+  screen counts — the other two are there to be looked through, not worked
+  through, so they sit below a divider each.
+
+  Public because it is the one part of that page with a rule in it: a row that
+  says nothing about being caught up or held is in the middle of being watched,
+  which is how anime rows arrive.
   """
-  def divide_at_caught_up(titles) do
-    # `!= true` rather than `not`: a row that says nothing about being caught up
-    # is not caught up, and `not nil` is an ArgumentError, not a false.
-    case Enum.split_while(titles, &(&1[:caught_up] != true)) do
-      {behind, []} -> behind
-      {[], caught_up} -> caught_up
-      {behind, caught_up} -> behind ++ [:caught_up] ++ caught_up
+  def divide_sections(rows) do
+    grouped = Enum.group_by(rows, &section_of/1)
+
+    # Most recently watched first, within every section — the point of the page
+    # being that what you had on last night is the thing you want tonight, one
+    # keypress in, not somewhere alphabetical. Rows with no timestamp keep the
+    # order they arrived in.
+    ordered = fn section ->
+      grouped |> Map.get(section, []) |> Enum.sort_by(&{-(&1[:watched_at] || 0), &1[:order] || 0})
+    end
+
+    ordered.(:behind) ++
+      divided(:caught_up, ordered.(:caught_up)) ++ divided(:on_hold, ordered.(:on_hold))
+  end
+
+  @doc "Which section a Watchlist row belongs to."
+  def section_of(row) do
+    cond do
+      row[:held] == true -> :on_hold
+      row[:caught_up] == true -> :caught_up
+      true -> :behind
     end
   end
 
-  # "2 of 4 seasons", and whether there is anything to watch right now.
+  defp divided(_divider, []), do: []
+  defp divided(divider, rows), do: [divider | rows]
+
+  # "2 of 4 seasons", and whether there is anything to watch right now.  # "2 of 4 seasons", and whether there is anything to watch right now.
   #
   # A show whose every aired season is behind you is not behind — it is caught
   # up, and saying so is the difference between "go and watch this" and "wait for
@@ -1596,6 +1647,8 @@ defmodule Laev.CLI do
     %{
       id: id,
       type: type,
+      held: Laev.Holds.held?(type, id),
+      watched_at: last_watched_at(type, id),
       title: details["name"] || details["title"] || Laev.Titles.get(type, id) || "#{type} ##{id}",
       year: Tmdb.year(details["first_air_date"] || details["release_date"]),
       poster: Tmdb.poster_url(details["poster_path"], "w342"),
@@ -1717,7 +1770,7 @@ defmodule Laev.CLI do
     end
 
     if Laev.Watchlist.count() == 0 do
-      IO.puts(:stderr, "\n  the calendar shows your watchlist — pin titles with ctrl-s first")
+      IO.puts(:stderr, "\n  the calendar shows what you have saved — press ctrl-s on a title first")
       if tty?(), do: main_menu(), else: System.halt(0)
     end
 
@@ -1988,40 +2041,40 @@ defmodule Laev.CLI do
 
   defp calendar_row do
     case length(Laev.Calendar.cached_events()) do
-      0 -> "⧉ Calendar — when your watchlist drops"
+      0 -> "⧉ Calendar — when your saved titles drop"
       1 -> "⧉ Calendar — 1 drop this week"
       n -> "⧉ Calendar — #{n} drops this week"
     end
   rescue
-    _ -> "⧉ Calendar — when your watchlist drops"
+    _ -> "⧉ Calendar — when your saved titles drop"
   end
 
   # How many are still to watch — the number you actually want off a shelf of
   # things you mean to get to. A count of everything saved only goes up.
-  defp watchlist_row do
+  defp saved_row do
     entries = Laev.Watchlist.all()
 
     case {length(entries), Enum.count(entries, &(not watched_entry?(&1)))} do
-      {0, _} -> "≡ Watchlist — empty (ctrl-s on any title pins it)"
-      {n, 0} -> "≡ Watchlist — #{n} saved · all watched"
-      {_, left} -> "≡ Watchlist — #{left} left"
+      {0, _} -> "◴ Saved — empty (ctrl-s on any title saves it)"
+      {n, 0} -> "◴ Saved — #{n} saved · all watched"
+      {_, left} -> "◴ Saved — #{left} left"
     end
   end
 
   # In-progress first (most recent), then fresh pins, watched movies last.
-  defp watchlist_menu(initial \\ 0) do
+  defp saved_menu(initial \\ 0) do
     clear_screen()
     entries = Laev.Watchlist.all() |> Enum.sort_by(&watchlist_rank/1)
 
     if entries == [] do
-      IO.puts(:stderr, "\n  watchlist is empty — hover any title and press ctrl-s to pin it")
+      IO.puts(:stderr, "\n  nothing saved yet — hover any title anywhere and press ctrl-s to save it")
       main_menu()
     else
       result =
         pick(
           entries,
-          &describe_watchlist/1,
-          "≡ watchlist · enter watches · ctrl-w watched · ctrl-d removes · ctrl-o info",
+          &describe_saved/1,
+          "◴ saved · enter watches · ctrl-w watched · ctrl-d removes · ctrl-o info",
           &entry_preview(&1, &1["poster"]),
           initial,
           ["ctrl-d", "ctrl-w", "ctrl-o"]
@@ -2033,33 +2086,33 @@ defmodule Laev.CLI do
 
         {"ctrl-w", %{"type" => type} = entry} when type in ["franchise", "collection"] ->
           # A pinned list isn't something you finish.
-          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
+          saved_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-w", entry} ->
           ctx = entry_title_ctx(entry)
           Laev.Position.set_watched(ctx, not Laev.Position.finished?(ctx))
           Laev.Sync.live_push()
-          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
+          saved_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-o", %{"type" => type} = entry} when type in ["franchise", "collection"] ->
-          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
+          saved_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-o", entry} ->
           open_media_page(entry["type"], entry["tmdb_id"], entry["title"])
-          watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
+          saved_menu(Enum.find_index(entries, &(&1 == entry)) || 0)
 
         {"ctrl-d", entry} ->
           Laev.Watchlist.remove(entry["type"], entry["tmdb_id"])
           Laev.Sync.live_push()
           index = Enum.find_index(entries, &(&1 == entry)) || 1
-          watchlist_menu(max(index - 1, 0))
+          saved_menu(max(index - 1, 0))
 
         {nil, %{"type" => type} = entry} when type in ["franchise", "collection"] ->
           index = Enum.find_index(entries, &(&1 == entry)) || 0
-          open_pinned_franchise(entry, fn -> watchlist_menu(index) end)
+          open_pinned_franchise(entry, fn -> saved_menu(index) end)
 
         {nil, entry} ->
-          screen(fn -> watchlist_menu(Enum.find_index(entries, &(&1 == entry)) || 0) end)
+          screen(fn -> saved_menu(Enum.find_index(entries, &(&1 == entry)) || 0) end)
 
           play_title(%{
             type: entry["type"],
@@ -2115,7 +2168,7 @@ defmodule Laev.CLI do
     end
   end
 
-  defp describe_watchlist(%{"type" => type} = entry) when type in ["franchise", "collection"] do
+  defp describe_saved(%{"type" => type} = entry) when type in ["franchise", "collection"] do
     IO.ANSI.format([
       :bright,
       "🎬 #{entry["title"]}",
@@ -2127,7 +2180,7 @@ defmodule Laev.CLI do
     |> IO.iodata_to_binary()
   end
 
-  defp describe_watchlist(entry) do
+  defp describe_saved(entry) do
     kind = if entry["type"] == "tv", do: "series", else: "movie"
 
     progress =
@@ -3469,12 +3522,13 @@ defmodule Laev.CLI do
     end)
   end
 
-  # Title picker with watchlist pinning: ctrl-s toggles the hovered title
+  # Title picker with saving: ctrl-s toggles the hovered title
   # (📌 appears immediately), cursor stays put; enter selects as usual.
   defp pick_with_save(items, header, initial \\ 0) do
     describe = fn
       :more -> describe_title_item(:more)
       :caught_up -> describe_title_item(:caught_up)
+      :on_hold -> describe_title_item(:on_hold)
       t -> pin_mark(t) <> describe_title_item(t)
     end
 
@@ -3482,10 +3536,13 @@ defmodule Laev.CLI do
       pick(
         items,
         describe,
-        header <> " · ctrl-s pins · ctrl-w watched · ctrl-o info",
+        header <> " · ctrl-s saves · ctrl-w watched · ctrl-h holds · ctrl-o info",
         &title_poster/1,
         initial,
-        ["ctrl-s", "ctrl-w", "ctrl-o"]
+        # ctrl-h rather than something free: it is the mnemonic, and Backspace
+        # keeps deleting — fzf binds both to the same edit, and only ctrl-h is
+        # taken here.
+        ["ctrl-s", "ctrl-w", "ctrl-h", "ctrl-o"]
       )
 
     case result do
@@ -3494,11 +3551,11 @@ defmodule Laev.CLI do
 
       # A divider is scenery. Any key aimed at it leaves the list exactly as it
       # was, including enter — there is nothing there to play.
-      {_key, :caught_up} ->
-        pick_with_save(items, header, Enum.find_index(items, &(&1 == :caught_up)) || 0)
+      {_key, divider} when divider in [:caught_up, :on_hold] ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == divider)) || 0)
 
-      :caught_up ->
-        pick_with_save(items, header, Enum.find_index(items, &(&1 == :caught_up)) || 0)
+      divider when divider in [:caught_up, :on_hold] ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == divider)) || 0)
 
       {"ctrl-s", :more} ->
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
@@ -3519,6 +3576,14 @@ defmodule Laev.CLI do
 
       {"ctrl-w", :more} ->
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
+
+      {"ctrl-h", row} when not is_map(row) ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
+
+      {"ctrl-h", title} ->
+        hold_title(title)
+        Laev.Sync.live_push()
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
 
       {"ctrl-w", title} ->
         ctx = title_ctx(title)
@@ -3578,6 +3643,9 @@ defmodule Laev.CLI do
   # for. Dim, and wide enough to read as a line rather than a row.
   defp describe_title_item(:caught_up),
     do: faint("⌄ caught up " <> String.duplicate("─", 28))
+
+  defp describe_title_item(:on_hold),
+    do: faint("⌄ on hold " <> String.duplicate("─", 30))
 
   defp describe_title_item({:franchise, f}) do
     films = Enum.count(f.entries, &(&1.type == "movie"))
@@ -3796,6 +3864,36 @@ defmodule Laev.CLI do
 
   defp entry_badge(%{"type" => type, "tmdb_id" => id}), do: quality_badge(%{type: type, id: id})
   defp entry_badge(_entry), do: ""
+
+  # Putting something down, which is neither finished nor in progress. For a show
+  # that is laev's own record; for an anime it is MyAnimeList's status, because
+  # that is where anime lives — pushed under the same setting that scrobbles what
+  # you watch, and written to the local copy too so the page is right now rather
+  # than at the next import.
+  defp hold_title(%{mal_id: mal_id} = title) when is_integer(mal_id) do
+    held? = Laev.Anime.get(mal_id)[:status] == "on_hold"
+    status = if held?, do: "watching", else: "on_hold"
+    Laev.Anime.set_status(mal_id, status)
+    push_anime_status(mal_id, status)
+    say_held(title.title, not held?)
+  end
+
+  defp hold_title(%{type: type, id: id} = title) when type in ["movie", "tv"] and is_integer(id) do
+    say_held(title.title, Laev.Holds.toggle(type, id) == :held)
+  end
+
+  defp hold_title(_title), do: :ok
+
+  defp say_held(title, true), do: Laev.Quiet.puts(IO.ANSI.format([:faint, "  ◴ on hold: #{title}", :reset]))
+  defp say_held(title, false), do: Laev.Quiet.puts(IO.ANSI.format([:faint, "  ▸ picked back up: #{title}", :reset]))
+
+  defp push_anime_status(mal_id, status) do
+    if Laev.MAL.authenticated?() and Config.mal_scrobble?() do
+      spawn(fn -> Laev.MAL.set_status(mal_id, status) end)
+    end
+
+    :ok
+  end
 
   # Marking an anime watched here says so on MyAnimeList too — that is the list
   # that holds anime, and laev already updates it as you watch, under the same
@@ -5402,17 +5500,19 @@ defmodule Laev.CLI do
     caught_up = length(started) - behind
 
     # Anime finished gets its own word — it is finished when MyAnimeList says it
-    # is — but "to complete" counts the same things the home row counts, or the
+    # is — but "watching" counts the same things the home row counts, or the
     # two would disagree about the same word two screens apart.
     anime = length(anime_finished())
-    anime_started = length(unfinished_anime())
+    anime_started = length(anime_behind())
+    held = length(Laev.Holds.all()) + (length(unfinished_anime()) - anime_started)
 
     parts =
       [
         finished > 0 && "#{finished} series finished",
         anime > 0 && "#{anime} anime finished",
-        behind + anime_started > 0 && "#{behind + anime_started} to complete",
-        caught_up > 0 && "#{caught_up} caught up"
+        behind + anime_started > 0 && "#{behind + anime_started} watching",
+        caught_up > 0 && "#{caught_up} caught up",
+        held > 0 && "#{held} on hold"
       ]
       |> Enum.filter(& &1)
 
@@ -5787,7 +5887,7 @@ defmodule Laev.CLI do
     # Wanting to watch something is not the same as having watched it, so a
     # pin survives — said out loud here, because from this side "forget it"
     # sounds like it should take everything.
-    pinned = if Laev.Watchlist.has?(type, tmdb_id), do: " Your watchlist pin stays.", else: ""
+    pinned = if Laev.Watchlist.has?(type, tmdb_id), do: " Its place in Saved stays.", else: ""
 
     IO.puts(
       :stderr,
@@ -7687,7 +7787,7 @@ defmodule Laev.CLI do
       laev watch "<title>"   [--auto] [--binge] [--raw] [--backend apibay|nyaa|anime] [--limit N]
       laev download "<title>" same flow as watch, but saves the file (LAEV_DOWNLOAD_DIR)
       laev featured          browse what's trending on TMDB and pick something
-      laev calendar          when your watchlist's episodes and movies drop
+      laev calendar          when your saved titles' episodes and movies drop
       laev resume            instantly resume the last thing you watched
       laev continue          pick from your watch history
       laev search "<query>"  [--backend apibay|nyaa|anime] [--limit N] [--json|--pretty]

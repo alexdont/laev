@@ -37,7 +37,7 @@ a project.
   between — in release order, with long-running shows listed a season at a time
   so they sit where they aired. Most series come straight from TMDB; the ones it
   groups badly are curated in `priv/franchises.json`. `ctrl-s` pins a whole list
-  to your watchlist, not just a title.
+  to Saved, not just a title.
 - **Only playable sources are offered.** Every source is actually resolved on
   your debrid provider before it reaches the picker — dead torrents, DMCA'd
   files, and 0-seeder stalls are filtered out with the reason shown.
@@ -50,14 +50,19 @@ a project.
   probed source also reports the audio and subtitle tracks actually inside
   the file (`🔊ru·en 💬ru`), so a "1080p" release with five dubs shows them —
   and ranking uses those languages instead of whatever the name hints.
-- **To Complete** — the shelf of shows you started and never finished, with how
-  far in you are on each: `2/4 seasons watched`, or `7/10 episodes watched` when
-  you're inside a season. Shows you're **caught up** on — every season that
-  exists is watched, you're just waiting for more — say so and sink to the
-  bottom, so what's actually watchable is at the top. It sits on the home screen
-  until you watch the rest or mark it off, and a show that has *ended* with every
-  season behind you marks itself and leaves. The home-screen count is only what
-  you're behind on — being caught up isn't something left to do.
+- **Watchlist** — everything you are in the middle of, shows and anime together,
+  **most recently watched first**: open it, press enter twice, and you are back in
+  last night's episode without touching an arrow key. Each row says how far in you
+  are — `2/4 seasons watched`, or `7/10 episodes watched` inside a season, or
+  `11/12 episodes` for anime. Below it, two sections behind their own chevrons:
+  **caught up** (every season that exists is watched — you are waiting, not
+  behind) and **on hold** (`ctrl-h`, for the things you got four episodes into and
+  stopped). The home-screen count is only the first section, because being caught
+  up or put down is not something left to do. A show that has *ended* with every
+  season behind you marks itself and leaves.
+- **Saved** — the other list: titles you pressed `ctrl-s` on to watch later, with
+  watched ones greyed and a count of what is left. Watchlist is what you *are*
+  watching; Saved is what you *mean to*.
 - **Continue watching**: `laev continue` jumps back to the exact episode,
   source, **and second** you left off at — the position is checkpointed every
   5 seconds while mpv plays, so it survives player crashes and power loss.
@@ -171,7 +176,7 @@ carry years of viewing across. Nobody rates a film they haven't seen, so a
 rating is the one unambiguous record of having watched it.
 
 It writes marks and nothing else: titles grey out in search, Featured and the
-watchlist, and the stats count them in the **off laev** bucket, where an assumed
+Saved, and the stats count them in the **off laev** bucket, where an assumed
 runtime belongs. Positions you are partway through are left alone — a rating is
 no reason to overwrite somebody's place in something. Run it as often as you
 like; it only ever fills gaps.
@@ -191,18 +196,41 @@ each is counted from its own source:
 ```
   6910h 09m across 1785 titles · 1390 films · 6544 episodes from 349 shows
 
-  52 series finished · 325 anime finished · 54 to complete · 16 caught up
+  52 series finished · 325 anime finished · 33 watching · 16 caught up · 21 on hold
 
     4467h 34m  films & tv · 1330 films · 634 episodes from 47 shows
     2442h 35m  anime      · 60 films · 5910 episodes from 302 anime
 ```
 
-**To Complete** lists anime beside shows: anything with episodes watched and no
-finish behind it, newest progress first, `· 7/24 episodes` on every row and `on
-hold` said out loud for the ones you put down. Dropped anime stay dropped.
-`ctrl-w` there marks an anime finished on MyAnimeList as well — the same setting
-that scrobbles what you watch — and unmarking puts it back to *watching* with the
-count it has, so the two never disagree about something you just said.
+**Watchlist** lists anime beside shows, in three sections, because there are
+three answers to "why isn't this finished":
+
+```
+  Dogulwang                      · 11/12 episodes          ← last night
+  Your Friends & Neighbors       · 1/2 seasons watched
+  Reacher                        · 2/4 seasons watched
+  …                                                      33 to finish
+  ⌄ caught up ────────────────────────────────
+  Severance                      · caught up · 2/2 seasons
+  …                                                      16 up to date, waiting
+  ⌄ on hold ──────────────────────────────────
+  Naruto: Shippuuden             · on hold · 258/500 episodes
+  …                                                      21 put down
+```
+
+Only the first is a list of things to do tonight, and it is the only one the home
+screen counts, and every section is ordered by when you last watched it.
+**`ctrl-h` puts a title on hold** and takes it back off — the
+status MyAnimeList has had for years and laev was missing, for the large category
+of things you got four episodes into and stopped. They used to sit at the top of
+this page forever, and marking them watched to clear them would be a lie that
+costs you the watch time.
+
+For an anime that status *is* MyAnimeList's, pushed there under the same setting
+that scrobbles what you watch; for a show it is laev's own, and it syncs across
+your devices with everything else. `ctrl-w` likewise marks an anime finished on
+MyAnimeList, and unmarking puts it back to *watching* with the count it has, so
+the two never disagree about something you just said. Dropped anime stay dropped.
 
 Films and shows are TMDB's; anime is MyAnimeList's; the profile you have been
 keeping for years stays the one that counts. Run it as often as you like — it
@@ -283,7 +311,7 @@ separate shows on TMDB, so it opens the curated list of all four.
 
 ## Sync across devices (optional)
 
-By default laev is **local-first**: your watchlist, history, resume points and
+By default laev is **local-first**: your saved titles, history, resume points and
 watched flags live only in `~/.laev` and never leave the machine. Nothing is
 sent anywhere until you turn sync on.
 
@@ -300,7 +328,8 @@ Once on, laev pulls-merges-pushes on startup and after each episode (or run
 so pins, un-pins, positions and watched flags from every device converge — pick
 up on your laptop exactly where the phone left off.
 
-Six collections travel: watchlist, history, positions, track preferences, and —
+Seven collections travel: saved titles, history, positions, holds, track
+preferences, and —
 so the stats agree wherever you look at them — the measured watch time and the
 day-by-day log behind the calendar. That log is one file per device, because it
 is append-only: a single shared file could only be merged by letting one
