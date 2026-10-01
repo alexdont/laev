@@ -82,19 +82,21 @@ defmodule Laev.Stats do
 
   # A title whose runtime was already cached never got looked up, so its name was
   # never learned — which is every row on a page built before names were kept.
-  # The leftovers are asked for directly, once, and then they are cached like the
-  # rest. Capped, because this is a transitional handful and not a sync.
-  @name_catchup 100
-
+  # The leftovers are asked for directly, once, and then cached like the rest.
+  #
+  # All of them, not a batch: capping it meant a page of a thousand imported
+  # titles named a hundred per visit and still read as ids for the next nine.
   defp name_the_rest(titles) do
     missing = Enum.filter(titles, &(&1.title == "#{&1.type} ##{&1.tmdb_id}"))
 
     if missing == [] do
       titles
     else
+      if length(missing) > 20,
+        do: IO.puts(:stderr, IO.ANSI.format([:faint, "  naming #{length(missing)} titles — one-time…", :reset]))
+
       found =
         missing
-        |> Enum.take(@name_catchup)
         |> Task.async_stream(&{{&1.type, &1.tmdb_id}, name_of(&1.type, &1.tmdb_id)},
           max_concurrency: 8,
           timeout: 15_000,
