@@ -153,7 +153,24 @@ LAEV_AUTOPLAY=off
 
 `laev tmdb login` links your TMDB account — one browser approval, using the key
 you already have — and the Now Playing menu then offers `☆ rate this episode on
-TMDB`, on TMDB's own 0.5–10 half-step scale.
+TMDB`: a list you arrow through, highest first, with a word against each score.
+
+```
+10  a masterpiece
+ 9  superb
+ 8  great
+ 7  good
+ 6  decent
+ 5  watchable
+ 4  weak
+ 3  bad
+ 2  awful
+ 1  unwatchable
+```
+
+It opens on whatever you gave it last time (7 if you haven't rated it), so
+changing your mind is one keypress, and offers `✕ remove my rating` once there
+is one to remove.
 
 Per **episode**, which is the point: IMDb can't do this. Its official API is
 paid, enterprise and read-only, and submitting a rating there means driving a

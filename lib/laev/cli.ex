@@ -3860,7 +3860,7 @@ defmodule Laev.CLI do
           {:play, "▶  play — from where you stopped"},
           if(ctx[:anime],
             do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
-            else: [{:imdb, "★  rate on IMDb — open in browser"}]
+            else: [{:imdb, "★  open in IMDb — in browser"}]
           ),
           if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
           if(Tmdb.account?(),
@@ -5904,36 +5904,72 @@ defmodule Laev.CLI do
   # TMDB's scale: 8.5 is a real score there.
   defp rate_on_tmdb(%{type: "tv", tmdb_id: id, season: season, episode: episode} = ctx)
        when is_integer(season) and is_integer(episode) do
-    prompt_rating("#{playing_desc(ctx)} on TMDB", Tmdb.episode_rating(id, season, episode), fn value ->
-      Tmdb.rate_episode(id, season, episode, value)
-    end)
+    prompt_rating(
+      playing_desc(ctx),
+      Tmdb.episode_rating(id, season, episode),
+      &Tmdb.rate_episode(id, season, episode, &1),
+      fn -> Tmdb.clear_episode_rating(id, season, episode) end
+    )
   end
 
   defp rate_on_tmdb(%{type: "movie", tmdb_id: id} = ctx) do
-    prompt_rating("#{playing_desc(ctx)} on TMDB", nil, &Tmdb.rate_movie(id, &1))
+    prompt_rating(playing_desc(ctx), Tmdb.movie_rating(id), &Tmdb.rate_movie(id, &1), fn ->
+      Tmdb.clear_movie_rating(id)
+    end)
   end
 
   defp rate_on_tmdb(_ctx), do: :ok
 
-  defp prompt_rating(what, current, submit) do
-    had = if is_number(current), do: " (you gave it #{trim_score(current)})", else: ""
+  # Scores with words next to them, highest first — a 7 means nothing on its own
+  # and "good" does. Typing a number into a prompt is also the one moment in the
+  # whole app where the arrow keys stop working, which is reason enough.
+  @scores [
+    {10, "a masterpiece"},
+    {9, "superb"},
+    {8, "great"},
+    {7, "good"},
+    {6, "decent"},
+    {5, "watchable"},
+    {4, "weak"},
+    {3, "bad"},
+    {2, "awful"},
+    {1, "unwatchable"}
+  ]
 
-    with line when is_binary(line) <- IO.gets("  score #{what}#{had} — 0.5-10, enter to skip: "),
-         {value, _} <- Float.parse(String.trim(line)),
-         rating when is_number(rating) <- Tmdb.round_half(value) do
-      case submit.(rating) do
-        {:ok, rating} ->
-          IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ rated #{trim_score(rating)}/10 on TMDB", :reset]))
+  defp prompt_rating(what, current, submit, clear) do
+    rated? = is_number(current)
+    items = @scores ++ if(rated?, do: [:clear], else: [])
 
-        {:error, :no_session} ->
-          IO.puts(:stderr, "  not linked to TMDB — run: laev tmdb login")
+    # Start on what you gave it last time, so changing an 8 to a 9 is one key.
+    initial =
+      if rated?,
+        do: Enum.find_index(@scores, fn {score, _} -> score == round(current) end) || 0,
+        else: Enum.find_index(@scores, fn {score, _} -> score == 7 end)
 
-        {:error, reason} ->
-          IO.puts(:stderr, "  couldn't submit the rating (#{inspect(reason)})")
-      end
-    else
-      # A blank line is "skip"; anything unparseable is a typo, not a score.
+    header =
+      "how was #{what}?" <>
+        if(rated?, do: " · you gave it #{trim_score(current)}", else: "") <> " · esc to skip"
+
+    case pick(items, &describe_score/1, header, nil, initial) do
+      {score, _label} -> submit_rating(fn -> submit.(score) end, "rated #{score}/10 on TMDB")
+      :clear -> submit_rating(clear, "rating removed on TMDB")
       _ -> :ok
+    end
+  end
+
+  defp describe_score(:clear), do: "✕  remove my rating"
+
+  defp describe_score({score, label}) do
+    String.pad_leading("#{score}", 2) <>
+      "  " <> IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, label, :reset]))
+  end
+
+  defp submit_rating(action, done) do
+    case action.() do
+      {:ok, _rating} -> IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ #{done}", :reset]))
+      :ok -> IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ #{done}", :reset]))
+      {:error, :no_session} -> IO.puts(:stderr, "  not linked to TMDB — run: laev tmdb login")
+      {:error, reason} -> IO.puts(:stderr, "  couldn't send that to TMDB (#{inspect(reason)})")
     end
   end
 

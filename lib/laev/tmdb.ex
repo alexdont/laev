@@ -190,6 +190,34 @@ defmodule Laev.Tmdb do
     end
   end
 
+  @doc "Your rating for a film, or nil when you haven't rated it."
+  def movie_rating(movie_id) do
+    with true <- account?(),
+         {:ok, %{"rated" => %{"value" => value}}} <- get("/movie/#{movie_id}/account_states", session_id: session_id()) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
+  @doc "Remove your rating for an episode."
+  def clear_episode_rating(tv_id, season, episode),
+    do: clear("/tv/#{tv_id}/season/#{season}/episode/#{episode}/rating")
+
+  @doc "Remove your rating for a film."
+  def clear_movie_rating(movie_id), do: clear("/movie/#{movie_id}/rating")
+
+  defp clear(path) do
+    with true <- account?(),
+         {:ok, %{"success" => true}} <- request(:delete, path, [session_id: session_id()], []) do
+      :ok
+    else
+      false -> {:error, :no_session}
+      {:ok, body} -> {:error, body}
+      error -> error
+    end
+  end
+
   defp rate(path, value) do
     with true <- account?(),
          rating when is_number(rating) <- round_half(value),

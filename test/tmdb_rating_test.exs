@@ -39,15 +39,30 @@ defmodule Laev.TmdbRatingTest do
   end
 
   describe "without a session" do
+    # Cleared explicitly rather than assumed: the suite reads the real config,
+    # and on a machine where someone has run `laev tmdb login` the ambient
+    # answer is the opposite of what this is testing.
+    setup do
+      previous = Application.get_env(:laev_app, :tmdb_session)
+      Application.delete_env(:laev_app, :tmdb_session)
+
+      on_exit(fn ->
+        if previous, do: Application.put_env(:laev_app, :tmdb_session, previous)
+      end)
+
+      :ok
+    end
+
     test "rating refuses rather than pretending" do
-      # No TMDB_SESSION_ID in the test environment.
       refute Tmdb.account?()
       assert Tmdb.rate_episode(241_609, 1, 1, 8) == {:error, :no_session}
       assert Tmdb.rate_movie(438_631, 8) == {:error, :no_session}
+      assert Tmdb.clear_episode_rating(241_609, 1, 1) == {:error, :no_session}
     end
 
     test "and reading your rating back is simply nothing" do
       assert Tmdb.episode_rating(241_609, 1, 1) == nil
+      assert Tmdb.movie_rating(438_631) == nil
     end
   end
 end
