@@ -5074,12 +5074,17 @@ defmodule Laev.CLI do
   # nothing about either.
   defp print_shelf_counts do
     finished = Enum.count(series_marks())
-    unfinished = length(unfinished_shows())
+    started = unfinished_shows()
+    behind = length(shows_behind())
+    # Counted the same way the home row counts it, or the two would disagree
+    # about the same word while sitting two screens apart.
+    caught_up = length(started) - behind
 
     parts =
       [
-        finished > 0 && "#{finished} #{if finished == 1, do: "series", else: "series"} finished",
-        unfinished > 0 && "#{unfinished} still to complete"
+        finished > 0 && "#{finished} series finished",
+        behind > 0 && "#{behind} to complete",
+        caught_up > 0 && "#{caught_up} caught up"
       ]
       |> Enum.filter(& &1)
 
