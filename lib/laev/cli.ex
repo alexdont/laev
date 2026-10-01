@@ -1355,62 +1355,71 @@ defmodule Laev.CLI do
 
   defp finish_menu do
     clear_screen()
+
+    case to_complete_rows(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset]))) do
+      [] ->
+        nothing_here("Nothing half-watched — everything you've started is marked finished.")
+
+      titles ->
+        behind = Enum.count(titles, &(is_map(&1) and &1[:caught_up] != true))
+
+        case pick_with_save(titles, "◴ to complete — #{behind} to watch, the rest caught up") do
+          nil -> back()
+          title when is_map(title) -> play_title(title)
+          other -> other
+        end
+    end
+  end
+
+  @doc """
+  Every row of the To Complete page, in the order it shows them — shows you are
+  partway through, then anime, then whatever you are merely caught up on, with
+  the divider between.
+
+  Separated from the screen that draws it so the page can be checked without a
+  terminal: this is the part with the fetching, the ordering and the rules in it.
+  """
+  def to_complete_rows(report \\ fn _line -> :ok end) do
     shows = unfinished_shows()
     anime = unfinished_anime()
     marks = anime_marks()
 
     if shows == [] and anime == [] do
-      nothing_here("Nothing half-watched — everything you've started is marked finished.")
+      []
     else
-      IO.puts(
-        :stderr,
-        IO.ANSI.format([:faint, "  reading #{length(shows) + length(anime)} half-watched titles…", :reset])
-      )
+      report.("reading #{length(shows) + length(anime)} half-watched titles…")
 
       # Anime ordered after the shows, and ordered among themselves already — the
       # index continues across both so one sort keeps the whole page in order.
       anime_rows =
         anime
         |> Enum.with_index(length(shows))
-        |> Task.async_stream(
-          fn {{mal_id, entry}, order} -> unfinished_anime_title({mal_id, entry}, Map.get(marks, mal_id, 0), order) end,
-          max_concurrency: 8,
-          timeout: 20_000,
-          on_timeout: :kill_task
-        )
-        |> Enum.flat_map(fn
-          {:ok, title} when is_map(title) -> [title]
-          _ -> []
+        |> gather(fn {{mal_id, entry}, order} ->
+          unfinished_anime_title({mal_id, entry}, Map.get(marks, mal_id, 0), order)
         end)
 
-      titles =
-        shows
-        |> Enum.with_index()
-        |> Task.async_stream(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order) end,
-          max_concurrency: 8,
-          timeout: 20_000,
-          on_timeout: :kill_task
-        )
-        |> Enum.flat_map(fn
-          {:ok, title} when is_map(title) -> [title]
-          _ -> []
-        end)
-        |> Enum.concat(anime_rows)
-        # Caught up means there is nothing to watch yet — it belongs under the
-        # shows you are actually behind on, not above them. Within each group the
-        # order stands: most recently watched first.
-        |> Enum.sort_by(&{if(&1[:caught_up], do: 1, else: 0), &1[:order] || 0})
-        |> remember_aired_seasons()
-        |> divide_at_caught_up()
-
-      behind = Enum.count(titles, &(is_map(&1) and not &1[:caught_up]))
-
-      case pick_with_save(titles, "◴ to complete — #{behind} to watch, the rest caught up") do
-        nil -> back()
-        title when is_map(title) -> play_title(title)
-        other -> other
-      end
+      shows
+      |> Enum.with_index()
+      |> gather(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order) end)
+      |> Enum.concat(anime_rows)
+      # Caught up means there is nothing to watch yet — it belongs under the
+      # shows you are actually behind on, not above them. Within each group the
+      # order stands: most recently watched first.
+      |> Enum.sort_by(&{if(&1[:caught_up], do: 1, else: 0), &1[:order] || 0})
+      |> remember_aired_seasons()
+      |> divide_at_caught_up()
     end
+  end
+
+  # Build rows in parallel, keeping the ones that came back: a title TMDB could
+  # not be reached for is a row missing, not a page that fails.
+  defp gather(items, build) do
+    items
+    |> Task.async_stream(build, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
+    |> Enum.flat_map(fn
+      {:ok, row} when is_map(row) -> [row]
+      _ -> []
+    end)
   end
 
   # The same shape every other title list uses, so enter plays it and ctrl-w,
@@ -1489,6 +1498,9 @@ defmodule Laev.CLI do
       title: anime.title || details["name"] || details["title"],
       mal_id: mal_id,
       note: anime_progress_note(anime, watched),
+      # Said rather than left out: every row on this page is asked whether it is
+      # caught up, and an anime in progress has episodes waiting by definition.
+      caught_up: false,
       order: order
     })
   end
@@ -1515,10 +1527,18 @@ defmodule Laev.CLI do
     titles
   end
 
-  # One dim line between the two halves, so the eye can stop at the boundary
-  # instead of reading forty rows to find where "behind" ends.
-  defp divide_at_caught_up(titles) do
-    case Enum.split_while(titles, &(not &1[:caught_up])) do
+  @doc """
+  One dim line between the two halves of the To Complete page, so the eye can
+  stop at the boundary instead of reading forty rows to find where "behind" ends.
+
+  Public because it is the one part of that page with a rule in it, and a rule
+  worth a test: a row that says nothing about being caught up is behind, which is
+  how anime rows arrive.
+  """
+  def divide_at_caught_up(titles) do
+    # `!= true` rather than `not`: a row that says nothing about being caught up
+    # is not caught up, and `not nil` is an ArgumentError, not a false.
+    case Enum.split_while(titles, &(&1[:caught_up] != true)) do
       {behind, []} -> behind
       {[], caught_up} -> caught_up
       {behind, caught_up} -> behind ++ [:caught_up] ++ caught_up
