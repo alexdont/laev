@@ -1306,9 +1306,11 @@ defmodule Laev.CLI do
   # are none, because an empty shelf is not worth a row — and the count is a
   # single directory read, which the home screen can afford.
   defp finish_row do
-    case length(shows_behind()) do
+    # Shows and anime both: the page lists what you left in the middle, and which
+    # site keeps the record is not something the count should care about.
+    case length(shows_behind()) + length(unfinished_anime()) do
       0 -> []
-      n -> [{:finish, "◴ To Complete — #{n} #{if n == 1, do: "show", else: "shows"} you've started"}]
+      n -> [{:finish, "◴ To Complete — #{n} you've started"}]
     end
   end
 
@@ -1354,11 +1356,32 @@ defmodule Laev.CLI do
   defp finish_menu do
     clear_screen()
     shows = unfinished_shows()
+    anime = unfinished_anime()
+    marks = anime_marks()
 
-    if shows == [] do
+    if shows == [] and anime == [] do
       nothing_here("Nothing half-watched — everything you've started is marked finished.")
     else
-      IO.puts(:stderr, IO.ANSI.format([:faint, "  reading #{length(shows)} half-watched shows…", :reset]))
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([:faint, "  reading #{length(shows) + length(anime)} half-watched titles…", :reset])
+      )
+
+      # Anime ordered after the shows, and ordered among themselves already — the
+      # index continues across both so one sort keeps the whole page in order.
+      anime_rows =
+        anime
+        |> Enum.with_index(length(shows))
+        |> Task.async_stream(
+          fn {{mal_id, entry}, order} -> unfinished_anime_title({mal_id, entry}, Map.get(marks, mal_id, 0), order) end,
+          max_concurrency: 8,
+          timeout: 20_000,
+          on_timeout: :kill_task
+        )
+        |> Enum.flat_map(fn
+          {:ok, title} when is_map(title) -> [title]
+          _ -> []
+        end)
 
       titles =
         shows
@@ -1372,6 +1395,7 @@ defmodule Laev.CLI do
           {:ok, title} when is_map(title) -> [title]
           _ -> []
         end)
+        |> Enum.concat(anime_rows)
         # Caught up means there is nothing to watch yet — it belongs under the
         # shows you are actually behind on, not above them. Within each group the
         # order stands: most recently watched first.
@@ -1419,6 +1443,64 @@ defmodule Laev.CLI do
           popularity: nil,
           order: order
         }
+    end
+  end
+
+  # Anime you have episodes of and have not finished — which is the page's whole
+  # job, and anime was missing from it because the page counts TMDB shows and
+  # anime is counted by MyAnimeList entry. The status comes from the list, so a
+  # dropped anime stays dropped and out of the way.
+  defp unfinished_anime do
+    marks = anime_marks()
+    finished = MapSet.new(anime_finished())
+
+    anime_list()
+    |> Enum.filter(fn {mal_id, anime} ->
+      Map.get(marks, mal_id, 0) > 0 and not MapSet.member?(finished, mal_id) and anime.status != "dropped"
+    end)
+    |> Enum.sort_by(fn {mal_id, anime} ->
+      # Watching first: that is the half of this list with something to do tonight.
+      {if(anime.status == "watching", do: 0, else: 1), -Map.get(marks, mal_id, 0)}
+    end)
+  end
+
+  # One row, in the same shape as every other title row so enter plays it. The
+  # title is the MAL entry's own name, which is also what matches it on Kitsu
+  # when you open it — "Lupin III: Part 5", rather than seven seasons of "Lupin
+  # the 3rd" to choose between.
+  defp unfinished_anime_title({mal_id, anime}, watched, order) do
+    case Laev.AnimeMap.tmdb(mal_id) do
+      {type, tmdb_id, _season} -> anime_row(anime, mal_id, type, tmdb_id, watched, order)
+      {type, tmdb_id} -> anime_row(anime, mal_id, type, tmdb_id, watched, order)
+      _ -> nil
+    end
+  end
+
+  defp anime_row(anime, mal_id, type, tmdb_id, watched, order) do
+    details =
+      case fetch_details(%{type: type, id: tmdb_id}) do
+        {:ok, found} -> found
+        _ -> %{}
+      end
+
+    details
+    |> unfinished_row(type, tmdb_id)
+    |> Map.merge(%{
+      title: anime.title || details["name"] || details["title"],
+      mal_id: mal_id,
+      note: anime_progress_note(anime, watched),
+      order: order
+    })
+  end
+
+  # "7/24 episodes", with "on hold" said out loud — the difference between
+  # something you are watching and something you put down.
+  defp anime_progress_note(anime, watched) do
+    held = if anime.status == "on_hold", do: " · on hold", else: ""
+
+    case anime.episodes do
+      total when is_integer(total) and total > 0 -> "#{held} · #{watched}/#{total} episodes"
+      _ -> "#{held} · #{watched} episode#{if watched > 1, do: "s"} watched"
     end
   end
 
@@ -3420,7 +3502,9 @@ defmodule Laev.CLI do
 
       {"ctrl-w", title} ->
         ctx = title_ctx(title)
-        Laev.Position.set_watched(ctx, not Laev.Position.finished?(ctx))
+        watched? = not Laev.Position.finished?(ctx)
+        Laev.Position.set_watched(ctx, watched?)
+        push_anime_mark(title, watched?)
         Laev.Sync.live_push()
         pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
 
@@ -3693,6 +3777,36 @@ defmodule Laev.CLI do
   defp entry_badge(%{"type" => type, "tmdb_id" => id}), do: quality_badge(%{type: type, id: id})
   defp entry_badge(_entry), do: ""
 
+  # Marking an anime watched here says so on MyAnimeList too — that is the list
+  # that holds anime, and laev already updates it as you watch, under the same
+  # setting (LAEV_MAL_SCROBBLE). Unmarking puts it back to *watching* with the
+  # count it has, so the two never disagree about something you just said.
+  #
+  # Off the keypress's path: a list that waits on an HTTP round trip to redraw is
+  # a list that stutters.
+  defp push_anime_mark(%{mal_id: mal_id}, watched?) when is_integer(mal_id) do
+    if Laev.MAL.authenticated?() and Config.mal_scrobble?() do
+      episodes = anime_marks() |> Map.get(mal_id, 0)
+      total = Laev.Anime.episodes(mal_id)
+
+      spawn(fn ->
+        {count, cap, said} =
+          if watched?,
+            do: {total || episodes, total, "finished"},
+            else: {episodes, nil, "watching"}
+
+        case Laev.MAL.set_progress(mal_id, count, cap) do
+          :ok -> Laev.Quiet.puts(IO.ANSI.format([:faint, "  ↑ MAL: #{said}", :reset]))
+          _ -> :ok
+        end
+      end)
+    end
+
+    :ok
+  end
+
+  defp push_anime_mark(_title, _watched?), do: :ok
+
   # A film counts as seen once it is played through (85%/eof writes the same
   # marker), a series only when ctrl-w says so — laev can't tell a finished
   # series from an abandoned one, so that stays a deliberate act rather than
@@ -3722,6 +3836,11 @@ defmodule Laev.CLI do
   end
 
   defp anime_watched_note(_title), do: ""
+
+  # A row carrying a MAL id is an anime row, and its mark belongs on the MAL
+  # entry — the same key the list import and playback both write.
+  defp title_ctx(%{mal_id: mal_id} = title) when is_integer(mal_id),
+    do: %{type: title[:type], tmdb_id: title[:id], season: nil, episode: nil, mal_id: mal_id}
 
   defp title_ctx(%{type: type, id: id}) when type in ["movie", "tv"] and is_integer(id),
     do: %{type: type, tmdb_id: id, season: nil, episode: nil}
@@ -3784,8 +3903,11 @@ defmodule Laev.CLI do
   # positions directory is twenty scans of a thousand files.
   defp marks_by_show, do: SessionCache.fetch(:episode_marks, 2, &Laev.Position.episode_marks/0)
 
-  # Anime marks, read once per screen like the show marks beside them.
+  # Anime marks, read once per screen like the show marks beside them — both of
+  # these are asked for by the home screen, which redraws on every keypress.
   defp anime_marks, do: SessionCache.fetch(:anime_marks, 2, &Laev.Position.anime_marks/0)
+  defp anime_finished, do: SessionCache.fetch(:anime_finished, 2, &Laev.Position.anime_finished/0)
+  defp anime_list, do: SessionCache.fetch(:anime_list, 2, &Laev.Anime.all/0)
 
   defp faint(""), do: ""
   defp faint(text), do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, text, :reset]))
@@ -5259,16 +5381,18 @@ defmodule Laev.CLI do
     # about the same word while sitting two screens apart.
     caught_up = length(started) - behind
 
-    # Anime counted beside them rather than among them: it is finished when
-    # MyAnimeList says it is, which is a different shelf and a different word.
-    anime = length(Laev.Position.anime_finished())
+    # Anime finished gets its own word — it is finished when MyAnimeList says it
+    # is — but "to complete" counts the same things the home row counts, or the
+    # two would disagree about the same word two screens apart.
+    anime = length(anime_finished())
+    anime_started = length(unfinished_anime())
 
     parts =
       [
         finished > 0 && "#{finished} series finished",
-        behind > 0 && "#{behind} to complete",
-        caught_up > 0 && "#{caught_up} caught up",
-        anime > 0 && "#{anime} anime finished"
+        anime > 0 && "#{anime} anime finished",
+        behind + anime_started > 0 && "#{behind + anime_started} to complete",
+        caught_up > 0 && "#{caught_up} caught up"
       ]
       |> Enum.filter(& &1)
 

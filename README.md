@@ -191,11 +191,18 @@ each is counted from its own source:
 ```
   6910h 09m across 1785 titles · 1390 films · 6544 episodes from 349 shows
 
-  52 series finished · 19 to complete · 16 caught up · 325 anime finished
+  52 series finished · 325 anime finished · 54 to complete · 16 caught up
 
     4467h 34m  films & tv · 1330 films · 634 episodes from 47 shows
     2442h 35m  anime      · 60 films · 5910 episodes from 302 anime
 ```
+
+**To Complete** lists anime beside shows: anything with episodes watched and no
+finish behind it, newest progress first, `· 7/24 episodes` on every row and `on
+hold` said out loud for the ones you put down. Dropped anime stay dropped.
+`ctrl-w` there marks an anime finished on MyAnimeList as well — the same setting
+that scrobbles what you watch — and unmarking puts it back to *watching* with the
+count it has, so the two never disagree about something you just said.
 
 Films and shows are TMDB's; anime is MyAnimeList's; the profile you have been
 keeping for years stays the one that counts. Run it as often as you like — it
