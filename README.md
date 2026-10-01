@@ -26,6 +26,10 @@ a project.
   (`laev watch "heat 1995"`). The search box remembers your last 100 searches —
   type a few letters to narrow them, then ↑↓ walks the matches into the search
   bar (completing to the full title, still editable); ctrl-d forgets an entry.
+- **Anime by season.** Anime is published in quarters and talked about that way,
+  so Featured → Anime asks which one: `airing now`, then `Fall 2026 · this
+  season`, `Summer 2026`, `Spring 2026` and back two years. A season is its
+  premiere quarter, the way every seasonal chart is built.
 - **Franchises in one place.** Searching any film of a series offers the whole
   thing at the top of the results — every Alien, all of Middle-earth, the 207
   Marvel titles with Essentials / Everything / Prepare for Doomsday to choose

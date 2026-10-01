@@ -2571,15 +2571,35 @@ defmodule Laev.CLI do
       die("featured needs TMDB_API_KEY — add it to #{Config.path()} or the environment")
     end
 
-    type =
-      case pick(["movies", "shows", "anime"], &String.capitalize/1, "what are you in the mood for?") do
-        "movies" -> "movie"
-        "shows" -> "tv"
-        "anime" -> :anime
-        nil -> back()
-      end
+    case pick(["movies", "shows", "anime"], &String.capitalize/1, "what are you in the mood for?") do
+      "movies" -> featured_browse("movie")
+      "shows" -> featured_browse("tv")
+      "anime" -> anime_season_menu()
+      nil -> back()
+    end
+  end
 
-    featured_browse(type)
+  # Anime is published and talked about in quarters, so "popular right now" is
+  # only one of the lists worth having. The others are the seasons themselves,
+  # named — "the previous season" tells you nothing, Summer 2026 does.
+  defp anime_season_menu do
+    seasons = Laev.Season.recent(8)
+
+    case pick([:airing | seasons], &describe_season_choice/1, "anime — which season?") do
+      nil -> back()
+      :airing -> featured_browse(:anime)
+      season -> featured_browse({:anime_season, season})
+    end
+  end
+
+  defp describe_season_choice(:airing), do: "▸ airing now — the most popular this week"
+
+  defp describe_season_choice(season) do
+    label = Laev.Season.label(season)
+
+    if season == Laev.Season.current(),
+      do: "#{label}" <> IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "  · this season", :reset])),
+      else: label
   end
 
   defp featured_browse(type) do
@@ -2604,9 +2624,11 @@ defmodule Laev.CLI do
     end
   end
 
+  defp featured_page({:anime_season, season}, page), do: Tmdb.discover_anime_season(season, page)
   defp featured_page(:anime, page), do: Tmdb.discover_anime(page)
   defp featured_page(type, page), do: Tmdb.trending(type, page)
 
+  defp featured_header({:anime_season, season}), do: "#{Laev.Season.label(season)} anime"
   defp featured_header(:anime), do: "popular anime"
   defp featured_header("movie"), do: "trending movies this week"
   defp featured_header("tv"), do: "trending shows this week"

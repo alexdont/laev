@@ -102,6 +102,30 @@ defmodule Laev.Tmdb do
     end
   end
 
+  @doc """
+  The anime of one season — everything that premiered in its quarter, most
+  popular first. Returns `{:ok, results, more?}` like `trending/2`.
+
+  A season is a premiere window, which is how the charts everyone reads are
+  built, and it keeps every row a TMDB title: playable, with a poster, and no
+  guesswork mapping it from somewhere else.
+  """
+  def discover_anime_season(season, page \\ 1) do
+    {from, to} = Laev.Season.window(season)
+
+    with {:ok, %{"results" => results} = body} <-
+           get("/discover/tv",
+             with_genres: 16,
+             with_original_language: "ja",
+             sort_by: "popularity.desc",
+             "first_air_date.gte": from,
+             "first_air_date.lte": to,
+             page: page
+           ) do
+      {:ok, Enum.map(results, &normalize(Map.put(&1, "media_type", "tv"))), page < (body["total_pages"] || 1)}
+    end
+  end
+
   # Append external_ids so `imdb_id/1` works for both movies (top-level imdb_id)
   # and TV (external_ids.imdb_id) — used to query Torrentio for more sources.
   # alternative_titles rides along free: a film uploaded under its original or
