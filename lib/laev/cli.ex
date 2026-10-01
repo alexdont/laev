@@ -4729,7 +4729,7 @@ defmodule Laev.CLI do
     details = title_details(type, tmdb_id)
 
     if anime?(details),
-      do: browse(mal_url(title)),
+      do: browse(mal_page(type, tmdb_id, title)),
       else: browse(imdb_url(details, title))
   end
 
@@ -4744,6 +4744,44 @@ defmodule Laev.CLI do
     case Tmdb.imdb_id(details) do
       imdb when is_binary(imdb) -> "https://www.imdb.com/title/#{imdb}/"
       _ -> "https://www.imdb.com/find/?q=#{URI.encode_www_form(title || "")}"
+    end
+  end
+
+  # Which MAL entry a TMDB show *is* depends on which part of it you watched. MAL
+  # keeps Lupin III as seven separate anime where TMDB keeps one show with seven
+  # seasons, and a search by name lands on the 1971 original no matter what —
+  # which is how a row reading 100 hours opened a 23-episode series with nothing
+  # watched in it. So ask the marks instead: the season you have watched most of
+  # is the one the row is about, and the cross-id list names its MAL entry
+  # exactly. Only when nothing is known does it fall back to searching.
+  defp mal_page("tv", tmdb_id, title) do
+    with season when is_integer(season) <- most_watched_season(tmdb_id),
+         mal_id when is_integer(mal_id) <- Laev.AnimeMap.mal_id("tv", tmdb_id, season) do
+      "https://myanimelist.net/anime/#{mal_id}"
+    else
+      _ -> mal_url(title)
+    end
+  end
+
+  defp mal_page("movie", tmdb_id, title) do
+    case Laev.AnimeMap.mal_id("movie", tmdb_id, nil) do
+      mal_id when is_integer(mal_id) -> "https://myanimelist.net/anime/#{mal_id}"
+      _ -> mal_url(title)
+    end
+  end
+
+  defp mal_page(_type, _tmdb_id, title), do: mal_url(title)
+
+  # The season holding the most watched episodes — what "this show" means when a
+  # show is six shows on MAL. Absolutely-numbered marks sit under season 0 and
+  # name no season, so they are no help here and are left out.
+  defp most_watched_season(tmdb_id) do
+    Laev.Position.episode_marks()
+    |> Map.get({"tv", tmdb_id}, %{})
+    |> Enum.reject(fn {season, _count} -> season == 0 end)
+    |> case do
+      [] -> nil
+      seasons -> seasons |> Enum.max_by(fn {_season, count} -> count end) |> elem(0)
     end
   end
 
