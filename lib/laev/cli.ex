@@ -3880,7 +3880,11 @@ defmodule Laev.CLI do
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           if(episodic?,
-            do: [{:select, "☰  episodes — choose another"}, {:search, "⌕  search — find something else"}],
+            # ≡ rather than ☰: the latter is East-Asian Wide, so it takes two
+            # cells where every other glyph on this menu takes one, and the row
+            # sits a column further right than the rest. ≡ is also what the
+            # watchlist row uses for "a list", which this is.
+            do: [{:select, "≡  episodes — choose another"}, {:search, "⌕  search — find something else"}],
             else: [{:select, "⌕  search — find something else"}]
           ),
           {:home, "⌂  home — back to the menu (keeps playing)"},
