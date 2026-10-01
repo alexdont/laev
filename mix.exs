@@ -19,7 +19,7 @@ defmodule Laev.MixProject do
   defp releases do
     [
       laev: [
-        steps: [:assemble, &clean_stale_erts/1, &Burrito.wrap/1],
+        steps: [:assemble, &clean_stale_erts/1, &Burrito.wrap/1, &clean_stale_erts/1],
         burrito: [
           targets: [
             linux_x86_64: [os: :linux, cpu: :x86_64],
@@ -30,14 +30,17 @@ defmodule Laev.MixProject do
     ]
   end
 
-  # Burrito unpacks ERTS bundles into /tmp/unpacked_erts_* (~131MB each) and
-  # never deletes them — a dozen releases fill a tmpfs and the build dies
-  # with "disk quota exceeded". Sweep the leftovers before each wrap.
+  # Burrito unpacks ERTS bundles into /tmp/unpacked_erts_* and keeps its working
+  # copies in /tmp/burrito_build_* (~96MB each), and never deletes either — half
+  # a dozen releases fill a tmpfs, and then the build dies with "disk quota
+  # exceeded" and takes the shell that ran it down with it. Swept both before and
+  # after wrapping: before covers a build that died halfway, after covers this
+  # one, which is the leftover the next build would trip over.
   defp clean_stale_erts(release) do
-    System.tmp_dir!()
-    |> Path.join("unpacked_erts_*")
-    |> Path.wildcard()
-    |> Enum.each(&File.rm_rf/1)
+    for pattern <- ["unpacked_erts_*", "burrito_build_*"],
+        leftover <- Path.wildcard(Path.join(System.tmp_dir!(), pattern)) do
+      File.rm_rf(leftover)
+    end
 
     release
   end
