@@ -17,7 +17,23 @@ defmodule Laev.DaysTest do
     {:ok, dir: dir}
   end
 
-  defp log(dir, lines), do: File.write!(Path.join(dir, "watched.log"), Enum.join(lines, "\n") <> "\n")
+  defp log(dir, lines) do
+    path = Laev.Position.log_file()
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
+    _ = dir
+    path
+  end
+
+  # Another machine's log, which the calendar has to count too.
+  defp other_device_log(dir, lines) do
+    path = Path.join([dir, "watched", "aa11bb22.log"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
+  end
+
+  # The single file laev kept before the log had to survive syncing.
+  defp legacy_log(dir, lines), do: File.write!(Path.join(dir, "watched.log"), Enum.join(lines, "\n") <> "\n")
 
   test "the appended lines add up per day", %{dir: dir} do
     log(dir, ["2026-09-24 300", "2026-09-24 240", "2026-09-25 300", "2026-09-25 5"])
@@ -72,13 +88,36 @@ defmodule Laev.DaysTest do
     end
   end
 
+  test "the calendar counts every device, not just this one", %{dir: dir} do
+    # The reason stats differed between machines: hours measured on one of them
+    # were invisible on the other.
+    log(dir, ["2026-09-25 600"])
+    other_device_log(dir, ["2026-09-25 1200", "2026-09-24 300"])
+
+    assert Days.totals() == %{~D[2026-09-25] => 1800, ~D[2026-09-24] => 300}
+  end
+
+  test "a log from before the split still counts", %{dir: dir} do
+    log(dir, ["2026-09-25 600"])
+    legacy_log(dir, ["2026-09-20 900"])
+
+    assert Days.totals() == %{~D[2026-09-25] => 600, ~D[2026-09-20] => 900}
+  end
+
+  test "this machine has its own log, kept apart from the others", %{dir: dir} do
+    _ = dir
+    assert Path.dirname(Laev.Position.log_file()) |> Path.basename() == "watched"
+    assert Laev.Position.log_file() =~ ~r/[0-9a-f]{8}\.log$/
+  end
+
   test "a long log is folded into one line per day, with the same totals", %{dir: dir} do
     # A line every five seconds adds up; this is about a day and a half of them.
     lines = for i <- 1..5_200, do: "2026-09-#{rem(i, 20) + 1 |> Integer.to_string() |> String.pad_leading(2, "0")} 5"
     log(dir, lines)
+    _ = dir
 
     before = Days.totals()
-    folded = File.read!(Path.join(dir, "watched.log")) |> String.split("\n", trim: true)
+    folded = Laev.Position.log_file() |> File.read!() |> String.split("\n", trim: true)
 
     assert length(folded) == 20, "one line per day after folding"
     assert Days.totals() == before, "folding must not change what was watched"

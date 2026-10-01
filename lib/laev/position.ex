@@ -300,6 +300,27 @@ defmodule Laev.Position do
   end
 
   @doc """
+  What laev knows about this title or episode: `:none`, `:watched` (played
+  through or marked by hand), or `{:partial, seconds}` — somewhere in the middle.
+
+  Asked before writing a mark on someone's behalf, so an import can tell the
+  difference between a gap it should fill and a position it must not stamp over.
+  """
+  def mark_state(ctx) do
+    with key when is_binary(key) <- key(ctx),
+         {:ok, body} <- File.read(position_file(key)) do
+      case String.trim(body) do
+        marked when marked in ["done", "seen"] -> :watched
+        digits -> with {n, _} <- Integer.parse(digits), do: {:partial, n}, else: (_ -> :none)
+      end
+    else
+      _ -> :none
+    end
+  rescue
+    _ -> :none
+  end
+
+  @doc """
   Erase every saved position and play record for a title — the title's own
   file and each of its episodes. Returns how many files went.
 
@@ -449,10 +470,47 @@ defmodule Laev.Position do
     end
   end
 
-  @doc "Where the day-by-day watch log lives."
+  @doc """
+  Where this machine's day-by-day watch log lives.
+
+  One file per device, because the log is append-only and the calendar is the
+  sum of all of them. A single shared file could only ever be merged by letting
+  one device's history overwrite another's; a file per device merges exactly,
+  since nothing but this machine ever writes to this one.
+  """
   def log_file do
-    File.mkdir_p(data_dir())
-    Path.join(data_dir(), "watched.log")
+    dir = Path.join(data_dir(), "watched")
+    File.mkdir_p(dir)
+    path = Path.join(dir, "#{device_id()}.log")
+
+    # The log laev kept before it was per-device becomes this machine's, once:
+    # it was written here, and under watched/ it finally syncs with everything
+    # else the stats are made of.
+    legacy = Path.join(data_dir(), "watched.log")
+    if not File.exists?(path) and File.exists?(legacy), do: File.rename(legacy, path)
+
+    path
+  end
+
+  @doc """
+  A short id for this machine, made once and kept. Deliberately not synced —
+  every device needs its own, or they would all write to the same log.
+  """
+  def device_id do
+    path = Path.join(data_dir(), "device")
+
+    case File.read(path) do
+      {:ok, id} when byte_size(id) > 0 ->
+        String.trim(id)
+
+      _ ->
+        id = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
+        File.mkdir_p(data_dir())
+        File.write(path, id)
+        id
+    end
+  rescue
+    _ -> "local"
   end
 
   defp played_file(key) do

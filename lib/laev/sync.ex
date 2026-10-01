@@ -54,7 +54,11 @@ defmodule Laev.Sync do
   Every function returns values; sync never raises into the caller.
   """
 
-  @collections [:watchlist, :resume, :positions, :tracks]
+  # played and watched carry the stats: what laev measured while playing, and the
+  # day-by-day log behind the calendar. Without them a second machine shows the
+  # same watched marks and a different number of hours, which is the one thing a
+  # synced account should never do.
+  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched]
 
   # The whole bundle lives in one document per token. The server treats the
   # last path segment as a free-form doc name — `<base>/<token>/<doc>`.
@@ -350,7 +354,9 @@ defmodule Laev.Sync do
       watchlist: read_json_map(Path.join(data_dir(), "watchlist.json")),
       resume: read_json_map(Path.join(data_dir(), "resume.json")),
       positions: read_dir(Path.join(data_dir(), "positions")),
-      tracks: read_dir(Path.join(data_dir(), "tracks"))
+      tracks: read_dir(Path.join(data_dir(), "tracks")),
+      played: read_dir(Path.join(data_dir(), "played")),
+      watched: read_dir(Path.join(data_dir(), "watched"))
     }
   end
 
@@ -461,6 +467,8 @@ defmodule Laev.Sync do
     write_json_map(Path.join(data_dir(), "resume.json"), live(merged, :resume))
     apply_dir(Path.join(data_dir(), "positions"), merged[:positions] || %{})
     apply_dir(Path.join(data_dir(), "tracks"), merged[:tracks] || %{})
+    apply_dir(Path.join(data_dir(), "played"), merged[:played] || %{})
+    apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{})
 
     # Watchlist and resume are cached in ETS at boot — without a reload the
     # continue page keeps showing pre-sync state, and the next put/persist

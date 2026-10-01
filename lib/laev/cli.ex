@@ -688,7 +688,10 @@ defmodule Laev.CLI do
           IO.puts(:stderr, "  Linked#{if name = Tmdb.account_name(), do: " as #{name}"}. " <>
             "Rate episodes and films from the Now Playing menu.\n")
 
-          [{:logout, "unlink this TMDB account"}]
+          [
+            {:import, "↓ import my ratings as watched"},
+            {:logout, "unlink this TMDB account"}
+          ]
 
         true ->
           IO.puts(:stderr, "  Not linked. Linking lets you rate episodes and whole series — one\n" <>
@@ -700,6 +703,11 @@ defmodule Laev.CLI do
     case pick(actions ++ [{:back, "← back"}], &elem(&1, 1), "enter selects · esc goes back") do
       {:login, _} ->
         tmdb_account(["login"])
+        IO.gets("  press enter to continue… ")
+        tmdb_integration_menu()
+
+      {:import, _} ->
+        tmdb_account(["import"])
         IO.gets("  press enter to continue… ")
         tmdb_integration_menu()
 
@@ -1189,7 +1197,14 @@ defmodule Laev.CLI do
   # Human-readable per-collection lines: what's in your library and what
   # moved this sync (↓ pulled from server, ↑ pushed up).
   defp sync_summary_lines(summary) do
-    labels = [watchlist: "watchlist", resume: "history", positions: "positions", tracks: "track prefs"]
+    labels = [
+      watchlist: "watchlist",
+      resume: "history",
+      positions: "positions",
+      tracks: "track prefs",
+      played: "watch time",
+      watched: "day log"
+    ]
 
     for {coll, label} <- labels do
       s = summary[coll] || %{pulled: 0, pushed: 0, total: 0, local: 0, server: 0}
@@ -6009,6 +6024,36 @@ defmodule Laev.CLI do
     end
   end
 
+  defp tmdb_account(["import" | _]) do
+    unless Tmdb.account?(), do: die("not linked to TMDB — run: laev tmdb login")
+
+    IO.puts(:stderr, "")
+
+    case Laev.Ratings.import_from_tmdb(&IO.puts(:stderr, "  #{&1}")) do
+      %{} = counts ->
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :green,
+            "\n  ✓ marked #{counts.marked} as watched",
+            :reset,
+            :faint,
+            describe_import_rest(counts),
+            :reset
+          ])
+        )
+
+        if counts.marked > 0 do
+          IO.puts(:stderr, IO.ANSI.format([:faint, "  working out runtimes — one-time, then stats are instant…", :reset]))
+          totals = Laev.Stats.all_time()
+          IO.puts(:stderr, "  stats now: #{Laev.Stats.duration(totals.seconds)} across #{length(totals.titles)} titles")
+        end
+
+      {:error, reason} ->
+        die("couldn't read your ratings (#{inspect(reason)})")
+    end
+  end
+
   defp tmdb_account(["logout" | _]) do
     save_setting("TMDB_SESSION_ID", "")
     IO.puts(:stderr, "unlinked from your TMDB account — metadata still works, ratings won't send.")
@@ -6018,6 +6063,19 @@ defmodule Laev.CLI do
     if Tmdb.account?(),
       do: IO.puts(:stderr, "TMDB: linked#{if name = Tmdb.account_name(), do: " as #{name}"} — laev tmdb logout to unlink"),
       else: IO.puts(:stderr, "TMDB: metadata only — run: laev tmdb login  (to rate episodes)")
+  end
+
+  defp describe_import_rest(counts) do
+    [
+      counts.already > 0 && "#{counts.already} already were",
+      counts.partial > 0 && "#{counts.partial} left alone (you're partway through them here)",
+      counts.failed > 0 && "#{counts.failed} couldn't be written"
+    ]
+    |> Enum.filter(& &1)
+    |> case do
+      [] -> ""
+      parts -> " — " <> Enum.join(parts, ", ")
+    end
   end
 
   # Rating what you just watched, on the one service that rates episodes
@@ -6821,7 +6879,8 @@ defmodule Laev.CLI do
       laev stats             how much you've watched, and what you watched most
       laev update            self-update the standalone binary to the latest release
       laev mal [login|logout] link MyAnimeList to scrobble anime progress
-      laev tmdb [login|logout] link your TMDB account to rate episodes and films
+      laev tmdb [login|logout|import] link your TMDB account; import marks everything
+                             you have rated there as watched here
 
     watch is interactive: pick the title (TMDB), for shows the season and
     episode, then a source — it resolves on your debrid account and plays

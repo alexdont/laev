@@ -154,6 +154,19 @@ LAEV_AUTOPLAY=off
 
 `laev config` shows which keys are set.
 
+### Bringing a watch history in
+
+`laev tmdb import` marks everything you have rated on TMDB as watched here —
+including ratings you imported into TMDB from IMDb, which is the easiest way to
+carry years of viewing across. Nobody rates a film they haven't seen, so a
+rating is the one unambiguous record of having watched it.
+
+It writes marks and nothing else: titles grey out in search, Featured and the
+watchlist, and the stats count them in the **off laev** bucket, where an assumed
+runtime belongs. Positions you are partway through are left alone — a rating is
+no reason to overwrite somebody's place in something. Run it as often as you
+like; it only ever fills gaps.
+
 ### Rating what you watch
 
 `laev tmdb login` links your TMDB account — one browser approval, using the key
@@ -232,6 +245,12 @@ Once on, laev pulls-merges-pushes on startup and after each episode (or run
 `laev sync` manually). Merging is **last-write-wins per item with tombstones**,
 so pins, un-pins, positions and watched flags from every device converge — pick
 up on your laptop exactly where the phone left off.
+
+Six collections travel: watchlist, history, positions, track preferences, and —
+so the stats agree wherever you look at them — the measured watch time and the
+day-by-day log behind the calendar. That log is one file per device, because it
+is append-only: a single shared file could only be merged by letting one
+machine's history overwrite another's.
 
 Your **API keys can ride along too**, if you turn it on — Settings → 🔄
 Cross-device sync → "carry my API keys". A laev key is then

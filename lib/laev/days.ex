@@ -22,16 +22,32 @@ defmodule Laev.Days do
   are skipped rather than fatal — it is a log, not a database.
   """
   def totals do
-    case File.read(path()) do
-      {:ok, body} ->
-        totals = body |> String.split("\n", trim: true) |> Enum.reduce(%{}, &add_line/2)
-        maybe_compact(body, totals)
-        totals
+    logs()
+    |> Enum.reduce(%{}, fn path, totals ->
+      case File.read(path) do
+        {:ok, body} ->
+          totals = body |> String.split("\n", trim: true) |> Enum.reduce(totals, &add_line/2)
+          if path == own_log(), do: maybe_compact(body, path)
+          totals
 
-      _ ->
-        %{}
-    end
+        _ ->
+          totals
+      end
+    end)
   end
+
+  # Every device's log, plus the single file laev used to keep before the
+  # calendar had to survive being synced.
+  defp logs do
+    own = own_log()
+    dir = Path.dirname(own)
+    legacy = Path.join([dir, "..", "watched.log"]) |> Path.expand()
+
+    files = dir |> Path.join("*.log") |> Path.wildcard()
+    if File.exists?(legacy), do: files ++ [legacy], else: files
+  end
+
+  defp own_log, do: Laev.Position.log_file()
 
   @doc """
   The last `days` days as a list of `{date, seconds}`, oldest first, with the
@@ -76,24 +92,25 @@ defmodule Laev.Days do
     end
   end
 
-  # Fold the log back into one line per day once it has grown past the point
-  # where reading it line by line is silly. The totals are unchanged.
-  defp maybe_compact(body, totals) do
-    lines = body |> String.split("\n", trim: true) |> length()
+  # Fold a log back into one line per day once it has grown past the point where
+  # reading it line by line is silly. Only ever this machine's own log, and only
+  # from its own lines — folding in another device's days would duplicate them
+  # the next time both files are read.
+  defp maybe_compact(body, path) do
+    lines = String.split(body, "\n", trim: true)
 
-    if lines > @compact_above do
+    if length(lines) > @compact_above do
       folded =
-        totals
+        lines
+        |> Enum.reduce(%{}, &add_line/2)
         |> Enum.sort_by(fn {date, _} -> Date.to_erl(date) end)
         |> Enum.map_join("\n", fn {date, seconds} -> "#{Date.to_iso8601(date)} #{seconds}" end)
 
-      File.write(path(), folded <> "\n")
+      File.write(path, folded <> "\n")
     end
 
     :ok
   rescue
     _ -> :ok
   end
-
-  defp path, do: Laev.Position.log_file()
 end

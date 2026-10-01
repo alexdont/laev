@@ -251,23 +251,34 @@ defmodule Laev.Tmdb do
     end
   end
 
-  # Every episode you have rated, across pages. Capped: a list long enough to
-  # need ten pages is long enough that the average will not move.
-  defp rated_episodes(page \\ 1, acc \\ [])
+  @doc """
+  Everything you have rated, as TMDB holds it: `rated("movies")`,
+  `rated("tv")`, `rated("tv/episodes")`.
 
-  defp rated_episodes(page, acc) when page > 10, do: acc
+  Paged through to the end — an account that imported a decade of IMDb ratings
+  has sixty-odd pages of films, and half an answer is worse than none here.
+  `on_page` is called with the running count, so a long fetch can say so.
+  """
+  def rated(kind, on_page \\ fn _count -> :ok end), do: rated_page(kind, on_page, 1, [])
 
-  defp rated_episodes(page, acc) do
+  # 200 pages is 4,000 films — far past any real library, and a guard against
+  # paging forever if TMDB ever disagrees with itself about total_pages.
+  defp rated_page(_kind, _on_page, page, acc) when page > 200, do: acc
+
+  defp rated_page(kind, on_page, page, acc) do
     with account when is_integer(account) <- account_id(),
          {:ok, %{"results" => results} = body} <-
-           get("/account/#{account}/rated/tv/episodes", session_id: session_id(), page: page) do
+           get("/account/#{account}/rated/#{kind}", session_id: session_id(), page: page) do
       acc = acc ++ results
+      on_page.(length(acc))
 
-      if page < (body["total_pages"] || 1), do: rated_episodes(page + 1, acc), else: acc
+      if page < (body["total_pages"] || 1), do: rated_page(kind, on_page, page + 1, acc), else: acc
     else
       _ -> acc
     end
   end
+
+  defp rated_episodes, do: rated("tv/episodes")
 
   defp account_id do
     with true <- account?(),
