@@ -3858,14 +3858,17 @@ defmodule Laev.CLI do
           if(next, do: [{:binge, "⚡  autoplay — chain next episodes"}], else: []),
           if(onward, do: [{:onward, "⏭  next in #{onward.list} — #{onward.entry.title}"}], else: []),
           {:play, "▶  play — from where you stopped"},
-          if(ctx[:anime],
-            do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
-            else: [{:imdb, "★  open in IMDb — in browser"}]
-          ),
-          if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
+          # The two ratings sit either side of the browser row on purpose. Next to
+          # each other, "this episode" and "the whole series" are one careless
+          # keypress apart, and the mistake is invisible until you look at your
+          # ratings weeks later.
           if(Tmdb.account?(),
             do: [{:tmdb_rate, "☆  rate #{if episodic?, do: "this episode", else: "it"} on TMDB"}],
             else: []
+          ),
+          if(ctx[:anime],
+            do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
+            else: [{:imdb, "★  open in IMDb — in browser"}]
           ),
           # Always, not only on a finale: deciding what you make of a show as a
           # whole isn't something that only happens on its last episode.
@@ -3873,6 +3876,7 @@ defmodule Laev.CLI do
             do: [{:tmdb_rate_series, "☆  rate the whole series on TMDB"}],
             else: []
           ),
+          if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           if(episodic?,
