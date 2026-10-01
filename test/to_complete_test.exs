@@ -42,6 +42,19 @@ defmodule Laev.ToCompleteTest do
     assert CLI.divide_sections([behind("A"), :more]) == [behind("A"), :more]
   end
 
+  # ctrl-h has to move the row on the frame you pressed it, not on the next visit
+  # to the page — and the sections are re-derived from the rows in hand.
+  test "a held row lands in the on-hold section without a rebuild" do
+    rows = [behind("A", 1), behind("B", 2), caught_up("C", 3)]
+    page = CLI.divide_sections(rows)
+
+    held_b = rows |> Enum.at(1) |> Map.put(:held, true)
+    moved = CLI.divide_sections(Enum.map(rows, &if(&1.title == "B", do: held_b, else: &1)))
+
+    assert Enum.map(page, &(is_map(&1) && &1.title)) == ["A", "B", false, "C"]
+    assert Enum.map(moved, &(is_map(&1) && &1.title)) == ["A", false, "C", false, "B"]
+  end
+
   test "rows with nothing said never raise" do
     assert CLI.divide_sections([silent("a"), silent("b")]) == [silent("a"), silent("b")]
   end

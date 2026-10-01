@@ -1371,9 +1371,12 @@ defmodule Laev.CLI do
         nothing_here("Nothing half-watched — everything you've started is marked finished.")
 
       titles ->
-        behind = Enum.count(titles, &(is_map(&1) and section_of(&1) == :behind))
+        header = fn rows ->
+          "≡ watchlist — #{Enum.count(rows, &(is_map(&1) and section_of(&1) == :behind))} to watch, " <>
+            "the rest caught up or on hold"
+        end
 
-        case pick_with_save(titles, "≡ watchlist — #{behind} to watch, the rest caught up or on hold") do
+        case pick_with_save(titles, header) do
           nil -> back()
           title when is_map(title) -> play_title(title)
           other -> other
@@ -3534,6 +3537,25 @@ defmodule Laev.CLI do
     end)
   end
 
+  # ctrl-h moves a row from one section to another, and the list on screen was
+  # built with the old answer baked into it. Re-derived from the rows already in
+  # hand rather than rebuilt: rebuilding means seventy TMDB lookups, and nobody
+  # presses a key to wait twenty seconds. A list with no sections sorts to
+  # exactly what it was — every row ranks the same and the sort is stable.
+  defp rehold(items, title) do
+    flipped = Map.update(title, :held, true, &(not &1))
+
+    items
+    |> Enum.map(fn item -> if item == title, do: flipped, else: item end)
+    |> Enum.filter(&(&1 not in [:caught_up, :on_hold]))
+    |> divide_sections()
+  end
+
+  # A header that counts something has to be asked again each time the list
+  # changes underneath it, or it keeps saying 33 while showing 32.
+  defp header_text(header, items) when is_function(header, 1), do: header.(items)
+  defp header_text(header, _items), do: header
+
   # Title picker with saving: ctrl-s toggles the hovered title
   # (📌 appears immediately), cursor stays put; enter selects as usual.
   defp pick_with_save(items, header, initial \\ 0) do
@@ -3548,7 +3570,7 @@ defmodule Laev.CLI do
       pick(
         items,
         describe,
-        header <> " · ctrl-s saves · ctrl-w watched · ctrl-h holds · ctrl-o info",
+        header_text(header, items) <> " · ctrl-s saves · ctrl-w watched · ctrl-h holds · ctrl-o info",
         &title_poster/1,
         initial,
         # ctrl-h rather than something free: it is the mnemonic, and Backspace
@@ -3593,9 +3615,14 @@ defmodule Laev.CLI do
         pick_with_save(items, header, Enum.find_index(items, &(&1 == row)) || 0)
 
       {"ctrl-h", title} ->
+        at = Enum.find_index(items, &(&1 == title)) || 0
         hold_title(title)
         Laev.Sync.live_push()
-        pick_with_save(items, header, Enum.find_index(items, &(&1 == title)) || 0)
+        moved = rehold(items, title)
+        # Hold the cursor where it was rather than following the row: the one
+        # below slides up into it, so putting three things down in a row is three
+        # keypresses. Clamped, because the list can only get shorter above you.
+        pick_with_save(moved, header, min(at, max(length(moved) - 1, 0)))
 
       {"ctrl-w", title} ->
         ctx = title_ctx(title)
@@ -3882,22 +3909,20 @@ defmodule Laev.CLI do
   # that is where anime lives — pushed under the same setting that scrobbles what
   # you watch, and written to the local copy too so the page is right now rather
   # than at the next import.
-  defp hold_title(%{mal_id: mal_id} = title) when is_integer(mal_id) do
+  defp hold_title(%{mal_id: mal_id}) when is_integer(mal_id) do
     held? = Laev.Anime.get(mal_id)[:status] == "on_hold"
     status = if held?, do: "watching", else: "on_hold"
     Laev.Anime.set_status(mal_id, status)
     push_anime_status(mal_id, status)
-    say_held(title.title, not held?)
+    :ok
   end
 
-  defp hold_title(%{type: type, id: id} = title) when type in ["movie", "tv"] and is_integer(id) do
-    say_held(title.title, Laev.Holds.toggle(type, id) == :held)
+  defp hold_title(%{type: type, id: id}) when type in ["movie", "tv"] and is_integer(id) do
+    Laev.Holds.toggle(type, id)
+    :ok
   end
 
   defp hold_title(_title), do: :ok
-
-  defp say_held(title, true), do: Laev.Quiet.puts(IO.ANSI.format([:faint, "  ◴ on hold: #{title}", :reset]))
-  defp say_held(title, false), do: Laev.Quiet.puts(IO.ANSI.format([:faint, "  ▸ picked back up: #{title}", :reset]))
 
   defp push_anime_status(mal_id, status) do
     if Laev.MAL.authenticated?() and Config.mal_scrobble?() do
