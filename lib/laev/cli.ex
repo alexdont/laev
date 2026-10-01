@@ -578,6 +578,7 @@ defmodule Laev.CLI do
   # Text-key providers: {id, label, blurb, [{ENV_KEY, prompt}]}. MAL is
   # special (OAuth) and handled on its own.
   @integrations [
+    {:tmdb, "⭐ TMDB account", "rate episodes and films you watch"},
     {:mal, "🌸 MyAnimeList", "anime scrobbling, ratings & page links"},
     {:opensubs, "💬 OpenSubtitles", "external subtitles fallback",
      [
@@ -601,6 +602,10 @@ defmodule Laev.CLI do
       nil ->
         :ok
 
+      {:tmdb, _, _} = item ->
+        tmdb_integration_menu()
+        integrations_menu(Enum.find_index(@integrations, &(&1 == item)) || 0)
+
       {:mal, _, _} = item ->
         mal_integration_menu()
         integrations_menu(Enum.find_index(@integrations, &(&1 == item)) || 0)
@@ -609,6 +614,17 @@ defmodule Laev.CLI do
         configure_keys(keys)
         integrations_menu(Enum.find_index(@integrations, &(&1 == item)) || 0)
     end
+  end
+
+  defp describe_integration({:tmdb, label, blurb}) do
+    status =
+      cond do
+        not Tmdb.configured?() -> "needs TMDB_API_KEY"
+        Tmdb.account?() -> "linked ✓"
+        true -> "not linked"
+      end
+
+    "#{String.pad_trailing(label, 20)} #{String.pad_trailing(blurb, 40)} [#{status}]"
   end
 
   defp describe_integration({:mal, label, blurb}) do
@@ -653,6 +669,48 @@ defmodule Laev.CLI do
     end
 
     IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ saved\n", :reset]))
+  end
+
+  # Logging in lives here as well as in `laev tmdb login`, because nobody reads
+  # --help to find out a feature exists: the menu rows that need it say so, and
+  # this is where they point.
+  defp tmdb_integration_menu do
+    clear_screen()
+    IO.puts(:stderr, IO.ANSI.format(["\n  ⭐ ", :bright, "TMDB account", :reset, "\n"]))
+
+    actions =
+      cond do
+        not Tmdb.configured?() ->
+          IO.puts(:stderr, "  TMDB_API_KEY isn't set — laev needs it for everything, not just ratings.\n")
+          []
+
+        Tmdb.account?() ->
+          IO.puts(:stderr, "  Linked#{if name = Tmdb.account_name(), do: " as #{name}"}. " <>
+            "Rate episodes and films from the Now Playing menu.\n")
+
+          [{:logout, "unlink this TMDB account"}]
+
+        true ->
+          IO.puts(:stderr, "  Not linked. Linking lets you rate episodes and whole series — one\n" <>
+            "  browser approval, using the API key laev already has.\n")
+
+          [{:login, "log in (opens browser)"}]
+      end
+
+    case pick(actions ++ [{:back, "← back"}], &elem(&1, 1), "enter selects · esc goes back") do
+      {:login, _} ->
+        tmdb_account(["login"])
+        IO.gets("  press enter to continue… ")
+        tmdb_integration_menu()
+
+      {:logout, _} ->
+        tmdb_account(["logout"])
+        IO.gets("  press enter to continue… ")
+        tmdb_integration_menu()
+
+      _ ->
+        :ok
+    end
   end
 
   defp mal_integration_menu do
@@ -2582,17 +2640,36 @@ defmodule Laev.CLI do
   # Anime is published and talked about in quarters, so "popular right now" is
   # only one of the lists worth having. The others are the seasons themselves,
   # named — "the previous season" tells you nothing, Summer 2026 does.
-  defp anime_season_menu do
-    seasons = Laev.Season.recent(8)
+  @season_page 12
+  # Anime television starts in 1963 (Astro Boy); there is nothing to page into
+  # below that, so the row stops being offered.
+  @season_floor 1960
 
-    case pick([:airing | seasons], &describe_season_choice/1, "anime — which season?") do
-      nil -> back()
-      :airing -> featured_browse(:anime)
-      season -> featured_browse({:anime_season, season})
+  defp anime_season_menu(count \\ @season_page, initial \\ 0) do
+    seasons = Laev.Season.recent(count)
+    {oldest_year, _} = List.last(seasons)
+    items = [:airing | seasons] ++ if(oldest_year > @season_floor, do: [:more], else: [])
+
+    header = "anime — which season? · type a year to jump to it"
+
+    case pick(items, &describe_season_choice/1, header, nil, initial) do
+      nil ->
+        back()
+
+      :airing ->
+        featured_browse(:anime)
+
+      # Land on the first season that wasn't there a moment ago.
+      :more ->
+        anime_season_menu(count + @season_page, count + 1)
+
+      season ->
+        featured_browse({:anime_season, season})
     end
   end
 
   defp describe_season_choice(:airing), do: "▸ airing now — the most popular this week"
+  defp describe_season_choice(:more), do: "⋯ earlier seasons"
 
   defp describe_season_choice(season) do
     label = Laev.Season.label(season)
@@ -3887,18 +3964,18 @@ defmodule Laev.CLI do
           # to each other, "this episode" and "the whole series" are one careless
           # keypress apart, and that mistake is invisible until you look at your
           # ratings weeks later.
-          if(Tmdb.account?(),
-            do: [{:tmdb_rate, "☆  rate #{if episodic?, do: "this episode", else: "it"} on TMDB"}],
-            else: []
-          ),
+          # Shown whether or not you're linked, dimmed when you aren't: a feature
+          # nobody can see is a feature nobody has, and "log in" is a better
+          # answer to a keypress than silence is.
+          [{:tmdb_rate, rating_row("rate #{if episodic?, do: "this episode", else: "it"} on TMDB")}],
           if(ctx[:anime],
             do: [{:mal_open, "★  open in MyAnimeList — in browser"}],
             else: [{:imdb, "★  open in IMDb — in browser"}]
           ),
           # Always, not only on a finale: deciding what you make of a show as a
           # whole isn't something that only happens on its last episode.
-          if(Tmdb.account?() and ctx.type == "tv",
-            do: [{:tmdb_rate_series, "☆  rate the whole series on TMDB"}],
+          if(ctx.type == "tv",
+            do: [{:tmdb_rate_series, rating_row("rate the whole series on TMDB")}],
             else: []
           ),
           if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
@@ -3938,11 +4015,11 @@ defmodule Laev.CLI do
           post_play_menu(ctx, stream)
 
         {:tmdb_rate, _} ->
-          rate_on_tmdb(ctx)
+          if Tmdb.account?(), do: rate_on_tmdb(ctx), else: explain_tmdb_login()
           post_play_menu(ctx, stream)
 
         {:tmdb_rate_series, _} ->
-          rate_series_on_tmdb(ctx)
+          if Tmdb.account?(), do: rate_series_on_tmdb(ctx), else: explain_tmdb_login()
           post_play_menu(ctx, stream)
         {:search, _} -> menu_search()
         {:home, _} -> back()
@@ -5978,6 +6055,29 @@ defmodule Laev.CLI do
   end
 
   defp rate_series_on_tmdb(_ctx), do: :ok
+
+  defp rating_row(label) do
+    if Tmdb.account?(),
+      do: "☆  " <> label,
+      else: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "☆  ", label, " — needs a TMDB login", :reset]))
+  end
+
+  defp explain_tmdb_login do
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        "\n  Rating needs your TMDB account — one browser approval, with the key laev already has.\n",
+        :bright,
+        "    laev tmdb login",
+        :reset,
+        :faint,
+        "   (or Settings → 🔌 Integrations → ⭐ TMDB account)\n",
+        :reset
+      ])
+    )
+
+    IO.gets("  press enter to go back… ")
+  end
 
   # Scores with words next to them, highest first — a 7 means nothing on its own
   # and "good" does. Typing a number into a prompt is also the one moment in the

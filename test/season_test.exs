@@ -49,6 +49,13 @@ defmodule Laev.SeasonTest do
              ]
     end
 
+    test "it can reach back decades, not just a couple of years" do
+      # Seven years of seasons, which is what paging through the list gives you.
+      assert Season.recent(84, {2026, :fall}) |> List.last() == {2006, :winter}
+      # And as far as anime television itself goes.
+      assert Season.recent(252, {2026, :fall}) |> List.last() == {1964, :winter}
+    end
+
     test "one season is just this one" do
       assert Season.recent(1, {2026, :fall}) == [{2026, :fall}]
     end
