@@ -36,7 +36,7 @@ defmodule Laev.Stats do
 
   defmodule Title do
     @moduledoc false
-    defstruct [:type, :tmdb_id, :title, seconds: 0, off: 0, finished: 0, started: 0]
+    defstruct [:type, :tmdb_id, :title, seconds: 0, off: 0, finished: 0, started: 0, whole: false]
   end
 
   @doc """
@@ -444,10 +444,10 @@ defmodule Laev.Stats do
     case Map.get(runtimes, cache_key(runtime_key(type, id, :series_mark))) do
       whole when is_integer(whole) ->
         rest = max(whole - counted, 0)
-        {bump(acc, key, names, rest, rest, progress), unknown, skipped, measured}
+        {bump(acc, key, names, rest, rest, progress, true), unknown, skipped, measured}
 
       _ ->
-        {bump(acc, key, names, 0, 0, progress), unknown + 1, skipped, measured}
+        {bump(acc, key, names, 0, 0, progress, true), unknown + 1, skipped, measured}
     end
   end
 
@@ -460,7 +460,9 @@ defmodule Laev.Stats do
   defp seconds_for(:done, runtime) when is_integer(runtime), do: runtime
   defp seconds_for(progress, _runtime) when progress in [:done, :seen], do: :unknown
 
-  defp bump(acc, {type, id} = key, {titles, known}, seconds, off, progress) do
+  defp bump(acc, key, names, seconds, off, progress, whole? \\ false)
+
+  defp bump(acc, {type, id} = key, {titles, known}, seconds, off, progress, whole?) do
     entry =
       Map.get(acc, key, %Title{
         type: type,
@@ -470,10 +472,15 @@ defmodule Laev.Stats do
 
     entry = %{entry | seconds: entry.seconds + seconds, off: entry.off + off}
 
+    # A whole-title mark is not another episode. Counting it as one is how 155
+    # episodes of Lupin III: Part II came to read as 156 watched — the series mark
+    # is a statement *about* those episodes, so it says "watched through" instead
+    # of adding to their tally.
     entry =
-      case progress do
-        p when p in [:done, :seen] -> %{entry | finished: entry.finished + 1}
-        _ -> %{entry | started: entry.started + 1}
+      cond do
+        whole? -> %{entry | whole: true}
+        progress in [:done, :seen] -> %{entry | finished: entry.finished + 1}
+        true -> %{entry | started: entry.started + 1}
       end
 
     Map.put(acc, key, entry)

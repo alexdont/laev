@@ -4751,6 +4751,12 @@ defmodule Laev.CLI do
   # Neither page needs a MAL key. The anime id comes from AniList's public API
   # and the fallback is a plain MAL search url — MAL_CLIENT_ID is only ever for
   # scrobbling, so this works on an install that never logged in.
+  # An anime row is a MyAnimeList row — its id is a MAL id, and there is nothing
+  # to ask TMDB about. (Asking anyway is what crashed this: fetch_details has no
+  # clause for a type it has never heard of.)
+  defp open_media_page("mal", mal_id, _title) when is_integer(mal_id),
+    do: browse("https://myanimelist.net/anime/#{mal_id}")
+
   defp open_media_page(type, tmdb_id, title) do
     details = title_details(type, tmdb_id)
 
@@ -5176,6 +5182,7 @@ defmodule Laev.CLI do
     counts =
       [
         t.finished > 0 && "#{t.finished} finished",
+        t.whole && "watched through",
         t.started > 0 && "#{t.started} in progress",
         # Said out loud, because after an import most of this list is hours laev
         # never watched you spend — and because fzf can then filter on the word:
@@ -5610,7 +5617,7 @@ defmodule Laev.CLI do
     %{seconds: seconds, entries: count} = Laev.Stats.for_title(type, tmdb_id)
 
     if seconds <= @forget_confirm_seconds or confirm_forget(type, tmdb_id, title || "this", seconds, count) do
-      Laev.Resume.delete(type, tmdb_id)
+      forget_resume(type, tmdb_id)
       Laev.Position.forget(type, tmdb_id)
       Laev.Sync.live_push()
       true
@@ -5618,6 +5625,19 @@ defmodule Laev.CLI do
       false
     end
   end
+
+  # History is keyed by the TMDB title laev played, even for anime — whose marks
+  # are keyed by MAL entry. So forgetting an anime has to cross back over, or the
+  # row would keep its place in continue watching after its time was dropped.
+  defp forget_resume("mal", mal_id) do
+    case Laev.AnimeMap.tmdb(mal_id) do
+      {type, tmdb_id, _season} -> Laev.Resume.delete(type, tmdb_id)
+      {type, tmdb_id} -> Laev.Resume.delete(type, tmdb_id)
+      _ -> :ok
+    end
+  end
+
+  defp forget_resume(type, tmdb_id), do: Laev.Resume.delete(type, tmdb_id)
 
   defp confirm_forget(type, tmdb_id, title, seconds, count) do
     # Wanting to watch something is not the same as having watched it, so a

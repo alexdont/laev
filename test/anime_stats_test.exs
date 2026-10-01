@@ -96,6 +96,26 @@ defmodule Laev.AnimeStatsTest do
     assert Anime.title(999_999) == nil
   end
 
+  # 155 episodes plus "I finished it" is 155 episodes, not 156.
+  test "the whole-anime mark is not counted as another episode", %{dir: dir} do
+    for n <- 1..155, do: mark(dir, "mal-1425-e#{n}", "seen")
+    mark(dir, "mal-1425", "seen")
+
+    row = Stats.all_time().titles |> Enum.find(&(&1.tmdb_id == 1425))
+
+    assert row.finished == 155
+    assert row.whole, "the anime is marked watched through"
+  end
+
+  test "an anime with only the whole mark counts no episodes", %{dir: dir} do
+    mark(dir, "mal-1425", "seen")
+
+    row = Stats.all_time().titles |> Enum.find(&(&1.tmdb_id == 1425))
+
+    assert row.finished == 0
+    assert row.whole
+  end
+
   # Anime moved from TMDB keys onto MAL keys; a position partway through an
   # episode should survive the move.
   test "a saved position is carried onto the new key", %{dir: dir} do

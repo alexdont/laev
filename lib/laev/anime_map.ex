@@ -25,6 +25,23 @@ defmodule Laev.AnimeMap do
   @max_age 30 * 24 * 3600
 
   @doc """
+  Where a MAL id lives on TMDB: `{"tv", id, season}`, `{"movie", id}`, or nil
+  when the map doesn't know it (or hasn't been fetched).
+
+  The direction laev needs when something keyed by MAL entry has to find the TMDB
+  title it was played as — forgetting an anime's history, for one.
+  """
+  def tmdb(mal_id) when is_integer(mal_id) do
+    case Map.get(load().forward, Integer.to_string(mal_id)) do
+      ["tv", id, season] -> {"tv", id, season}
+      ["movie", id] -> {"movie", id}
+      _ -> nil
+    end
+  end
+
+  def tmdb(_mal_id), do: nil
+
+  @doc """
   The MAL id for a TMDB show's season (or a film) — the reverse direction,
   used to scrobble something laev found on TMDB to the right MAL entry.
   """
