@@ -48,6 +48,7 @@ defmodule Laev.Stats do
     played = read_played()
 
     {titles, unknown, skipped, measured} = fold(entries, runtimes, played)
+    titles = name_the_rest(titles)
     off = titles |> Enum.map(& &1.off) |> Enum.sum()
     total = titles |> Enum.map(& &1.seconds) |> Enum.sum()
 
@@ -78,6 +79,53 @@ defmodule Laev.Stats do
 
     %{seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(), entries: length(entries)}
   end
+
+  # A title whose runtime was already cached never got looked up, so its name was
+  # never learned — which is every row on a page built before names were kept.
+  # The leftovers are asked for directly, once, and then they are cached like the
+  # rest. Capped, because this is a transitional handful and not a sync.
+  @name_catchup 100
+
+  defp name_the_rest(titles) do
+    missing = Enum.filter(titles, &(&1.title == "#{&1.type} ##{&1.tmdb_id}"))
+
+    if missing == [] do
+      titles
+    else
+      found =
+        missing
+        |> Enum.take(@name_catchup)
+        |> Task.async_stream(&{{&1.type, &1.tmdb_id}, name_of(&1.type, &1.tmdb_id)},
+          max_concurrency: 8,
+          timeout: 15_000,
+          on_timeout: :kill_task
+        )
+        |> Enum.flat_map(fn
+          {:ok, {key, name}} when is_binary(name) -> [{key, name}]
+          _ -> []
+        end)
+        |> Map.new()
+
+      Laev.Titles.put(found)
+
+      Enum.map(titles, fn title ->
+        case Map.get(found, {title.type, title.tmdb_id}) do
+          nil -> title
+          name -> %{title | title: name}
+        end
+      end)
+    end
+  end
+
+  defp name_of("movie", id) do
+    with {:ok, %{"title" => title}} <- Tmdb.movie(id), do: title, else: (_ -> nil)
+  end
+
+  defp name_of("tv", id) do
+    with {:ok, %{"name" => name}} <- Tmdb.tv(id), do: name, else: (_ -> nil)
+  end
+
+  defp name_of(_type, _id), do: nil
 
   @doc "Seconds as `12h 04m`, or `48m` under an hour."
   def duration(seconds) when is_integer(seconds) and seconds > 0 do
@@ -214,13 +262,28 @@ defmodule Laev.Stats do
   # without runtimes isn't looked up again on every run.
   defp fetch_runtime({"movie", id}) do
     case Tmdb.movie(id) do
-      {:ok, %{"runtime" => minutes}} when is_integer(minutes) and minutes > 0 -> minutes * 60
-      _ -> @unknown
+      {:ok, %{"runtime" => minutes} = movie} when is_integer(minutes) and minutes > 0 ->
+        remember_name("movie", id, movie["title"])
+        minutes * 60
+
+      {:ok, movie} ->
+        remember_name("movie", id, movie["title"])
+        @unknown
+
+      _ ->
+        @unknown
     end
   end
 
   defp fetch_runtime({"tv", id}) do
-    with {:ok, show} <- Tmdb.tv(id), do: episode_seconds(show), else: (_ -> @unknown)
+    case Tmdb.tv(id) do
+      {:ok, show} ->
+        remember_name("tv", id, show["name"])
+        episode_seconds(show)
+
+      _ ->
+        @unknown
+    end
   end
 
   # Every episode there is — what marking a whole series claims you watched.
@@ -233,6 +296,13 @@ defmodule Laev.Stats do
       _ -> @unknown
     end
   end
+
+  # The name comes free with the runtime — the same response carries both — so a
+  # title laev has never played still has something readable to show.
+  defp remember_name(type, id, name) when is_binary(name) and name != "",
+    do: Laev.Titles.put(%{{type, id} => name})
+
+  defp remember_name(_type, _id, _name), do: :ok
 
   defp episode_seconds(%{"episode_run_time" => [minutes | _]}) when is_integer(minutes) and minutes > 0,
     do: minutes * 60
@@ -262,6 +332,7 @@ defmodule Laev.Stats do
 
   defp fold(entries, runtimes, played) do
     titles = Laev.Resume.all() |> Map.new(&{{&1["type"], &1["tmdb_id"]}, &1["title"]})
+    known = Laev.Titles.all()
     empty = {%{}, 0, 0, 0}
 
     Enum.reduce(entries, empty, fn {name, type, id, kind, progress}, {acc, unknown, skipped, measured} ->
@@ -271,17 +342,17 @@ defmodule Laev.Stats do
       case {Map.get(played, name), seconds_for(progress, runtime)} do
         # Measured: the seconds really played here, and what was seeked past.
         {%{watched: watched, skipped: past}, _} ->
-          {bump(acc, key, titles, watched, 0, progress), unknown, skipped + past, measured + 1}
+          {bump(acc, key, {titles, known}, watched, 0, progress), unknown, skipped + past, measured + 1}
 
         {_, :unknown} ->
-          {bump(acc, key, titles, 0, 0, progress), unknown + 1, skipped, measured}
+          {bump(acc, key, {titles, known}, 0, 0, progress), unknown + 1, skipped, measured}
 
         # Marked by hand: the full runtime, all of it off-laev.
         {_, {:off, seconds}} ->
-          {bump(acc, key, titles, seconds, seconds, progress), unknown, skipped, measured}
+          {bump(acc, key, {titles, known}, seconds, seconds, progress), unknown, skipped, measured}
 
         {_, seconds} ->
-          {bump(acc, key, titles, seconds, 0, progress), unknown, skipped, measured}
+          {bump(acc, key, {titles, known}, seconds, 0, progress), unknown, skipped, measured}
       end
     end)
     |> then(fn {acc, unknown, skipped, measured} -> {Map.values(acc), unknown, skipped, measured} end)
@@ -296,12 +367,12 @@ defmodule Laev.Stats do
   defp seconds_for(:done, runtime) when is_integer(runtime), do: runtime
   defp seconds_for(progress, _runtime) when progress in [:done, :seen], do: :unknown
 
-  defp bump(acc, {type, id} = key, titles, seconds, off, progress) do
+  defp bump(acc, {type, id} = key, {titles, known}, seconds, off, progress) do
     entry =
       Map.get(acc, key, %Title{
         type: type,
         tmdb_id: id,
-        title: Map.get(titles, key) || "#{type} ##{id}"
+        title: Map.get(titles, key) || Map.get(known, "#{type}-#{id}") || "#{type} ##{id}"
       })
 
     entry = %{entry | seconds: entry.seconds + seconds, off: entry.off + off}

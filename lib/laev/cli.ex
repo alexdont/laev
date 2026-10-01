@@ -4731,7 +4731,7 @@ defmodule Laev.CLI do
 
     header =
       "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · " <>
-        "ctrl-o info · ctrl-d forgets · esc goes back"
+        "!marked hides imports · ctrl-o info · ctrl-d forgets · esc"
 
     case pick(items, &stats_row/1, header, nil, initial, ["ctrl-d", "ctrl-o"]) do
       # Land on the first row that wasn't there a moment ago.
@@ -4761,7 +4761,14 @@ defmodule Laev.CLI do
   # One row of the most-watched list: title, time, and how it got there.
   defp stats_row(t) do
     counts =
-      [t.finished > 0 && "#{t.finished} finished", t.started > 0 && "#{t.started} in progress"]
+      [
+        t.finished > 0 && "#{t.finished} finished",
+        t.started > 0 && "#{t.started} in progress",
+        # Said out loud, because after an import most of this list is hours laev
+        # never watched you spend — and because fzf can then filter on the word:
+        # "marked" to see only those, "!marked" to see only what played here.
+        t.off > 0 && t.off == t.seconds && "marked"
+      ]
       |> Enum.reject(&(&1 == false))
       |> Enum.join(" · ")
 

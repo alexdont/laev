@@ -32,6 +32,11 @@ defmodule Laev.Ratings do
       shows = Tmdb.rated("tv", &report.("  #{&1} shows…"))
       episodes = Tmdb.rated("tv/episodes", &report.("  #{&1} episodes…"))
 
+      # The names ride along in the same response, so the stats page has something
+      # readable for a title it has never played — otherwise a thousand imported
+      # rows read as "tv #4607", which says nothing about what you watched.
+      remember_names(films, shows)
+
       counts =
         [
           Enum.map(films, &ctx_for_movie/1),
@@ -74,6 +79,16 @@ defmodule Laev.Ratings do
       :partial ->
         %{counts | partial: counts.partial + 1}
     end
+  end
+
+  defp remember_names(films, shows) do
+    names =
+      Map.merge(
+        for(%{"id" => id, "title" => title} <- films, into: %{}, do: {{"movie", id}, title}),
+        for(%{"id" => id, "name" => name} <- shows, into: %{}, do: {{"tv", id}, name})
+      )
+
+    Laev.Titles.put(names)
   end
 
   defp ctx_for_movie(%{"id" => id}) when is_integer(id),
