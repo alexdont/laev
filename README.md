@@ -228,7 +228,17 @@ costs you the watch time.
 
 For an anime that status *is* MyAnimeList's, pushed there under the same setting
 that scrobbles what you watch; for a show it is laev's own, and it syncs across
-your devices with everything else. `ctrl-w` likewise marks an anime finished on
+your devices with everything else.
+
+**Starting an anime that isn't on your list** needs nothing from you. Finish an
+episode and laev adds it as *watching* at that episode — MAL's update is an
+upsert — then learns what it is (title, episode count, episode length) and takes
+the list's count as its own. That last part matters: a list keeps a count, not a
+tick list, so picking something up at episode 7 means seven episodes, and laev
+marking one would leave it saying `1/13` beside a list saying `7/13`. It marks
+seven, which is also the only honest reading of "I'm on episode 7". The finale
+flips the list to *completed* and the anime leaves your Watchlist on its own.
+`LAEV_MAL_SCROBBLE=off` if you'd rather laev never wrote to your list. `ctrl-w` likewise marks an anime finished on
 MyAnimeList, and unmarking puts it back to *watching* with the count it has, so
 the two never disagree about something you just said. Dropped anime stay dropped.
 

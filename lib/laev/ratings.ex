@@ -195,6 +195,43 @@ defmodule Laev.Ratings do
   end
 
   @doc """
+  Bring laev's marks up to the episode count MyAnimeList now holds.
+
+  A list keeps a count, not a tick list, so "7 watched" is a claim about seven
+  episodes — and laev only played one of them. Watching episode 7 of something
+  you had been watching elsewhere would otherwise leave laev saying 1/13 while
+  the list says 7/13, and the two would disagree on the page you look at.
+
+  Gaps only. A position partway through an episode is somebody's place in it and
+  is never stamped over. `status` finishing the anime marks the anime itself, so
+  it leaves the Watchlist the moment the list says it is done.
+
+  Returns how many marks were newly written.
+  """
+  def catch_up(mal_id, count, status \\ nil) when is_integer(mal_id) do
+    written =
+      if is_integer(count) and count > 0 do
+        Enum.count(1..count//1, fn n ->
+          ctx = %{mal_id: mal_id, episode: n}
+
+          case decide(Position.mark_state(ctx)) do
+            :mark ->
+              Position.set_watched(ctx, true)
+              true
+
+            _ ->
+              false
+          end
+        end)
+      else
+        0
+      end
+
+    if status == "completed", do: Position.set_watched(%{mal_id: mal_id}, true)
+    written
+  end
+
+  @doc """
   What to do with one rated title, given what laev already knows about it.
 
   The only interesting case is the middle one: a part-watched position is

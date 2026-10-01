@@ -3945,13 +3945,10 @@ defmodule Laev.CLI do
       total = Laev.Anime.episodes(mal_id)
 
       spawn(fn ->
-        {count, cap, said} =
-          if watched?,
-            do: {total || episodes, total, "finished"},
-            else: {episodes, nil, "watching"}
+        {count, cap} = if watched?, do: {total || episodes, total}, else: {episodes, nil}
 
         case Laev.MAL.set_progress(mal_id, count, cap) do
-          :ok -> Laev.Quiet.puts(IO.ANSI.format([:faint, "  ↑ MAL: #{said}", :reset]))
+          {:ok, fields} -> adopt_list_status(mal_id, fields)
           _ -> :ok
         end
       end)
@@ -7217,8 +7214,12 @@ defmodule Laev.CLI do
       total = Laev.Anime.episodes(mal_id) || anime_episode_count(ctx[:search_title] || ctx.title)
 
       case Laev.MAL.set_progress(mal_id, ctx.episode, total) do
-        :ok -> Laev.Quiet.puts(IO.ANSI.format([:faint, "  ↑ MAL: #{ctx.title} ep #{ctx.episode}", :reset]))
-        _ -> :ok
+        {:ok, fields} ->
+          Laev.Quiet.puts(IO.ANSI.format([:faint, "  ↑ MAL: #{ctx.title} ep #{ctx.episode}", :reset]))
+          adopt_list_status(mal_id, fields)
+
+        _ ->
+          :ok
       end
     end
   rescue
@@ -7286,6 +7287,28 @@ defmodule Laev.CLI do
     )
 
     IO.gets("  press enter to go back… ")
+  end
+
+  # Take on what the list now says, so laev agrees with it without waiting for the
+  # next import. Three things, and each matters for a different screen:
+  #
+  #   * the anime is *described* — an anime laev has never imported (one you just
+  #     started, which the list had never heard of either) has no title, episode
+  #     count or episode length, and so no row on the Watchlist and no hours in
+  #     the stats.
+  #   * its status is whatever laev just set it to, so a new anime appears as
+  #     watching rather than nothing.
+  #   * the episode count is mirrored into marks, because a list keeps a count:
+  #     finishing episode 7 of something you were watching elsewhere means seven
+  #     episodes, and laev saying 1/13 next to a list saying 7/13 is laev being
+  #     wrong.
+  defp adopt_list_status(mal_id, fields) do
+    Laev.Anime.learn(mal_id)
+    Laev.Anime.set_status(mal_id, fields.status)
+    Laev.Ratings.catch_up(mal_id, fields.num_episodes_watched, fields.status)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # Resolve a MAL id for an anime ctx, cached for the session.

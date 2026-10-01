@@ -310,7 +310,8 @@ defmodule Laev.MAL do
         episodes: body["num_episodes"],
         seconds: body["average_episode_duration"],
         status: get_in(body, ["my_list_status", "status"]),
-        score: get_in(body, ["my_list_status", "score"])
+        score: get_in(body, ["my_list_status", "score"]),
+        updated: unix(get_in(body, ["my_list_status", "updated_at"]))
       }
     else
       _ -> nil
@@ -339,12 +340,25 @@ defmodule Laev.MAL do
   @doc """
   Record progress: set watched count and status. Never regresses a higher
   count already on MAL. `total` (episode count, optional) decides whether
-  finishing marks the show *completed*. Returns :ok | {:error, reason} | :skip.
+  finishing marks the show *completed*.
+
+  Adds the anime to the list if it isn't on it — MAL's PATCH is an upsert, so
+  starting something you never planned to watch just appears as *watching*.
+
+  Returns `{:ok, fields}` | {:error, reason} | :skip.
   """
   def set_progress(mal_id, episode, total \\ nil) do
     with at when is_binary(at) <- access_token() do
       count = max(episode, episodes_watched(mal_id))
-      patch(mal_id, at, progress_fields(count, total))
+      fields = progress_fields(count, total)
+
+      # The fields come back so the caller knows what the list now says — the
+      # count it settled on and whether that finished the anime. Guessing either
+      # would mean asking MAL again for something it was just told.
+      case patch(mal_id, at, fields) do
+        :ok -> {:ok, fields}
+        other -> other
+      end
     else
       _ -> :skip
     end

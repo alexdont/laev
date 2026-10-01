@@ -54,7 +54,9 @@ defmodule Laev.Anime do
   """
   def set_status(mal_id, status) when is_integer(mal_id) and is_binary(status) do
     case get(mal_id) do
-      %{} = fields -> put_many(%{mal_id => %{fields | status: status}})
+      # The timestamp goes with it: laev just watched this, which is what puts it
+      # at the top of the Watchlist where you left it.
+      %{} = fields -> put_many(%{mal_id => %{fields | status: status, updated: System.os_time(:second)}})
       _ -> :ok
     end
   end
