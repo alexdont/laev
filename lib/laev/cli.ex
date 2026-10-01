@@ -493,9 +493,9 @@ defmodule Laev.CLI do
         now_playing_item(),
         up_next_item(),
         {:continue, "▶ Continue — pick up where you left off"},
-        finish_row(),
-        {:featured, "★ Featured — trending movies, shows & anime"},
         {:watchlist, watchlist_row()},
+        {:featured, "★ Featured — trending movies, shows & anime"},
+        finish_row(),
         {:calendar, calendar_row()},
         {:search, "⌕ Search — find something by name"},
         {:stats, "⧗ Stats — how much you've watched"},
@@ -4952,6 +4952,36 @@ defmodule Laev.CLI do
     ]
   end
 
+  # Shows, as opposed to hours: how many you have finished and how many you are
+  # in the middle of. The first line counts episodes and films, which says
+  # nothing about either.
+  defp print_shelf_counts do
+    finished = Enum.count(series_marks())
+    unfinished = length(unfinished_shows())
+
+    parts =
+      [
+        finished > 0 && "#{finished} #{if finished == 1, do: "series", else: "series"} finished",
+        unfinished > 0 && "#{unfinished} still to complete"
+      ]
+      |> Enum.filter(& &1)
+
+    if parts != [] do
+      IO.puts(:stderr, IO.ANSI.format([:faint, "  " <> Enum.join(parts, " · ") <> "\n", :reset]))
+    end
+  end
+
+  # Whole shows marked watched — the bare tv-<id> marks, which is what "finished
+  # a series" means on disk.
+  defp series_marks do
+    dir = Path.join(Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev"), "positions")
+
+    case File.ls(dir) do
+      {:ok, names} -> Enum.filter(names, &Regex.match?(~r/^tv-\d+$/, &1))
+      _ -> []
+    end
+  end
+
   # ── the heatmap ───────────────────────────────────────────────────
 
   # A year at a glance, GitHub-style: a column per week, a row per weekday,
@@ -5091,9 +5121,19 @@ defmodule Laev.CLI do
       end)
       |> elem(0)
       |> Enum.join()
+      |> fix_crowded_months()
 
     IO.ANSI.format([:faint, "  " <> String.duplicate(" ", @heat_labels), strip, :reset])
     |> IO.iodata_to_binary()
+  end
+
+  # A grid that starts mid-month gives January a single column, so "Jan" gets
+  # painted over by "Feb" two cells later and the strip reads "JaFeb". A label
+  # with no room to be itself is worse than no label.
+  defp fix_crowded_months(strip) do
+    Regex.replace(~r/^([A-Z][a-z]?)(?=[A-Z])/, strip, fn _match, clipped ->
+      String.duplicate(" ", String.length(clipped))
+    end)
   end
 
   defp paint(buffer, at, text) do
@@ -5163,6 +5203,8 @@ defmodule Laev.CLI do
           "#{s.episodes} episodes from #{s.shows} #{if s.shows == 1, do: "show", else: "shows"}\n"
       ])
     )
+
+    print_shelf_counts()
 
     # Split only when there is something to split: with no hand marks the two
     # lines would say the total twice.
