@@ -3855,12 +3855,11 @@ defmodule Laev.CLI do
       items =
         List.flatten([
           if(next, do: [{:next, "⏭  #{next.label}"}], else: []),
-          if(next, do: [{:binge, "⚡  autoplay — chain next episodes"}], else: []),
           if(onward, do: [{:onward, "⏭  next in #{onward.list} — #{onward.entry.title}"}], else: []),
           {:play, "▶  play — from where you stopped"},
-          # The two ratings sit either side of the browser row on purpose. Next to
-          # each other, "this episode" and "the whole series" are one careless
-          # keypress apart, and the mistake is invisible until you look at your
+          # The two ratings sit either side of the browser row on purpose. Next
+          # to each other, "this episode" and "the whole series" are one careless
+          # keypress apart, and that mistake is invisible until you look at your
           # ratings weeks later.
           if(Tmdb.account?(),
             do: [{:tmdb_rate, "☆  rate #{if episodic?, do: "this episode", else: "it"} on TMDB"}],
@@ -3879,12 +3878,13 @@ defmodule Laev.CLI do
           if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
+          # ≡ rather than ☰, and ⇉ rather than ⚡: both of those are East-Asian
+          # Wide, so they take two cells where every other glyph here takes one
+          # and their rows sit a column further right than the rest.
+          if(episodic?, do: [{:select, "≡  episodes — choose another"}], else: []),
+          if(next, do: [{:binge, "⇉  autoplay — chain next episodes"}], else: []),
           if(episodic?,
-            # ≡ rather than ☰: the latter is East-Asian Wide, so it takes two
-            # cells where every other glyph on this menu takes one, and the row
-            # sits a column further right than the rest. ≡ is also what the
-            # watchlist row uses for "a list", which this is.
-            do: [{:select, "≡  episodes — choose another"}, {:search, "⌕  search — find something else"}],
+            do: [{:search, "⌕  search — find something else"}],
             else: [{:select, "⌕  search — find something else"}]
           ),
           {:home, "⌂  home — back to the menu (keeps playing)"},
