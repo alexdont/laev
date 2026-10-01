@@ -1300,9 +1300,28 @@ defmodule Laev.CLI do
   # are none, because an empty shelf is not worth a row — and the count is a
   # single directory read, which the home screen can afford.
   defp finish_row do
-    case length(unfinished_shows()) do
+    case length(shows_behind()) do
       0 -> []
       n -> [{:finish, "◴ To Complete — #{n} #{if n == 1, do: "show", else: "shows"} you've started"}]
+    end
+  end
+
+  # Shows there is actually something to watch of. Caught up is not a thing to
+  # do, so it has no business in a number that says how much is left — read from
+  # what the page wrote down last time it looked, since the home screen fetches
+  # nothing. A show laev has never looked at counts as behind: better to offer it
+  # and find out than to hide it on a guess.
+  defp shows_behind do
+    Enum.reject(unfinished_shows(), fn {{_type, id}, marks} -> caught_up_by_cache?(id, marks) end)
+  end
+
+  defp caught_up_by_cache?(id, marks) do
+    case Laev.Seasons.aired_seasons(id) do
+      aired when is_integer(aired) and aired > 0 ->
+        Enum.count(marks, fn {season, marked} -> complete_season?(id, season, marked) end) >= aired
+
+      _ ->
+        false
     end
   end
 
@@ -1351,8 +1370,12 @@ defmodule Laev.CLI do
         # shows you are actually behind on, not above them. Within each group the
         # order stands: most recently watched first.
         |> Enum.sort_by(&{if(&1[:caught_up], do: 1, else: 0), &1[:order] || 0})
+        |> remember_aired_seasons()
+        |> divide_at_caught_up()
 
-      case pick_with_save(titles, "◴ to complete — #{length(titles)} shows you've started") do
+      behind = Enum.count(titles, &(is_map(&1) and not &1[:caught_up]))
+
+      case pick_with_save(titles, "◴ to complete — #{behind} to watch, the rest caught up") do
         nil -> back()
         title when is_map(title) -> play_title(title)
         other -> other
@@ -1393,6 +1416,27 @@ defmodule Laev.CLI do
     end
   end
 
+  # Saved once, after the fetching: this is what lets the home screen leave the
+  # shows you are only waiting on out of its count without fetching anything.
+  defp remember_aired_seasons(titles) do
+    titles
+    |> Enum.filter(&(&1[:aired_seasons] && &1.type == "tv"))
+    |> Map.new(&{&1.id, &1[:aired_seasons]})
+    |> Laev.Seasons.put_aired_seasons_many()
+
+    titles
+  end
+
+  # One dim line between the two halves, so the eye can stop at the boundary
+  # instead of reading forty rows to find where "behind" ends.
+  defp divide_at_caught_up(titles) do
+    case Enum.split_while(titles, &(not &1[:caught_up])) do
+      {behind, []} -> behind
+      {[], caught_up} -> caught_up
+      {behind, caught_up} -> behind ++ [:caught_up] ++ caught_up
+    end
+  end
+
   # "2 of 4 seasons", and whether there is anything to watch right now.
   #
   # A show whose every aired season is behind you is not behind — it is caught
@@ -1423,17 +1467,21 @@ defmodule Laev.CLI do
     marked = marks |> Map.values() |> Enum.sum()
     episodes = Enum.reduce(aired, 0, fn season, sum -> sum + (season["episode_count"] || 0) end)
 
+    # Counted against the seasons that are actually out, not the ones TMDB lists.
+    # It carries a placeholder for anything announced — Dune: Prophecy has a
+    # season 2 with no air date at all — and counting those turns "caught up on
+    # all 3" into "3/4", which reads as a season behind.
     note =
       cond do
-        caught_up? -> " · caught up · #{watched}/#{length(real)} seasons"
-        watched > 0 -> " · #{watched}/#{length(real)} seasons watched"
+        caught_up? -> " · caught up · #{watched}/#{length(aired)} seasons"
+        watched > 0 -> " · #{watched}/#{length(aired)} seasons watched"
         # Not a season in yet: the episode count says far more than "0/1".
         marked > 0 and episodes > 0 -> " · #{marked}/#{episodes} episodes watched"
         marked > 0 -> " · #{marked} episode#{if marked > 1, do: "s"} watched"
         true -> ""
       end
 
-    %{note: note, caught_up: caught_up?}
+    %{note: note, caught_up: caught_up?, aired_seasons: length(aired)}
   end
 
   defp unfinished_row(details, type, id) do
@@ -3249,6 +3297,7 @@ defmodule Laev.CLI do
   end
 
   defp title_poster(:more), do: nil
+  defp title_poster(:caught_up), do: nil
   defp title_poster({:franchise, _}), do: nil
 
   # {poster, meta}: the meta is what the quality watcher needs to ask the
@@ -3288,6 +3337,7 @@ defmodule Laev.CLI do
   defp pick_with_save(items, header, initial \\ 0) do
     describe = fn
       :more -> describe_title_item(:more)
+      :caught_up -> describe_title_item(:caught_up)
       t -> pin_mark(t) <> describe_title_item(t)
     end
 
@@ -3304,6 +3354,14 @@ defmodule Laev.CLI do
     case result do
       nil ->
         nil
+
+      # A divider is scenery. Any key aimed at it leaves the list exactly as it
+      # was, including enter — there is nothing there to play.
+      {_key, :caught_up} ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == :caught_up)) || 0)
+
+      :caught_up ->
+        pick_with_save(items, header, Enum.find_index(items, &(&1 == :caught_up)) || 0)
 
       {"ctrl-s", :more} ->
         pick_with_save(items, header, Enum.find_index(items, &(&1 == :more)) || 0)
@@ -3376,6 +3434,11 @@ defmodule Laev.CLI do
   end
 
   defp describe_title_item(:more), do: "⋯ more results"
+
+  # Where the shelf stops being things to watch and starts being things to wait
+  # for. Dim, and wide enough to read as a line rather than a row.
+  defp describe_title_item(:caught_up),
+    do: faint("⌄ caught up " <> String.duplicate("─", 28))
 
   defp describe_title_item({:franchise, f}) do
     films = Enum.count(f.entries, &(&1.type == "movie"))

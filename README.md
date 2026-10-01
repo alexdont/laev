@@ -56,7 +56,8 @@ a project.
   exists is watched, you're just waiting for more — say so and sink to the
   bottom, so what's actually watchable is at the top. It sits on the home screen
   until you watch the rest or mark it off, and a show that has *ended* with every
-  season behind you marks itself and leaves.
+  season behind you marks itself and leaves. The home-screen count is only what
+  you're behind on — being caught up isn't something left to do.
 - **Continue watching**: `laev continue` jumps back to the exact episode,
   source, **and second** you left off at — the position is checkpointed every
   5 seconds while mpv plays, so it survives player crashes and power loss.
