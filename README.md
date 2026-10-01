@@ -149,6 +149,18 @@ LAEV_AUTOPLAY=off
 
 `laev config` shows which keys are set.
 
+### Rating what you watch
+
+`laev tmdb login` links your TMDB account — one browser approval, using the key
+you already have — and the Now Playing menu then offers `☆ rate this episode on
+TMDB`, on TMDB's own 0.5–10 half-step scale.
+
+Per **episode**, which is the point: IMDb can't do this. Its official API is
+paid, enterprise and read-only, and submitting a rating there means driving a
+logged-in imdb.com session through an internal GraphQL endpoint — laev would
+have to hold your IMDb password to do it, so it doesn't. `ctrl-o` still opens
+the IMDb page for anything, and anime scores can go to MyAnimeList.
+
 ## Commands
 
 | command | what it does |
@@ -162,6 +174,7 @@ LAEV_AUTOPLAY=off
 | `laev setup` | first-run wizard: keys in, validated live |
 | `laev doctor` | health-check binaries, keys, and services |
 | `laev mal login` | link MyAnimeList (anime scrobbling) |
+| `laev tmdb login` | link your TMDB account, to rate episodes and films |
 | `laev sync` | sync watch state now (`laev sync status` shows config) |
 | `laev config` | show config status |
 

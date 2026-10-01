@@ -20,6 +20,7 @@ defmodule Laev.Config do
     "LAEV_SKIP" => :skip,
     "LAEV_AUTOPLAY" => :autoplay,
     "LAEV_AUTO_SOURCE" => :auto_source,
+    "TMDB_SESSION_ID" => :tmdb_session,
     "LAEV_MAX_RESOLUTION" => :max_resolution,
     "LAEV_STRICT_RESOLUTION" => :strict_resolution,
     "LAEV_DOWNLOAD_DIR" => :download_dir,

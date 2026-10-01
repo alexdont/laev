@@ -37,6 +37,7 @@ defmodule Laev.CLI do
       ["doctor" | _] -> doctor()
       ["update" | _] -> update()
       ["mal" | rest] -> mal(rest)
+      ["tmdb" | rest] -> tmdb_account(rest)
       ["sync" | rest] -> sync_cmd(rest)
       ["help" | _] -> usage(0)
       ["--help" | _] -> usage(0)
@@ -3862,6 +3863,10 @@ defmodule Laev.CLI do
             else: [{:imdb, "★  rate on IMDb — open in browser"}]
           ),
           if(ctx[:anime] and Laev.MAL.authenticated?(), do: [{:mal_rate, "☆  rate on MyAnimeList"}], else: []),
+          if(Tmdb.account?(),
+            do: [{:tmdb_rate, "☆  rate #{if episodic?, do: "this episode", else: "it"} on TMDB"}],
+            else: []
+          ),
           {:switch, "⇄  try another source"},
           if(episodic? and ctx.episode > 1, do: [{:previous, "⏮  previous episode"}], else: []),
           if(episodic?,
@@ -3890,6 +3895,10 @@ defmodule Laev.CLI do
           post_play_menu(ctx, stream)
         {:mal_rate, _} ->
           rate_on_mal(ctx)
+          post_play_menu(ctx, stream)
+
+        {:tmdb_rate, _} ->
+          rate_on_tmdb(ctx)
           post_play_menu(ctx, stream)
         {:search, _} -> menu_search()
         {:home, _} -> back()
@@ -5849,6 +5858,89 @@ defmodule Laev.CLI do
     end
   end
 
+  # ── TMDB account (ratings) ────────────────────────────────────────
+
+  defp tmdb_account(["login" | _]) do
+    unless Tmdb.configured?(), do: die("TMDB_API_KEY is not set — run: laev setup")
+    unless tty?(), do: die("tmdb login is interactive — run it at a terminal")
+
+    case Tmdb.start_login() do
+      {:ok, token, url} ->
+        IO.puts(:stderr, "approve laev on TMDB, then come back here:")
+        IO.puts(:stderr, IO.ANSI.format([:bright, "  #{url}", :reset]))
+        browser_open(url)
+        IO.gets("  press enter once you've approved it… ")
+
+        case Tmdb.finish_login(token) do
+          {:ok, session} ->
+            save_setting("TMDB_SESSION_ID", session)
+            name = Tmdb.account_name()
+
+            IO.puts(:stderr, IO.ANSI.format([:green, "✓ linked to TMDB#{if name, do: " as #{name}"}", :reset]))
+            IO.puts(:stderr, "you can now rate episodes and films from the Now Playing menu.")
+
+          {:error, reason} ->
+            die("TMDB login failed: #{inspect(reason)} (was it approved?)")
+        end
+
+      {:error, reason} ->
+        die("TMDB wouldn't start a login: #{inspect(reason)}")
+    end
+  end
+
+  defp tmdb_account(["logout" | _]) do
+    save_setting("TMDB_SESSION_ID", "")
+    IO.puts(:stderr, "unlinked from your TMDB account — metadata still works, ratings won't send.")
+  end
+
+  defp tmdb_account(_) do
+    if Tmdb.account?(),
+      do: IO.puts(:stderr, "TMDB: linked#{if name = Tmdb.account_name(), do: " as #{name}"} — laev tmdb logout to unlink"),
+      else: IO.puts(:stderr, "TMDB: metadata only — run: laev tmdb login  (to rate episodes)")
+  end
+
+  # Rating what you just watched, on the one service that rates episodes
+  # individually and whose key laev already holds. Half steps, because that is
+  # TMDB's scale: 8.5 is a real score there.
+  defp rate_on_tmdb(%{type: "tv", tmdb_id: id, season: season, episode: episode} = ctx)
+       when is_integer(season) and is_integer(episode) do
+    prompt_rating("#{playing_desc(ctx)} on TMDB", Tmdb.episode_rating(id, season, episode), fn value ->
+      Tmdb.rate_episode(id, season, episode, value)
+    end)
+  end
+
+  defp rate_on_tmdb(%{type: "movie", tmdb_id: id} = ctx) do
+    prompt_rating("#{playing_desc(ctx)} on TMDB", nil, &Tmdb.rate_movie(id, &1))
+  end
+
+  defp rate_on_tmdb(_ctx), do: :ok
+
+  defp prompt_rating(what, current, submit) do
+    had = if is_number(current), do: " (you gave it #{trim_score(current)})", else: ""
+
+    with line when is_binary(line) <- IO.gets("  score #{what}#{had} — 0.5-10, enter to skip: "),
+         {value, _} <- Float.parse(String.trim(line)),
+         rating when is_number(rating) <- Tmdb.round_half(value) do
+      case submit.(rating) do
+        {:ok, rating} ->
+          IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ rated #{trim_score(rating)}/10 on TMDB", :reset]))
+
+        {:error, :no_session} ->
+          IO.puts(:stderr, "  not linked to TMDB — run: laev tmdb login")
+
+        {:error, reason} ->
+          IO.puts(:stderr, "  couldn't submit the rating (#{inspect(reason)})")
+      end
+    else
+      # A blank line is "skip"; anything unparseable is a typo, not a score.
+      _ -> :ok
+    end
+  end
+
+  defp trim_score(value) do
+    if value == trunc(value), do: "#{trunc(value)}", else: "#{value}"
+  end
+
   # ── MyAnimeList ───────────────────────────────────────────────────
 
   defp mal(["login" | _]) do
@@ -6490,6 +6582,7 @@ defmodule Laev.CLI do
       laev stats             how much you've watched, and what you watched most
       laev update            self-update the standalone binary to the latest release
       laev mal [login|logout] link MyAnimeList to scrobble anime progress
+      laev tmdb [login|logout] link your TMDB account to rate episodes and films
 
     watch is interactive: pick the title (TMDB), for shows the season and
     episode, then a source — it resolves on your debrid account and plays
