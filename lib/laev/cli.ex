@@ -1337,7 +1337,8 @@ defmodule Laev.CLI do
 
       titles =
         shows
-        |> Task.async_stream(fn {{type, id}, seasons} -> unfinished_title(type, id, seasons) end,
+        |> Enum.with_index()
+        |> Task.async_stream(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order) end,
           max_concurrency: 8,
           timeout: 20_000,
           on_timeout: :kill_task
@@ -1346,6 +1347,10 @@ defmodule Laev.CLI do
           {:ok, title} when is_map(title) -> [title]
           _ -> []
         end)
+        # Caught up means there is nothing to watch yet — it belongs under the
+        # shows you are actually behind on, not above them. Within each group the
+        # order stands: most recently watched first.
+        |> Enum.sort_by(&{if(&1[:caught_up], do: 1, else: 0), &1[:order] || 0})
 
       case pick_with_save(titles, "◴ to complete — #{length(titles)} shows you've started") do
         nil -> back()
@@ -1358,7 +1363,7 @@ defmodule Laev.CLI do
   # The same shape every other title list uses, so enter plays it and ctrl-w,
   # ctrl-s and ctrl-o all work here too. Falls back to the remembered name when
   # TMDB can't be reached, rather than dropping the row.
-  defp unfinished_title(type, id, seasons) do
+  defp unfinished_title(type, id, seasons, order) do
     case fetch_details(%{type: type, id: id}) do
       {:ok, details} ->
         # A show that has ended, with every season behind you, is finished —
@@ -1370,7 +1375,7 @@ defmodule Laev.CLI do
           Laev.Sync.live_push()
           nil
         else
-          unfinished_row(type, id, details)
+          details |> unfinished_row(type, id) |> Map.merge(season_progress_note(details, seasons)) |> Map.put(:order, order)
         end
 
       _ ->
@@ -1382,12 +1387,56 @@ defmodule Laev.CLI do
           poster: nil,
           overview: nil,
           vote: nil,
-          popularity: nil
+          popularity: nil,
+          order: order
         }
     end
   end
 
-  defp unfinished_row(type, id, details) do
+  # "2 of 4 seasons", and whether there is anything to watch right now.
+  #
+  # A show whose every aired season is behind you is not behind — it is caught
+  # up, and saying so is the difference between "go and watch this" and "wait for
+  # the next one". Counted from the details the row already fetched, so the
+  # numbers are TMDB's rather than a guess from what laev happens to have looked
+  # at.
+  defp season_progress_note(details, marks) do
+    real = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
+    today = Date.to_iso8601(Date.utc_today())
+
+    aired = Enum.filter(real, &(&1["air_date"] not in [nil, ""] and &1["air_date"] <= today))
+
+    watched =
+      Enum.count(aired, fn season ->
+        number = season["season_number"]
+        total = Laev.Seasons.aired(details["id"], number) || season["episode_count"] || 0
+
+        total > 0 and Map.get(marks, number, 0) >= total
+      end)
+
+    # Caught up is simply "every season that exists to watch is watched" —
+    # whether or not TMDB has announced another one. A show with all four of its
+    # four seasons behind you has nothing for you tonight, which is the thing
+    # worth saying and the reason it sinks down the list.
+    caught_up? = aired != [] and watched == length(aired)
+
+    marked = marks |> Map.values() |> Enum.sum()
+    episodes = Enum.reduce(aired, 0, fn season, sum -> sum + (season["episode_count"] || 0) end)
+
+    note =
+      cond do
+        caught_up? -> " · caught up · #{watched}/#{length(real)} seasons"
+        watched > 0 -> " · #{watched}/#{length(real)} seasons watched"
+        # Not a season in yet: the episode count says far more than "0/1".
+        marked > 0 and episodes > 0 -> " · #{marked}/#{episodes} episodes watched"
+        marked > 0 -> " · #{marked} episode#{if marked > 1, do: "s"} watched"
+        true -> ""
+      end
+
+    %{note: note, caught_up: caught_up?}
+  end
+
+  defp unfinished_row(details, type, id) do
     %{
       id: id,
       type: type,
@@ -1927,7 +1976,7 @@ defmodule Laev.CLI do
 
     text =
       "#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}" <>
-        seasons_watched(%{type: entry["type"], id: entry["tmdb_id"]}) <> entry_badge(entry)
+        faint(seasons_watched(%{type: entry["type"], id: entry["tmdb_id"]})) <> entry_badge(entry)
 
     # Same treatment as search and Featured: watched sinks into the
     # background rather than sitting there in full white with a tick.
@@ -3519,7 +3568,11 @@ defmodule Laev.CLI do
   defp describe_title(t) do
     kind = if t.type == "tv", do: "series", else: "movie"
     rating = if t.vote && t.vote > 0, do: " · ★ #{Float.round(t.vote * 1.0, 1)}"
-    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}#{seasons_watched(t)}#{quality_badge(t)}"
+    # A row that already knows exactly where it stands says so; everything else
+    # falls back to counting what laev has marked.
+    progress = t[:note] || seasons_watched(t)
+
+    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}#{faint(progress)}#{quality_badge(t)}"
 
     if seen?(t),
       do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset])),
@@ -3588,8 +3641,8 @@ defmodule Laev.CLI do
         episodes = seasons |> Map.values() |> Enum.sum()
 
         cond do
-          complete > 0 -> faint(" · #{complete} season#{if complete > 1, do: "s"} watched")
-          episodes > 0 -> faint(" · #{episodes} episode#{if episodes > 1, do: "s"} watched")
+          complete > 0 -> " · #{complete} season#{if complete > 1, do: "s"} watched"
+          episodes > 0 -> " · #{episodes} episode#{if episodes > 1, do: "s"} watched"
           true -> ""
         end
     end
@@ -3608,6 +3661,7 @@ defmodule Laev.CLI do
   # positions directory is twenty scans of a thousand files.
   defp marks_by_show, do: SessionCache.fetch(:episode_marks, 2, &Laev.Position.episode_marks/0)
 
+  defp faint(""), do: ""
   defp faint(text), do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, text, :reset]))
 
   # The season list had no idea where you were: a season watched end to end
