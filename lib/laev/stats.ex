@@ -17,6 +17,12 @@ defmodule Laev.Stats do
       has no idea how much of it, or when, so it assumes the full runtime and
       never pretends that figure was observed.
 
+  Anime is counted apart, and from MyAnimeList rather than TMDB: a mark there is
+  one anime's episode (`mal-1425-e12`), and MAL reports how long an episode of
+  that anime runs — which TMDB frequently doesn't for anime at all. So anime
+  hours are its own figure, derived from its own source, and sit beside films and
+  shows instead of inside them.
+
   Nothing is invented. An entry whose runtime can't be established is counted
   as watched but left out of the time, and reported separately, so the total
   is only ever made of durations that were actually known.
@@ -72,11 +78,11 @@ defmodule Laev.Stats do
 
   # Anime kept apart from everything else, because they are not the same hobby:
   # three hundred twenty-minute episodes and sixty films both come to "a year of
-  # evenings" and nothing else about them compares. The split costs nothing —
-  # the MAL cross-id list already says which TMDB ids are anime, offline.
+  # evenings" and nothing else about them compares. No guessing is involved —
+  # anime is what MyAnimeList holds, and its marks say so in their own keys.
   defp slice(titles, entries, anime?) do
-    mine = Enum.filter(titles, &(Laev.AnimeMap.anime?(&1.type, &1.tmdb_id) == anime?))
-    rows = Enum.filter(entries, fn {_n, type, id, _k, _p} -> Laev.AnimeMap.anime?(type, id) == anime? end)
+    mine = Enum.filter(titles, &((&1.type == "mal") == anime?))
+    rows = Enum.filter(entries, fn {_n, type, _id, _k, _p} -> (type == "mal") == anime? end)
 
     %{
       seconds: mine |> Enum.map(& &1.seconds) |> Enum.sum(),
@@ -147,6 +153,8 @@ defmodule Laev.Stats do
     with {:ok, %{"name" => name}} <- Tmdb.tv(id), do: name, else: (_ -> nil)
   end
 
+  defp name_of("mal", id), do: Laev.Anime.title(id) || with(%{title: title} <- Laev.Anime.learn(id), do: title, else: (_ -> nil))
+
   defp name_of(_type, _id), do: nil
 
   @doc "Seconds as `12h 04m`, or `48m` under an hour."
@@ -166,17 +174,20 @@ defmodule Laev.Stats do
   # of hours for "all of Game of Thrones", so it counts as watched, not time.
   defp read_positions do
     dir = Path.join(data_dir(), "positions")
+    # Read once: a bare `mal-<id>` is a whole anime, and whether that is a film
+    # or a series is something only the anime's own episode count can say.
+    anime = Laev.Anime.all()
 
     case File.ls(dir) do
       {:ok, names} ->
-        Enum.flat_map(names, &parse(&1, File.read(Path.join(dir, &1))))
+        Enum.flat_map(names, &parse(&1, File.read(Path.join(dir, &1)), anime))
 
       _ ->
         []
     end
   end
 
-  defp parse(name, {:ok, body}) do
+  defp parse(name, {:ok, body}, anime) do
     progress =
       case String.trim(body) do
         "done" -> :done
@@ -184,24 +195,37 @@ defmodule Laev.Stats do
         digits -> with {n, _} <- Integer.parse(digits), do: {:secs, n}, else: (_ -> nil)
       end
 
-    case {key_parts(name), progress} do
+    case {key_parts(name, anime), progress} do
       {nil, _} -> []
       {_, nil} -> []
       {{type, id, kind}, progress} -> [{name, type, id, kind, progress}]
     end
   end
 
-  defp parse(_name, _), do: []
+  defp parse(_name, _body, _anime), do: []
 
-  defp key_parts(name) do
+  defp key_parts(name, anime) do
     cond do
       # a film
       match = Regex.run(~r/^movie-(\d+)$/, name) -> {"movie", String.to_integer(Enum.at(match, 1)), :movie}
-      # an episode, numbered by season or absolutely (anime)
+      # an episode, numbered by season or absolutely
       match = Regex.run(~r/^tv-(\d+)-(?:s\d+)?e\d+$/, name) -> {"tv", String.to_integer(Enum.at(match, 1)), :episode}
       # the whole series, marked by hand
       match = Regex.run(~r/^tv-(\d+)$/, name) -> {"tv", String.to_integer(Enum.at(match, 1)), :series_mark}
+      # one episode of one anime, as MyAnimeList counts it
+      match = Regex.run(~r/^mal-(\d+)-e\d+$/, name) -> {"mal", String.to_integer(Enum.at(match, 1)), :episode}
+      # a whole anime: a film if that is all it is, a finished series otherwise
+      match = Regex.run(~r/^mal-(\d+)$/, name) -> whole_anime(String.to_integer(Enum.at(match, 1)), anime)
       true -> nil
+    end
+  end
+
+  # A one-episode anime is a film (or an OVA, which is a film as far as an
+  # evening is concerned); anything longer is a series you finished.
+  defp whole_anime(id, anime) do
+    case anime[id] do
+      %{episodes: 1} -> {"mal", id, :movie}
+      _ -> {"mal", id, :series_mark}
     end
   end
 
@@ -277,6 +301,7 @@ defmodule Laev.Stats do
 
   # "I've seen all of it" needs the length of the whole run, so a series mark
   # is looked up under its own key rather than borrowing the episode length.
+  defp runtime_key("mal", id, kind) when kind in [:series_mark, :movie], do: {"mal_all", id}
   defp runtime_key(_type, id, :series_mark), do: {"series", id}
   defp runtime_key(type, id, _kind), do: {type, id}
 
@@ -302,6 +327,26 @@ defmodule Laev.Stats do
       {:ok, show} ->
         remember_name("tv", id, show["name"])
         episode_seconds(show)
+
+      _ ->
+        @unknown
+    end
+  end
+
+  # Anime, from MyAnimeList's own numbers: how long one episode of this anime
+  # runs, and how long all of it does. Asked of the list once and kept, so the
+  # only anime laev ever looks up is one it played that the list didn't cover.
+  defp fetch_runtime({"mal", id}) do
+    case Laev.Anime.learn(id) do
+      %{seconds: seconds} when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> @unknown
+    end
+  end
+
+  defp fetch_runtime({"mal_all", id}) do
+    case Laev.Anime.learn(id) do
+      %{seconds: seconds, episodes: count} when is_integer(seconds) and seconds > 0 and is_integer(count) and count > 0 ->
+        seconds * count
 
       _ ->
         @unknown

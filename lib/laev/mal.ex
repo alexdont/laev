@@ -294,6 +294,45 @@ defmodule Laev.MAL do
   defp entry(_other), do: []
 
   @doc """
+  One anime, as laev needs to describe it: `%{title:, episodes:, seconds:,
+  status:, score:}` — or nil. Public data, so it works logged out too.
+  """
+  def anime(mal_id) when is_integer(mal_id) do
+    fields = "title,num_episodes,average_episode_duration,my_list_status"
+
+    with {:ok, %{status: 200, body: %{"title" => title} = body}} <- get_anime(mal_id, fields) do
+      %{
+        title: title,
+        episodes: body["num_episodes"],
+        seconds: body["average_episode_duration"],
+        status: get_in(body, ["my_list_status", "status"]),
+        score: get_in(body, ["my_list_status", "score"])
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  def anime(_mal_id), do: nil
+
+  # The one request that works with either credential: a user token when there
+  # is one (so my_list_status comes back), the bare client id when there isn't.
+  defp get_anime(mal_id, fields) do
+    case access_token() do
+      at when is_binary(at) ->
+        get("/anime/#{mal_id}", at, fields: fields)
+
+      _ ->
+        Req.get("#{@base}/anime/#{mal_id}",
+          headers: [{"x-mal-client-id", client_id() || ""}],
+          params: [fields: fields],
+          retry: false,
+          receive_timeout: 15_000
+        )
+    end
+  end
+
+  @doc """
   Record progress: set watched count and status. Never regresses a higher
   count already on MAL. `total` (episode count, optional) decides whether
   finishing marks the show *completed*. Returns :ok | {:error, reason} | :skip.

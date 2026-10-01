@@ -37,13 +37,6 @@ defmodule Laev.AnimeMapTest do
     {:ok, dir: dir}
   end
 
-  test "a MAL id answers with its TMDB title and season" do
-    assert AnimeMap.tmdb(16498) == {"tv", 1429, 1}
-    assert AnimeMap.tmdb(25777) == {"tv", 1429, 2}
-    assert AnimeMap.tmdb(164) == {"movie", 128}
-    assert AnimeMap.tmdb(99_999) == nil
-  end
-
   test "a show's season answers with the MAL entry that is that season" do
     assert AnimeMap.mal_id("tv", 1429, 1) == 16498
     assert AnimeMap.mal_id("tv", 1429, 2) == 25777
@@ -54,6 +47,14 @@ defmodule Laev.AnimeMapTest do
   # is right more often than it is wrong.
   test "a season-less show is taken as season one" do
     assert AnimeMap.mal_id("tv", 1429, nil) == 16498
+  end
+
+  # A TMDB show can be several anime: a search row is a TMDB row, and this is how
+  # it finds the marks that belong to it.
+  test "a TMDB show lists every MAL entry it is made of" do
+    assert AnimeMap.mal_ids("tv", 1429) == [16_498, 25_777]
+    assert AnimeMap.mal_ids("movie", 128) == [164]
+    assert AnimeMap.mal_ids("tv", 1396) == []
   end
 
   test "anime is told apart from everything else, offline" do
@@ -69,6 +70,7 @@ defmodule Laev.AnimeMapTest do
 
     refute AnimeMap.ready?()
     refute AnimeMap.anime?("tv", 1429)
-    assert AnimeMap.tmdb(16498) == nil
+    assert AnimeMap.mal_ids("tv", 1429) == []
+    assert AnimeMap.mal_id("tv", 1429, 1) == nil
   end
 end

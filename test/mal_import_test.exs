@@ -1,134 +1,59 @@
 defmodule Laev.MalImportTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Laev.Ratings
 
-  # MAL counts episodes per entry; TMDB keeps seasons. These are the shapes that
-  # disagree, and what the import has to do about each.
+  # MAL keeps a count per anime — "24/24 watched" — and laev marks exactly that:
+  # episodes of an anime, numbered from one inside it.
   defp entry(fields) do
-    Map.merge(%{mal_id: 1, title: "x", episodes: nil, episodes_watched: 0, status: "completed"}, fields)
+    Map.merge(
+      %{mal_id: 1, title: "x", episodes: nil, episodes_watched: 0, status: "completed", episode_seconds: 1440},
+      fields
+    )
   end
 
-  defp show(seasons, aired \\ "2020-01-01") do
-    %{
-      "name" => "Show",
-      "seasons" =>
-        Enum.map(seasons, fn {number, count} ->
-          %{"season_number" => number, "episode_count" => count, "air_date" => aired}
-        end)
-    }
+  defp numbers(marks), do: marks |> Enum.map(& &1.episode) |> Enum.sort()
+
+  test "a finished anime marks every episode, and the anime itself" do
+    {episodes, whole} = Ratings.marks_for(entry(%{mal_id: 16_498, episodes: 25, episodes_watched: 25}))
+
+    assert numbers(episodes) == Enum.to_list(1..25)
+    assert Enum.all?(episodes, &(&1.mal_id == 16_498))
+    assert whole == [%{mal_id: 16_498}]
   end
 
-  defp episodes(marks, season) do
-    marks |> Enum.filter(&(&1.season == season)) |> Enum.map(& &1.episode) |> Enum.sort()
+  test "a part-watched anime marks only as far as it got, and is not finished" do
+    {episodes, whole} = Ratings.marks_for(entry(%{episodes: 24, episodes_watched: 7, status: "watching"}))
+
+    assert numbers(episodes) == Enum.to_list(1..7)
+    assert whole == [], "seven of twenty-four is not a finished anime"
   end
 
-  test "a finished season marks every episode of it, and the show itself" do
-    mapped = [entry(%{mal_id: 16_498, episodes: 25, episodes_watched: 25})]
-    shows = %{1429 => show([{1, 25}])}
+  # An anime dropped or on hold is still watching that happened; it just never
+  # became a finished one.
+  test "a dropped anime keeps the episodes it watched" do
+    {episodes, whole} = Ratings.marks_for(entry(%{episodes: 12, episodes_watched: 3, status: "dropped"}))
 
-    {marks, overflow, series} = Ratings.plan_marks(with_map(mapped, {"tv", 1429, 1}), shows)
-
-    assert episodes(marks, 1) == Enum.to_list(1..25)
-    assert overflow == []
-    assert series == [%{type: "tv", tmdb_id: 1429, season: nil, episode: nil}]
+    assert numbers(episodes) == [1, 2, 3]
+    assert whole == []
   end
 
-  test "a part-watched anime marks only as far as it got" do
-    mapped = [entry(%{episodes: 24, episodes_watched: 7, status: "watching"})]
-    {marks, _over, series} = Ratings.plan_marks(with_map(mapped, {"tv", 55, 1}), %{55 => show([{1, 24}])})
+  # A film is one thing of one length. Marking "episode 1" of it as well would
+  # count it twice and call it a series.
+  test "a one-episode anime is a single mark, not an episode" do
+    {episodes, whole} = Ratings.marks_for(entry(%{mal_id: 164, episodes: 1, episodes_watched: 1}))
 
-    assert episodes(marks, 1) == Enum.to_list(1..7)
-    assert series == [], "seven of twenty-four is not a finished show"
+    assert episodes == []
+    assert whole == [%{mal_id: 164}]
   end
 
-  # Kaijuu No. 8: MAL lists the second cour as its own anime, TMDB keeps both
-  # inside season 1. The second cour has to continue into episode 13.
-  test "a second cour continues through a season TMDB merged" do
-    mapped = [
-      entry(%{mal_id: 1, title: "cour 1", episodes: 12, episodes_watched: 12}),
-      entry(%{mal_id: 2, title: "cour 2", episodes: 11, episodes_watched: 11})
-    ]
+  # Nothing about a MAL entry has to be matched to TMDB: no season to land in,
+  # no split cour to lay out, nothing that can land on the wrong show.
+  test "marks name the MAL entry and nothing else" do
+    {episodes, whole} = Ratings.marks_for(entry(%{mal_id: 1425, episodes: 155, episodes_watched: 155}))
 
-    {marks, overflow, series} = Ratings.plan_marks(with_map(mapped, {"tv", 207_468, 1}), %{207_468 => show([{1, 23}])})
-
-    assert episodes(marks, 1) == Enum.to_list(1..23)
-    assert overflow == []
-    assert series != [], "every episode the show has is watched"
-  end
-
-  # The same two entries, against a show TMDB split into two seasons: the second
-  # cour belongs to season 2, not to episodes that season 1 doesn't have.
-  test "a second cour continues into the next season when TMDB split them" do
-    mapped = [
-      entry(%{mal_id: 1, title: "s1", episodes: 12, episodes_watched: 12}),
-      entry(%{mal_id: 2, title: "s2", episodes: 11, episodes_watched: 11})
-    ]
-
-    {marks, overflow, _series} = Ratings.plan_marks(with_map(mapped, {"tv", 99, 1}), %{99 => show([{1, 12}, {2, 11}])})
-
-    assert episodes(marks, 1) == Enum.to_list(1..12)
-    assert episodes(marks, 2) == Enum.to_list(1..11)
-    assert overflow == []
-  end
-
-  # An OVA or a recap film filed under the show's id: it has nowhere to go, and
-  # inventing episodes for it would put ticks on episodes that don't exist.
-  test "episodes with nowhere to go are reported, not invented" do
-    mapped = [
-      entry(%{mal_id: 1, title: "the series", episodes: 12, episodes_watched: 12}),
-      entry(%{mal_id: 2, title: "the OVA", episodes: 2, episodes_watched: 2})
-    ]
-
-    {marks, overflow, _series} = Ratings.plan_marks(with_map(mapped, {"tv", 7, 1}), %{7 => show([{1, 12}])})
-
-    assert episodes(marks, 1) == Enum.to_list(1..12)
-    assert overflow == ["the OVA"]
-  end
-
-  test "a watched film is one mark" do
-    {marks, overflow, series} = Ratings.plan_marks(with_map([entry(%{episodes: 1, episodes_watched: 1})], {"movie", 128}), %{})
-
-    assert marks == [%{type: "movie", tmdb_id: 128, season: nil, episode: nil}]
-    assert {overflow, series} == {[], []}
-  end
-
-  # A finished season of a five-season anime is a finished season. Only a show
-  # that is one season is finished when that season is.
-  test "a season of a longer show does not mark the whole show watched" do
-    mapped = [entry(%{episodes: 12, episodes_watched: 12})]
-    {_marks, _over, series} = Ratings.plan_marks(with_map(mapped, {"tv", 5, 1}), %{5 => show([{1, 12}, {2, 12}])})
-
-    assert series == []
-  end
-
-  test "a show TMDB knows nothing about still marks what MAL counted" do
-    mapped = [entry(%{episodes: 13, episodes_watched: 13})]
-    {marks, overflow, _series} = Ratings.plan_marks(with_map(mapped, {"tv", 404, 3}), %{})
-
-    assert episodes(marks, 3) == Enum.to_list(1..13)
-    assert overflow == []
-  end
-
-  # plan_marks reads the mapping through AnimeMap, so the test supplies it the
-  # same way the map would: one cached file holding exactly these entries.
-  defp with_map(entries, target) do
-    dir = Path.join(System.tmp_dir!(), "laev-plan-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
-    Application.put_env(:laev_app, :data_dir, dir)
-
-    ids =
-      Map.new(entries, fn e ->
-        {Integer.to_string(e.mal_id),
-         case target do
-           {"tv", id, season} -> ["tv", id, season]
-           {"movie", id} -> ["movie", id]
-         end}
-      end)
-
-    File.write!(Path.join(dir, "anime-map.json"), Jason.encode!(%{"fetched_at" => System.os_time(:second), "ids" => ids}))
-    Laev.AnimeMap.forget()
-    on_exit(fn -> File.rm_rf(dir) end)
-    entries
+    assert length(episodes) == 155
+    assert Enum.all?(episodes, &(Map.keys(&1) |> Enum.sort() == [:episode, :mal_id]))
+    assert whole == [%{mal_id: 1425}]
   end
 end

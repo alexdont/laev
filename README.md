@@ -176,27 +176,35 @@ runtime belongs. Positions you are partway through are left alone — a rating i
 no reason to overwrite somebody's place in something. Run it as often as you
 like; it only ever fills gaps.
 
-`laev mal import` does the same for anime, from your MyAnimeList list. MAL keeps
-a count rather than a tick list — "24/24 watched" — so the count is laid out over
-the matching TMDB season, and a show you are seven episodes into reads as seven
-episodes here too. Matching the two sites is the hard part: MAL lists a *season*
-as its own anime while TMDB keeps one show with several, so laev uses the
-community cross-id list, which pins each MAL id to a TMDB id and the season
-number it is. Split cours are laid end to end, into episode 13 of a 24-episode
-season where TMDB merged them and into season 2 where it didn't.
+`laev mal import` does the same for anime, from your MyAnimeList list — but on
+MyAnimeList's terms, not TMDB's. MAL keeps a season as its own entry ("Lupin III:
+Part II" is one anime with 155 episodes), and that is exactly what laev marks:
+`mal-1425-e12`, an episode of an anime. Nothing is matched to anything, so
+nothing can land on the wrong show. A part-watched anime marks as far as it got;
+a one-episode anime — a film, an OVA — is a single mark, because that is all it
+is.
 
-Anything it can't place it names rather than silently dropping — an OVA filed
-under a series id, an anime TMDB has no entry for — so the handful that need a
-`ctrl-w` by hand are in front of you:
+Anime hours come from MAL's own episode durations, which it reports per anime and
+TMDB frequently doesn't list at all. So the stats page keeps the two apart and
+each is counted from its own source:
 
 ```
-  ✓ marked 5882 episodes watched and 109 anime finished — 61 already were
-  from 362 anime on your list · MAL counts 5970 episodes, 2442h
+  6910h 09m across 1785 titles · 1390 films · 6544 episodes from 349 shows
 
-  2 left for you — not on TMDB under any id laev could find:
-    · Home!
-    · Re:Zero kara Hajimeru Break Time
+  52 series finished · 19 to complete · 16 caught up · 325 anime finished
+
+    4467h 34m  films & tv · 1330 films · 634 episodes from 47 shows
+    2442h 35m  anime      · 60 films · 5910 episodes from 302 anime
 ```
+
+Films and shows are TMDB's; anime is MyAnimeList's; the profile you have been
+keeping for years stays the one that counts. Run it as often as you like — it
+only ever fills gaps.
+
+Anime laev had previously filed under TMDB ids is cleared the first time you
+import, and said so plainly, since the same watching recorded in two numbering
+schemes would be counted twice. A position partway through an episode is carried
+over rather than dropped.
 
 ### Rating what you watch
 
@@ -226,10 +234,11 @@ how was Your Friends & Neighbors — the whole series? · your episodes average 
 The cursor opens on that average, so agreeing with yourself is one keypress and
 the only question left is whether the whole was more than its parts or less.
 
-For anime the series row goes to MyAnimeList instead — `☆ rate the whole series
-on MyAnimeList` — because that is where an anime score belongs and where your
-list already is. MAL scores whole anime and nothing smaller, so **episode**
-ratings still go to TMDB, which is the one service that takes them; the cursor
+For anime the row goes to MyAnimeList instead — `☆ rate the whole series on
+MyAnimeList` — because that is where an anime score belongs and where your list
+already is, and `ctrl-o` opens the MAL entry you actually watched rather than
+whatever a name search turns up. MAL scores whole anime and nothing smaller, so
+**episode** ratings still go to TMDB, the one service that takes them; the cursor
 opens on your TMDB episode average either way.
 
 Per **episode**, which is the point: IMDb can't do this. Its official API is
@@ -251,7 +260,7 @@ the IMDb page for anything, and anime scores can go to MyAnimeList.
 | `laev setup` | first-run wizard: keys in, validated live |
 | `laev doctor` | health-check binaries, keys, and services |
 | `laev mal login` | link MyAnimeList (anime scrobbling and scores) |
-| `laev mal import` | mark your MyAnimeList list watched here |
+| `laev mal import` | mark your MyAnimeList list watched here (anime stats) |
 | `laev tmdb login` | link your TMDB account, to rate episodes and films |
 | `laev sync` | sync watch state now (`laev sync status` shows config) |
 | `laev config` | show config status |

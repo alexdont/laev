@@ -300,6 +300,30 @@ defmodule Laev.Position do
   end
 
   @doc """
+  Carry a saved position from one key to another, once.
+
+  Anime used to be filed under its TMDB show and is now filed under its
+  MyAnimeList entry; an episode somebody was seven minutes into should still be
+  seven minutes in. Copies only when there is something to copy and nothing
+  already there, so it is safe to call on every play.
+  """
+  def adopt(from_ctx, to_ctx) do
+    with old when is_binary(old) <- key(from_ctx),
+         new when is_binary(new) <- key(to_ctx),
+         true <- old != new,
+         false <- File.exists?(position_file(new)),
+         {:ok, body} <- File.read(position_file(old)) do
+      File.write(position_file(new), body)
+      File.rm(position_file(old))
+      :moved
+    else
+      _ -> :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
   Every watched episode mark, grouped as `%{{type, id} => %{season => count}}`.
 
   One directory read for a whole screen: a list of twenty rows each asking after
@@ -322,6 +346,66 @@ defmodule Laev.Position do
     end
   rescue
     _ -> %{}
+  end
+
+  @doc """
+  Watched anime episodes, as `%{mal_id => count}`.
+
+  Kept apart from the show marks above rather than mixed in with them: anime is
+  counted by MyAnimeList entry and finished according to MyAnimeList, so a shelf
+  that counts TMDB shows must not find 300 anime in the same bag and call them
+  all unfinished series.
+  """
+  def anime_marks do
+    dir = Path.join(data_dir(), "positions")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        names
+        |> Enum.flat_map(fn name ->
+          with [_, id] <- Regex.run(~r/^mal-(\d+)-e\d+$/, name),
+               true <- marked?(dir, name) do
+            [String.to_integer(id)]
+          else
+            _ -> []
+          end
+        end)
+        |> Enum.frequencies()
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  @doc "Every anime marked finished, as a list of MAL ids."
+  def anime_finished do
+    dir = Path.join(data_dir(), "positions")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        Enum.flat_map(names, fn name ->
+          with [_, id] <- Regex.run(~r/^mal-(\d+)$/, name),
+               true <- marked?(dir, name) do
+            [String.to_integer(id)]
+          else
+            _ -> []
+          end
+        end)
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp marked?(dir, name) do
+    case File.read(Path.join(dir, name)) do
+      {:ok, body} -> String.trim(body) in ["done", "seen"]
+      _ -> false
+    end
   end
 
   defp parse_episode_key(name, dir) do
@@ -427,6 +511,14 @@ defmodule Laev.Position do
     end
   rescue
     _ -> nil
+  end
+
+  # Anime is kept as MyAnimeList keeps it: one entry per anime, episodes numbered
+  # from one within it. That is also how laev plays it — the Kitsu entry it
+  # matches *is* the MAL entry — so the mark, the scrobble and the list all agree
+  # without anything having to be translated into seasons of a TMDB show.
+  defp key(%{mal_id: mal_id} = ctx) when is_integer(mal_id) do
+    if ctx[:episode], do: "mal-#{mal_id}-e#{ctx[:episode]}", else: "mal-#{mal_id}"
   end
 
   defp key(%{type: type, tmdb_id: id} = ctx) when type in ["movie", "tv"] and not is_nil(id) do

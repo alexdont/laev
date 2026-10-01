@@ -25,20 +25,6 @@ defmodule Laev.AnimeMap do
   @max_age 30 * 24 * 3600
 
   @doc """
-  Where a MAL id lives on TMDB: `{"tv", id, season}`, `{"movie", id}`, or nil
-  when the map doesn't know it (or hasn't been fetched).
-  """
-  def tmdb(mal_id) when is_integer(mal_id) do
-    case Map.get(load().forward, Integer.to_string(mal_id)) do
-      ["tv", id, season] -> {"tv", id, season}
-      ["movie", id] -> {"movie", id}
-      _ -> nil
-    end
-  end
-
-  def tmdb(_mal_id), do: nil
-
-  @doc """
   The MAL id for a TMDB show's season (or a film) — the reverse direction,
   used to scrobble something laev found on TMDB to the right MAL entry.
   """
@@ -51,6 +37,31 @@ defmodule Laev.AnimeMap do
   end
 
   def mal_id(_type, _tmdb_id, _season), do: nil
+
+  @doc """
+  Every MAL entry that is part of this TMDB title.
+
+  A TMDB show can be many anime: Lupin III is seven entries on MAL and one show
+  with seven seasons here. Which is why laev marks anime by MAL entry — but a
+  search row is still a TMDB row, and this is how it finds out what it is made of.
+  """
+  def mal_ids("tv", tmdb_id) when is_integer(tmdb_id) do
+    load().forward
+    |> Enum.flat_map(fn
+      {mal, ["tv", ^tmdb_id, _season]} -> [String.to_integer(mal)]
+      _ -> []
+    end)
+    |> Enum.sort()
+  end
+
+  def mal_ids("movie", tmdb_id) when is_integer(tmdb_id) do
+    case mal_id("movie", tmdb_id, nil) do
+      id when is_integer(id) -> [id]
+      _ -> []
+    end
+  end
+
+  def mal_ids(_type, _tmdb_id), do: []
 
   @doc """
   True when this TMDB title is anime — it appears in the cross-id list, which

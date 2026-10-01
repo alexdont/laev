@@ -1562,6 +1562,16 @@ defmodule Laev.CLI do
   # menu went back to adding one and hoping. This reads what laev learned about
   # the season the last time it looked, and a season it has never looked at
   # stays optimistic rather than hiding a row that probably exists.
+  # Anime answers for itself: the list says how many episodes it has, so the row
+  # that used to add one and hope can simply know. (This is the check that was
+  # offering episode 8 of a seven-episode show.)
+  defp more_episodes?(%{"mal_id" => mal_id, "episode" => episode}) when is_integer(mal_id) and is_integer(episode) do
+    case Laev.Anime.episodes(mal_id) do
+      nil -> true
+      total -> episode + 1 <= total
+    end
+  end
+
   defp more_episodes?(%{"tmdb_id" => tmdb_id, "season" => season, "episode" => episode}) do
     case Laev.Seasons.aired(tmdb_id, season) do
       nil -> true
@@ -2466,7 +2476,10 @@ defmodule Laev.CLI do
       episode: opts[:episode],
       poster_path: opts[:poster_path],
       anime: opts[:anime] || false,
-      search_title: opts[:search_title]
+      search_title: opts[:search_title],
+      # Anime is marked as MyAnimeList counts it, so the MAL entry — not the
+      # TMDB show — is what its position file is named after.
+      mal_id: opts[:mal_id]
     }
   end
 
@@ -2476,7 +2489,8 @@ defmodule Laev.CLI do
       episode: entry["episode"],
       poster_path: entry["poster_path"],
       anime: entry["anime"] || false,
-      search_title: entry["search_title"]
+      search_title: entry["search_title"],
+      mal_id: entry["mal_id"]
     )
   end
 
@@ -2517,10 +2531,14 @@ defmodule Laev.CLI do
     IO.puts(:stderr, "anime — matching on Kitsu for episode list + AniDB id…")
     kitsu = kitsu_pick(title.title)
     search_title = (kitsu.anime && kitsu.anime.title) || title.title
+    # The entry the user just picked *is* the MyAnimeList entry, and the match
+    # carries its id — so marks, scrobbles and the episode ticks all land on the
+    # same anime with nothing inferred from a title.
+    mal_id = kitsu.anime && kitsu.anime[:mal_id]
 
     case {title.type, kitsu.episodes} do
       {"movie", _} ->
-        ctx = anime_ctx(title, details, nil, search_title)
+        ctx = anime_ctx(title, details, nil, search_title, mal_id)
         q = Sources.anime_movie_query(search_title)
 
         case Sources.search(q, backend: :anime) do
@@ -2545,15 +2563,11 @@ defmodule Laev.CLI do
       {"tv", episodes} ->
         episodes = enrich_episodes(episodes, Kitsu.episode_details(kitsu.anime))
 
-        # Which TMDB season this Kitsu entry is, when anything knows: an import
-        # from MyAnimeList wrote its marks as season/episode, and this list
-        # counts episodes from one within the entry — so a finished anime pulled
-        # in from a list would otherwise show a page of unwatched episodes.
-        season = anime_tmdb_season(title, search_title)
-
-        ctx_of = fn ep ->
-          anime_mark_ctx(%{type: "tv", tmdb_id: title.id, season: nil, episode: ep.number}, season)
-        end
+        # Episodes count from one inside this anime, which is exactly how MAL
+        # counts them — so the ticks here are the same marks the list import
+        # wrote, with no translation in between. Without a MAL id (nothing
+        # matched) it falls back to the TMDB key, so a play still saves.
+        ctx_of = fn ep -> episode_ctx(title, mal_id, ep.number) end
         rt_of = fn ep -> runtime_seconds(Map.get(ep, :runtime)) end
         describe = fn ep -> watched_label(ctx_of.(ep), describe_anime_episode(ep), rt_of.(ep)) end
 
@@ -2568,41 +2582,23 @@ defmodule Laev.CLI do
         q = Sources.anime_episode_query(search_title, n)
 
         with_library(q, sources)
-        |> probe_and_pick([episode: n], anime_ctx(title, details, n, search_title))
+        |> probe_and_pick([episode: n], anime_ctx(title, details, n, search_title, mal_id))
     end
   end
 
-  # An anime episode can carry a mark under either numbering: the absolute number
-  # laev plays it by, or the TMDB season and episode an import wrote. Whichever
-  # of the two says more is the one the list reads — a tick is a tick, and
-  # nothing here writes, so playback keeps numbering episodes the way it does.
-  defp anime_mark_ctx(base, nil), do: base
+  defp episode_ctx(title, mal_id, number) when is_integer(mal_id),
+    do: %{type: title.type, tmdb_id: title.id, season: nil, episode: number, mal_id: mal_id}
 
-  defp anime_mark_ctx(base, season) do
-    seasoned = %{base | season: season}
+  defp episode_ctx(title, _mal_id, number),
+    do: %{type: title.type, tmdb_id: title.id, season: nil, episode: number}
 
-    case {Laev.Position.mark_state(base), Laev.Position.mark_state(seasoned)} do
-      {:none, other} when other != :none -> seasoned
-      _ -> base
-    end
-  end
-
-  defp anime_tmdb_season(title, search_title) do
-    with mal_id when is_integer(mal_id) <-
-           mal_id_for(%{type: "tv", tmdb_id: title.id, title: title.title, search_title: search_title}),
-         {"tv", _id, season} <- Laev.AnimeMap.tmdb(mal_id) do
-      season
-    else
-      _ -> nil
-    end
-  end
-
-  defp anime_ctx(title, details, episode, search_title) do
+  defp anime_ctx(title, details, episode, search_title, mal_id) do
     build_ctx(title.type, title.id, title.title,
       episode: episode,
       poster_path: details["poster_path"],
       anime: true,
-      search_title: search_title
+      search_title: search_title,
+      mal_id: mal_id || mal_id_for(%{type: title.type, tmdb_id: title.id, title: title.title, search_title: search_title})
     )
   end
 
@@ -3701,7 +3697,31 @@ defmodule Laev.CLI do
   # marker), a series only when ctrl-w says so — laev can't tell a finished
   # series from an abandoned one, so that stays a deliberate act rather than
   # a guess.
-  defp seen?(t), do: Laev.Position.finished?(title_ctx(t))
+  defp seen?(t), do: Laev.Position.finished?(title_ctx(t)) or anime_seen?(t)
+
+  # Anime is marked by MyAnimeList entry, and a search row is a TMDB row — so a
+  # row for something whose every MAL entry is finished is a row for something
+  # watched. Every part: Lupin III is seven anime on MAL, and having seen six of
+  # them is not having seen Lupin III.
+  defp anime_seen?(%{type: type, id: id}) when is_integer(id) do
+    case Laev.AnimeMap.mal_ids(type, id) do
+      [] -> false
+      ids -> Enum.all?(ids, &(Laev.Position.mark_state(%{mal_id: &1}) == :watched))
+    end
+  end
+
+  defp anime_seen?(_title), do: false
+
+  # "240 episodes watched" for a row whose marks all live under MAL ids. Same
+  # wording the TMDB path uses, because it means the same thing.
+  defp anime_watched_note(%{type: type, id: id}) when is_integer(id) do
+    marks = anime_marks()
+    counted = Laev.AnimeMap.mal_ids(type, id) |> Enum.map(&Map.get(marks, &1, 0)) |> Enum.sum()
+
+    if counted > 0, do: " · #{counted} episode#{if counted > 1, do: "s"} watched", else: ""
+  end
+
+  defp anime_watched_note(_title), do: ""
 
   defp title_ctx(%{type: type, id: id}) when type in ["movie", "tv"] and is_integer(id),
     do: %{type: type, tmdb_id: id, season: nil, episode: nil}
@@ -3733,10 +3753,10 @@ defmodule Laev.CLI do
   # long a season was it says how many are complete; where it doesn't — a show
   # imported but never opened here — it counts the episodes instead, which is
   # true either way.
-  defp seasons_watched(%{type: "tv", id: id}) when is_integer(id) do
+  defp seasons_watched(%{type: "tv", id: id} = title) when is_integer(id) do
     case Map.get(marks_by_show(), {"tv", id}) do
       nil ->
-        ""
+        anime_watched_note(title)
 
       seasons ->
         complete = Enum.count(seasons, fn {season, marked} -> complete_season?(id, season, marked) end)
@@ -3750,6 +3770,7 @@ defmodule Laev.CLI do
     end
   end
 
+  defp seasons_watched(%{type: "movie"} = title), do: anime_watched_note(title)
   defp seasons_watched(_title), do: ""
 
   defp complete_season?(id, season, marked) do
@@ -3762,6 +3783,9 @@ defmodule Laev.CLI do
   # Read once per screen rather than once per row: twenty rows each scanning the
   # positions directory is twenty scans of a thousand files.
   defp marks_by_show, do: SessionCache.fetch(:episode_marks, 2, &Laev.Position.episode_marks/0)
+
+  # Anime marks, read once per screen like the show marks beside them.
+  defp anime_marks, do: SessionCache.fetch(:anime_marks, 2, &Laev.Position.anime_marks/0)
 
   defp faint(""), do: ""
   defp faint(text), do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, text, :reset]))
@@ -4552,8 +4576,10 @@ defmodule Laev.CLI do
 
   defp compute_next_target(%{anime: true} = ctx) do
     # Anime uses absolute numbering within the picked entry; the next entry
-    # (sequel season) is a separate manual pick, so we only roll within it.
-    count = anime_episode_count(ctx[:search_title] || ctx.title)
+    # (sequel season) is a separate manual pick, so we only roll within it. The
+    # MyAnimeList entry's own episode count comes free and exact; Kitsu is asked
+    # only for an anime the list has never held.
+    count = Laev.Anime.episodes(ctx[:mal_id]) || anime_episode_count(ctx[:search_title] || ctx.title)
 
     if is_integer(count) and ctx.episode >= count,
       do: nil,
@@ -4754,34 +4780,32 @@ defmodule Laev.CLI do
   # watched in it. So ask the marks instead: the season you have watched most of
   # is the one the row is about, and the cross-id list names its MAL entry
   # exactly. Only when nothing is known does it fall back to searching.
-  defp mal_page("tv", tmdb_id, title) do
-    with season when is_integer(season) <- most_watched_season(tmdb_id),
-         mal_id when is_integer(mal_id) <- Laev.AnimeMap.mal_id("tv", tmdb_id, season) do
-      "https://myanimelist.net/anime/#{mal_id}"
-    else
-      _ -> mal_url(title)
-    end
-  end
-
-  defp mal_page("movie", tmdb_id, title) do
-    case Laev.AnimeMap.mal_id("movie", tmdb_id, nil) do
+  defp mal_page(type, tmdb_id, title) do
+    case most_watched_entry(type, tmdb_id) do
       mal_id when is_integer(mal_id) -> "https://myanimelist.net/anime/#{mal_id}"
       _ -> mal_url(title)
     end
   end
 
-  defp mal_page(_type, _tmdb_id, title), do: mal_url(title)
+  # Which of a TMDB row's MAL entries the row is really about: the one you have
+  # watched most of. Lupin III is seven anime on MAL, and a row reading a hundred
+  # hours should open Part II — the one those hours are — not the 1971 original
+  # sitting in plan-to-watch, which is what searching by name gives you.
+  defp most_watched_entry(type, tmdb_id) do
+    marks = anime_marks()
 
-  # The season holding the most watched episodes — what "this show" means when a
-  # show is six shows on MAL. Absolutely-numbered marks sit under season 0 and
-  # name no season, so they are no help here and are left out.
-  defp most_watched_season(tmdb_id) do
-    Laev.Position.episode_marks()
-    |> Map.get({"tv", tmdb_id}, %{})
-    |> Enum.reject(fn {season, _count} -> season == 0 end)
-    |> case do
-      [] -> nil
-      seasons -> seasons |> Enum.max_by(fn {_season, count} -> count end) |> elem(0)
+    case Laev.AnimeMap.mal_ids(type, tmdb_id) do
+      [] ->
+        nil
+
+      [only] ->
+        only
+
+      ids ->
+        Enum.max_by(ids, fn mal ->
+          finished = if Laev.Position.mark_state(%{mal_id: mal}) == :watched, do: 1, else: 0
+          {Map.get(marks, mal, 0), finished}
+        end)
     end
   end
 
@@ -4799,7 +4823,12 @@ defmodule Laev.CLI do
 
   # Anime → its MyAnimeList page (or a MAL search when the id is unknown),
   # the anime-native equivalent of the IMDb page for movies/shows.
-  defp open_mal(ctx), do: browse(mal_url(ctx[:search_title] || ctx.title))
+  defp open_mal(ctx) do
+    case ctx[:mal_id] do
+      mal_id when is_integer(mal_id) -> browse("https://myanimelist.net/anime/#{mal_id}")
+      _ -> browse(mal_url(ctx[:search_title] || ctx.title))
+    end
+  end
 
   # Detached, like the mpv launch — the browser must outlive laev.
   defp browser_open(url) do
@@ -4983,7 +5012,8 @@ defmodule Laev.CLI do
       "title" => ctx.title,
       "poster_path" => ctx[:poster_path],
       "anime" => ctx[:anime] || false,
-      "search_title" => ctx[:search_title]
+      "search_title" => ctx[:search_title],
+      "mal_id" => ctx[:mal_id]
     }
   end
 
@@ -5167,8 +5197,8 @@ defmodule Laev.CLI do
       IO.puts(
         :stderr,
         IO.ANSI.format([
-          bucket_line(other.seconds, "films & tv", kind_note(other)),
-          bucket_line(anime.seconds, "anime", kind_note(anime))
+          bucket_line(other.seconds, "films & tv", kind_note(other, "show")),
+          bucket_line(anime.seconds, "anime", kind_note(anime, "anime"))
         ])
       )
     end
@@ -5176,11 +5206,10 @@ defmodule Laev.CLI do
 
   defp print_kinds(_stats), do: :ok
 
-  defp kind_note(%{films: films, episodes: episodes, shows: shows}) do
+  defp kind_note(%{films: films, episodes: episodes, shows: shows}, unit) do
     [
       films > 0 && "#{films} #{if films == 1, do: "film", else: "films"}",
-      episodes > 0 &&
-        "#{episodes} episodes from #{shows} #{if shows == 1, do: "show", else: "shows"}"
+      episodes > 0 && "#{episodes} episodes from #{shows} #{plural(unit, shows)}"
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" · ")
@@ -5189,6 +5218,11 @@ defmodule Laev.CLI do
       note -> note
     end
   end
+
+  # "anime" is already plural; "show" is not.
+  defp plural("anime", _count), do: "anime"
+  defp plural(unit, 1), do: unit
+  defp plural(unit, _count), do: unit <> "s"
 
   # Shows, as opposed to hours: how many you have finished and how many you are
   # in the middle of. The first line counts episodes and films, which says
@@ -5201,11 +5235,16 @@ defmodule Laev.CLI do
     # about the same word while sitting two screens apart.
     caught_up = length(started) - behind
 
+    # Anime counted beside them rather than among them: it is finished when
+    # MyAnimeList says it is, which is a different shelf and a different word.
+    anime = length(Laev.Position.anime_finished())
+
     parts =
       [
         finished > 0 && "#{finished} series finished",
         behind > 0 && "#{behind} to complete",
-        caught_up > 0 && "#{caught_up} caught up"
+        caught_up > 0 && "#{caught_up} caught up",
+        anime > 0 && "#{anime} anime finished"
       ]
       |> Enum.filter(& &1)
 
@@ -5762,7 +5801,12 @@ defmodule Laev.CLI do
           kitsu = kitsu_lookup(entry["search_title"] || name)
           search_title = (kitsu.anime && kitsu.anime.title) || name
           n = entry["episode"]
-          ctx = Map.merge(ctx, %{anime: true, search_title: search_title})
+          # Resuming: the stored entry may predate anime moving onto MAL keys, so
+          # take the id from the match and carry any position saved under the old
+          # key across with it.
+          mal_id = (kitsu.anime && kitsu.anime[:mal_id]) || entry["mal_id"]
+          ctx = Map.merge(ctx, %{anime: true, search_title: search_title, mal_id: mal_id})
+          Laev.Position.adopt(Map.put(ctx, :mal_id, nil), ctx)
 
           Sources.anime_episode_query(search_title, n)
           |> with_library(anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id))
@@ -5771,7 +5815,9 @@ defmodule Laev.CLI do
         anime?(details) and type == "movie" ->
           kitsu = kitsu_lookup(entry["search_title"] || name)
           search_title = (kitsu.anime && kitsu.anime.title) || name
-          ctx = Map.merge(ctx, %{anime: true, search_title: search_title})
+          mal_id = (kitsu.anime && kitsu.anime[:mal_id]) || entry["mal_id"]
+          ctx = Map.merge(ctx, %{anime: true, search_title: search_title, mal_id: mal_id})
+          Laev.Position.adopt(Map.put(ctx, :mal_id, nil), ctx)
           q = Sources.anime_movie_query(search_title)
 
           case Sources.search(q, backend: :anime) do
@@ -6717,10 +6763,19 @@ defmodule Laev.CLI do
           ])
         )
 
-        report_by_hand(counts)
+        if counts.cleared > 0 do
+          IO.puts(
+            :stderr,
+            IO.ANSI.format([
+              :faint,
+              "  #{counts.cleared} anime marks that were filed under TMDB ids were cleared — " <>
+                "MyAnimeList is the record for anime now.\n",
+              :reset
+            ])
+          )
+        end
 
         if counts.marked > 0 do
-          IO.puts(:stderr, IO.ANSI.format([:faint, "  working out runtimes — one-time, then stats are instant…", :reset]))
           totals = Laev.Stats.all_time()
 
           IO.puts(
@@ -6764,8 +6819,8 @@ defmodule Laev.CLI do
 
   defp describe_mal_import(counts) do
     [
-      counts.marked - counts.series > 0 && "marked #{counts.marked - counts.series} episodes watched",
-      counts.series > 0 && "#{counts.series} anime finished"
+      counts.marked - counts.finished > 0 && "marked #{counts.marked - counts.finished} episodes watched",
+      counts.finished > 0 && "#{counts.finished} anime finished"
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" and ")
@@ -6774,21 +6829,6 @@ defmodule Laev.CLI do
   # The "and the rest" clause, minus the part the headline just said.
   defp mal_import_rest(%{marked: 0}), do: ""
   defp mal_import_rest(counts), do: describe_import_rest(counts)
-
-  # The handful an import can't place, named rather than counted: these are the
-  # ones only you can mark, and a number alone doesn't tell you which.
-  defp report_by_hand(counts) do
-    cases = [
-      {counts.unmapped, "not on TMDB under any id laev could find"},
-      {counts.overflow, "more episodes than the TMDB season has room for"}
-    ]
-
-    for {titles, why} <- cases, titles != [] do
-      IO.puts(:stderr, IO.ANSI.format([:faint, "  #{length(titles)} left for you — #{why}:", :reset]))
-      for title <- Enum.sort(titles), do: IO.puts(:stderr, IO.ANSI.format([:faint, "    · #{title}", :reset]))
-      IO.puts(:stderr, "")
-    end
-  end
 
   # Fire-and-forget scrobbler: watches the position file for THIS episode and,
   # the moment it's marked watched (85%/eof), pushes progress to MAL. Exits
@@ -6856,7 +6896,7 @@ defmodule Laev.CLI do
 
   defp scrobble_mal(ctx) do
     with mal_id when is_integer(mal_id) <- mal_id_for(ctx) do
-      total = anime_episode_count(ctx[:search_title] || ctx.title)
+      total = Laev.Anime.episodes(mal_id) || anime_episode_count(ctx[:search_title] || ctx.title)
 
       case Laev.MAL.set_progress(mal_id, ctx.episode, total) do
         :ok -> Laev.Quiet.puts(IO.ANSI.format([:faint, "  ↑ MAL: #{ctx.title} ep #{ctx.episode}", :reset]))
@@ -6937,6 +6977,8 @@ defmodule Laev.CLI do
   # the fallback, and a good one — it answers from the TMDB id and season with
   # no guessing at all — but only when it's already on disk, since asking for an
   # id must never turn into a download.
+  defp mal_id_for(%{mal_id: mal_id}) when is_integer(mal_id), do: mal_id
+
   defp mal_id_for(ctx) do
     title = ctx[:search_title] || ctx[:title]
     key = {:mal_id, title}
