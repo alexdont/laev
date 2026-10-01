@@ -5105,14 +5105,31 @@ defmodule Laev.CLI do
           skipped: s.skipped,
           measured_plays: s.measured,
           marked_by_hand: s.marked,
-          titles:
-            Enum.map(
-              s.titles,
-              &%{title: &1.title, type: &1.type, tmdb_id: &1.tmdb_id, seconds: &1.seconds, off_laev: &1.off}
-            )
+          anime: s.anime,
+          films_and_tv: s.other,
+          titles: Enum.map(s.titles, &json_title/1)
         })
       )
     end
+  end
+
+  # An anime's id is a MyAnimeList id, and calling that field `tmdb_id` would be
+  # a lie to anything reading this. The id is named for what it is, and `source`
+  # says which site it belongs to.
+  defp json_title(%{type: "mal"} = title) do
+    %{title: title.title, type: "anime", source: "mal", id: title.tmdb_id, seconds: title.seconds, off_laev: title.off}
+  end
+
+  defp json_title(title) do
+    %{
+      title: title.title,
+      type: title.type,
+      source: "tmdb",
+      id: title.tmdb_id,
+      tmdb_id: title.tmdb_id,
+      seconds: title.seconds,
+      off_laev: title.off
+    }
   end
 
   # The most-watched list, a page at a time. fzf filters what is loaded, so
