@@ -493,6 +493,7 @@ defmodule Laev.CLI do
         now_playing_item(),
         up_next_item(),
         {:continue, "▶ Continue — pick up where you left off"},
+        finish_row(),
         {:featured, "★ Featured — trending movies, shows & anime"},
         {:watchlist, watchlist_row()},
         {:calendar, calendar_row()},
@@ -508,6 +509,7 @@ defmodule Laev.CLI do
       {:up_next, entry} -> play_next_episode(entry)
       {:resume_last, entry} -> continue_entry(entry)
       {:continue, _} -> continue()
+      {:finish, _} -> finish_menu()
       {:featured, _} -> featured()
       {:watchlist, _} -> watchlist_menu()
       {:calendar, _} -> calendar()
@@ -1294,6 +1296,124 @@ defmodule Laev.CLI do
   # The smart first row: if the most recent thing was an episode watched to
   # the end, offer its next episode; if it was left mid-way, offer to resume
   # it directly. Falls back to nothing (the plain menu) otherwise.
+  # Shows with a season or two behind them and no finish line. Hidden when there
+  # are none, because an empty shelf is not worth a row — and the count is a
+  # single directory read, which the home screen can afford.
+  defp finish_row do
+    case length(unfinished_shows()) do
+      0 -> []
+      n -> [{:finish, "◴ To Complete — #{n} #{if n == 1, do: "show", else: "shows"} you've started"}]
+    end
+  end
+
+  # Episode marks, minus anything already called finished. A show you watched two
+  # seasons of sits here until the rest of it is watched or marked — which is the
+  # point: it is the list of what you left in the middle.
+  defp unfinished_shows do
+    marks_by_show()
+    |> Enum.reject(fn {{type, id}, _seasons} ->
+      Laev.Position.finished?(%{type: type, tmdb_id: id, season: nil, episode: nil})
+    end)
+    |> Enum.sort_by(fn {{type, id}, seasons} ->
+      # Most recently watched first, then whatever you have most of.
+      recency =
+        case Laev.Resume.get(type, id) do
+          %{"updated_at" => at} when is_integer(at) -> -at
+          _ -> 0
+        end
+
+      {recency, -(seasons |> Map.values() |> Enum.sum())}
+    end)
+  end
+
+  defp finish_menu do
+    clear_screen()
+    shows = unfinished_shows()
+
+    if shows == [] do
+      nothing_here("Nothing half-watched — everything you've started is marked finished.")
+    else
+      IO.puts(:stderr, IO.ANSI.format([:faint, "  reading #{length(shows)} half-watched shows…", :reset]))
+
+      titles =
+        shows
+        |> Task.async_stream(fn {{type, id}, seasons} -> unfinished_title(type, id, seasons) end,
+          max_concurrency: 8,
+          timeout: 20_000,
+          on_timeout: :kill_task
+        )
+        |> Enum.flat_map(fn
+          {:ok, title} when is_map(title) -> [title]
+          _ -> []
+        end)
+
+      case pick_with_save(titles, "◴ to complete — #{length(titles)} shows you've started") do
+        nil -> back()
+        title when is_map(title) -> play_title(title)
+        other -> other
+      end
+    end
+  end
+
+  # The same shape every other title list uses, so enter plays it and ctrl-w,
+  # ctrl-s and ctrl-o all work here too. Falls back to the remembered name when
+  # TMDB can't be reached, rather than dropping the row.
+  defp unfinished_title(type, id, seasons) do
+    case fetch_details(%{type: type, id: id}) do
+      {:ok, details} ->
+        # A show that has ended, with every season behind you, is finished —
+        # there is nothing left to come back for, so it marks itself and leaves
+        # the list rather than sitting here forever. A returning series stays:
+        # there will be more of it, and only you can say you are done with it.
+        if ended_and_complete?(details, seasons) do
+          Laev.Position.set_watched(%{type: "tv", tmdb_id: id, season: nil, episode: nil}, true)
+          Laev.Sync.live_push()
+          nil
+        else
+          unfinished_row(type, id, details)
+        end
+
+      _ ->
+        %{
+          id: id,
+          type: type,
+          title: Laev.Titles.get(type, id) || "#{type} ##{id}",
+          year: nil,
+          poster: nil,
+          overview: nil,
+          vote: nil,
+          popularity: nil
+        }
+    end
+  end
+
+  defp unfinished_row(type, id, details) do
+    %{
+      id: id,
+      type: type,
+      title: details["name"] || details["title"] || Laev.Titles.get(type, id) || "#{type} ##{id}",
+      year: Tmdb.year(details["first_air_date"] || details["release_date"]),
+      poster: Tmdb.poster_url(details["poster_path"], "w342"),
+      overview: details["overview"],
+      vote: details["vote_average"],
+      popularity: details["popularity"]
+    }
+  end
+
+  defp ended_and_complete?(%{"status" => status} = details, marks) when status in ["Ended", "Canceled"] do
+    real = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
+
+    real != [] and
+      Enum.all?(real, fn season ->
+        number = season["season_number"]
+        total = Laev.Seasons.aired(details["id"], number) || season["episode_count"] || 0
+
+        total > 0 and Map.get(marks, number, 0) >= total
+      end)
+  end
+
+  defp ended_and_complete?(_details, _marks), do: false
+
   # mpv is detached, so it outlives the page that started it. When it is
   # still up, the way back in goes first: that page is where you rate it,
   # switch source, or line up the next episode.

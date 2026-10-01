@@ -50,6 +50,11 @@ a project.
   probed source also reports the audio and subtitle tracks actually inside
   the file (`🔊ru·en 💬ru`), so a "1080p" release with five dubs shows them —
   and ranking uses those languages instead of whatever the name hints.
+- **To Complete** — the shelf of shows you started and never finished: anything
+  with an episode or a season behind it and no finish line, most recently watched
+  first, with how far in you are on each row. It sits on the home screen until
+  you watch the rest or mark it off, and a show that has *ended* with every
+  season behind you marks itself and leaves.
 - **Continue watching**: `laev continue` jumps back to the exact episode,
   source, **and second** you left off at — the position is checkpointed every
   5 seconds while mpv plays, so it survives player crashes and power loss.
