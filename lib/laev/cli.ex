@@ -1972,7 +1972,11 @@ defmodule Laev.CLI do
   end
 
   # True when stdout is a terminal (a human), false when piped (a frontend).
-  defp tty?, do: IO.ANSI.enabled?()
+  # Normally "is stdout a terminal". The exception is a session handed over by
+  # `laev update`: a child of the BEAM gets a pipe for stdout, so it would decide
+  # it was being scripted — while the terminal is still right there on stdin and
+  # stderr, which is all the UI and fzf ever use.
+  defp tty?, do: System.get_env("LAEV_INTERACTIVE") == "1" or IO.ANSI.enabled?()
 
   # Esc backs out to the main menu everywhere (piped/scripted runs exit).
   defp back do
@@ -6589,8 +6593,8 @@ defmodule Laev.CLI do
         die("couldn't reach GitHub releases — try again later")
 
     if Version.compare(current, latest) != :lt do
-      IO.puts(:stderr, "already up to date")
-      IO.puts(Jason.encode!(%{updated: false, version: current}))
+      IO.puts(:stderr, "already up to date — nothing to do")
+      unless tty?(), do: IO.puts(Jason.encode!(%{updated: false, version: current}))
       System.halt(0)
     end
 
@@ -6623,7 +6627,10 @@ defmodule Laev.CLI do
          :ok <- File.chmod(staged, 0o755),
          :ok <- File.rename(staged, bin) do
       IO.puts(:stderr, "✔ updated v#{current} → v#{latest} (#{bin})")
-      IO.puts(Jason.encode!(%{updated: true, from: current, to: latest}))
+
+      if tty?(),
+        do: hand_over(bin, latest),
+        else: IO.puts(Jason.encode!(%{updated: true, from: current, to: latest}))
     else
       {:error, reason} ->
         File.rm(staged)
@@ -6634,6 +6641,29 @@ defmodule Laev.CLI do
             "Reinstall to ~/.local/bin (see the README) so updates don't need sudo."
         )
     end
+  end
+
+  # Hand the terminal to the version just installed.
+  #
+  # Nobody updates in order to arrive back at a shell prompt, and running the new
+  # binary is also what clears the old one out — so the two commands were always
+  # one. Only after a real update, and only on a terminal: a script calling
+  # `laev update` wants the JSON, not an interactive app.
+  #
+  # The child keeps the terminal on stdin and stderr, which is everything the UI
+  # and fzf use. Its stdout is a pipe — the one thing it can't have — so it is
+  # told explicitly that it is interactive, or it would correctly conclude from
+  # that pipe that it was being scripted and print JSON at a waiting user.
+  # Redirecting /dev/tty instead does not work: a child of the BEAM has no
+  # controlling terminal at all.
+  defp hand_over(bin, version) do
+    IO.puts(:stderr, IO.ANSI.format([:faint, "  starting v#{version}…", :reset]))
+
+    {_out, status} = System.cmd(bin, [], env: [{"LAEV_INTERACTIVE", "1"}])
+    System.halt(status)
+  rescue
+    # The update landed; only the hand-off didn't.
+    _ -> IO.puts(:stderr, IO.ANSI.format([:bright, "  run `laev` to start v#{version}", :reset]))
   end
 
   # ── plumbing ──────────────────────────────────────────────────────

@@ -199,6 +199,7 @@ the IMDb page for anything, and anime scores can go to MyAnimeList.
 | `laev tmdb login` | link your TMDB account, to rate episodes and films |
 | `laev sync` | sync watch state now (`laev sync status` shows config) |
 | `laev config` | show config status |
+| `laev update` | update and start the new version; says so and stops if there's nothing new |
 
 `laev watch tt13207736` takes an IMDb id as well as a name — unambiguous where
 a name isn't (there are two 2026 films called *Runner*), and what you have when
