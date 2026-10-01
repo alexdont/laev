@@ -300,6 +300,46 @@ defmodule Laev.Position do
   end
 
   @doc """
+  Every watched episode mark, grouped as `%{{type, id} => %{season => count}}`.
+
+  One directory read for a whole screen: a list of twenty rows each asking after
+  its own show would otherwise scan a thousand files twenty times. An episode
+  numbered absolutely (anime) lands under season 0, where it is still countable
+  without pretending to know which season it belongs to.
+  """
+  def episode_marks do
+    dir = Path.join(data_dir(), "positions")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        names
+        |> Enum.flat_map(&parse_episode_key(&1, dir))
+        |> Enum.group_by(fn {key, _season} -> key end, fn {_key, season} -> season end)
+        |> Map.new(fn {key, seasons} -> {key, Enum.frequencies(seasons)} end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp parse_episode_key(name, dir) do
+    with [_, id, season] <- Regex.run(~r/^tv-(\d+)-(?:s(\d+))?e\d+$/, name) |> pad_season(),
+         {:ok, body} <- File.read(Path.join(dir, name)),
+         true <- String.trim(body) in ["done", "seen"] do
+      [{{"tv", String.to_integer(id)}, String.to_integer(season)}]
+    else
+      _ -> []
+    end
+  end
+
+  # An absolutely-numbered episode has no season in its key; call it season 0.
+  defp pad_season([all, id, ""]), do: [all, id, "0"]
+  defp pad_season([all, id]), do: [all, id, "0"]
+  defp pad_season(other), do: other
+
+  @doc """
   What laev knows about this title or episode: `:none`, `:watched` (played
   through or marked by hand), or `{:partial, seconds}` — somewhere in the middle.
 

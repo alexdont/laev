@@ -1805,7 +1805,9 @@ defmodule Laev.CLI do
           entry_ep(resume) <> if(at, do: " · at #{at}", else: "")
       end
 
-    text = "#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}#{entry_badge(entry)}"
+    text =
+      "#{entry["title"]} (#{entry["year"] || "?"}) · #{kind}#{progress}" <>
+        seasons_watched(%{type: entry["type"], id: entry["tmdb_id"]}) <> entry_badge(entry)
 
     # Same treatment as search and Featured: watched sinks into the
     # background rather than sitting there in full white with a tick.
@@ -3397,7 +3399,7 @@ defmodule Laev.CLI do
   defp describe_title(t) do
     kind = if t.type == "tv", do: "series", else: "movie"
     rating = if t.vote && t.vote > 0, do: " · ★ #{Float.round(t.vote * 1.0, 1)}"
-    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}#{quality_badge(t)}"
+    text = "#{t.title} (#{t.year || "?"}) · #{kind}#{rating}#{watch_progress(t)}#{seasons_watched(t)}#{quality_badge(t)}"
 
     if seen?(t),
       do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "✓ ", text, :reset])),
@@ -3448,6 +3450,45 @@ defmodule Laev.CLI do
   end
 
   defp watch_progress(_), do: ""
+
+  # How much of a show is behind you, for a row that can't say "watched".
+  #
+  # A series you have seen two seasons of is neither unwatched nor finished, and
+  # the list used to show it exactly like one never started. Where laev knows how
+  # long a season was it says how many are complete; where it doesn't — a show
+  # imported but never opened here — it counts the episodes instead, which is
+  # true either way.
+  defp seasons_watched(%{type: "tv", id: id}) when is_integer(id) do
+    case Map.get(marks_by_show(), {"tv", id}) do
+      nil ->
+        ""
+
+      seasons ->
+        complete = Enum.count(seasons, fn {season, marked} -> complete_season?(id, season, marked) end)
+        episodes = seasons |> Map.values() |> Enum.sum()
+
+        cond do
+          complete > 0 -> faint(" · #{complete} season#{if complete > 1, do: "s"} watched")
+          episodes > 0 -> faint(" · #{episodes} episode#{if episodes > 1, do: "s"} watched")
+          true -> ""
+        end
+    end
+  end
+
+  defp seasons_watched(_title), do: ""
+
+  defp complete_season?(id, season, marked) do
+    case Laev.Seasons.aired(id, season) do
+      aired when is_integer(aired) and aired > 0 -> marked >= aired
+      _ -> false
+    end
+  end
+
+  # Read once per screen rather than once per row: twenty rows each scanning the
+  # positions directory is twenty scans of a thousand files.
+  defp marks_by_show, do: SessionCache.fetch(:episode_marks, 2, &Laev.Position.episode_marks/0)
+
+  defp faint(text), do: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, text, :reset]))
 
   # The season list had no idea where you were: a season watched end to end
   # looked exactly like one never started, on the screen whose entire job is
