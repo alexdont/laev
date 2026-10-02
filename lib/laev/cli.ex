@@ -4298,9 +4298,10 @@ defmodule Laev.CLI do
   # looked exactly like one never started, on the screen whose entire job is
   # telling you which is which. It says so now, and ctrl-w marks one off the way
   # every other list lets you.
-  defp pick_season(details, seasons, show, initial \\ 0) do
+  defp pick_season(details, seasons, show, initial \\ nil) do
     describe = &describe_season(details["id"], &1)
     hint = "#{show} — which season? · ctrl-w marks one watched"
+    initial = initial || first_unwatched_season(details["id"], seasons)
 
     case pick(seasons, describe, hint, nil, initial, ["ctrl-w"]) do
       nil ->
@@ -4331,6 +4332,19 @@ defmodule Laev.CLI do
       true ->
         "  " <> text
     end
+  end
+
+  # The cursor opens on the season you would continue — the first one not watched
+  # through, partial ones included — the way the episode list already opens on
+  # the next episode. Nobody arrows back to season one of a show they are three
+  # seasons into; and with everything behind you, the last season is the one to
+  # be standing in.
+  @doc false
+  def first_unwatched_season(tmdb_id, seasons) do
+    Enum.find_index(seasons, fn season ->
+      {watched, aired} = season_progress(tmdb_id, season["season_number"], season["episode_count"])
+      aired == 0 or watched < aired
+    end) || max(length(seasons) - 1, 0)
   end
 
   # How much of a season is behind you: episodes marked watched, out of the ones
