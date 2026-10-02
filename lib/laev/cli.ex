@@ -1414,7 +1414,7 @@ defmodule Laev.CLI do
     if shows == [] and anime == [] and loose == [] do
       []
     else
-      report.("reading #{length(shows) + length(anime) + length(loose)} half-watched titles…")
+      cards = load_cards(card_keys(shows, anime, loose), report)
 
       # Anime ordered after the shows, and ordered among themselves already — the
       # index continues across both so one sort keeps the whole page in order.
@@ -1422,21 +1422,89 @@ defmodule Laev.CLI do
         anime
         |> Enum.with_index(length(shows))
         |> gather(fn {{mal_id, entry}, order} ->
-          unfinished_anime_title({mal_id, entry}, Map.get(marks, mal_id, 0), order)
+          unfinished_anime_title({mal_id, entry}, Map.get(marks, mal_id, 0), order, cards)
         end)
 
       loose_rows =
         loose
         |> Enum.with_index(length(shows) + length(anime))
-        |> gather(fn {entry, order} -> unfinished_resume_title(entry, order) end)
+        |> gather(fn {entry, order} -> unfinished_resume_title(entry, order, cards) end)
 
       shows
       |> Enum.with_index()
-      |> gather(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order) end)
+      |> gather(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order, cards) end)
       |> Enum.concat(anime_rows)
       |> Enum.concat(loose_rows)
       |> remember_aired_seasons()
       |> divide_sections()
+    end
+  end
+
+  # Every TMDB title the page is about to draw.
+  defp card_keys(shows, anime, loose) do
+    show_keys = Enum.map(shows, fn {{type, id}, _marks} -> {type, id} end)
+    loose_keys = Enum.map(loose, &{&1["type"], &1["tmdb_id"]})
+
+    anime_keys =
+      Enum.flat_map(anime, fn {mal_id, _entry} ->
+        case Laev.AnimeMap.tmdb(mal_id) do
+          {type, id, _season} -> [{type, id}]
+          {type, id} -> [{type, id}]
+          _ -> []
+        end
+      end)
+
+    Enum.uniq(show_keys ++ anime_keys ++ loose_keys)
+  end
+
+  # What the page draws itself from. Cards it already has are free; one it has
+  # never seen costs a request, once. A week-old card is refreshed behind the
+  # list rather than in front of it — the page is on screen by then, and a
+  # creeping vote average is not worth a second of waiting for.
+  defp load_cards(keys, report) do
+    known = Laev.Cards.get_many(keys)
+    missing = Enum.reject(keys, &Map.has_key?(known, &1))
+
+    if missing != [], do: report.("reading #{length(missing)} titles from TMDB — once each…")
+
+    fetched =
+      missing
+      |> Task.async_stream(&{&1, fetch_card(&1)}, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
+      |> Enum.flat_map(fn
+        {:ok, {key, details}} when is_map(details) -> [{key, details}]
+        _ -> []
+      end)
+      |> Map.new()
+
+    Laev.Cards.put_many(fetched)
+    refresh_cards_later(keys -- missing)
+
+    Map.merge(known, fetched)
+  end
+
+  defp fetch_card({type, id}) do
+    case fetch_details(%{type: type, id: id}) do
+      {:ok, details} -> details
+      _ -> nil
+    end
+  end
+
+  defp refresh_cards_later(keys) do
+    case Laev.Cards.stale(keys) do
+      [] ->
+        :ok
+
+      stale ->
+        spawn(fn ->
+          stale
+          |> Task.async_stream(&{&1, fetch_card(&1)}, max_concurrency: 4, timeout: 20_000, on_timeout: :kill_task)
+          |> Enum.flat_map(fn
+            {:ok, {key, details}} when is_map(details) -> [{key, details}]
+            _ -> []
+          end)
+          |> Map.new()
+          |> Laev.Cards.put_many()
+        end)
     end
   end
 
@@ -1454,8 +1522,8 @@ defmodule Laev.CLI do
   # The same shape every other title list uses, so enter plays it and ctrl-w,
   # ctrl-s and ctrl-o all work here too. Falls back to the remembered name when
   # TMDB can't be reached, rather than dropping the row.
-  defp unfinished_title(type, id, seasons, order) do
-    case fetch_details(%{type: type, id: id}) do
+  defp unfinished_title(type, id, seasons, order, cards) do
+    case Map.fetch(cards, {type, id}) do
       {:ok, details} ->
         # A show that has ended, with every season behind you, is finished —
         # there is nothing left to come back for, so it marks itself and leaves
@@ -1565,46 +1633,39 @@ defmodule Laev.CLI do
 
   # The row says where you are from the history, like every other title row does,
   # so there is nothing extra to write on it.
-  defp unfinished_resume_title(entry, order) do
+  defp unfinished_resume_title(entry, order, cards) do
     type = entry["type"]
     id = entry["tmdb_id"]
 
-    details =
-      case fetch_details(%{type: type, id: id}) do
-        {:ok, found} -> found
-        _ -> %{}
-      end
-
-    details |> unfinished_row(type, id) |> hold_note() |> Map.put(:order, order)
+    Map.get(cards, {type, id}, %{})
+    |> unfinished_row(type, id)
+    |> hold_note()
+    |> Map.put(:order, order)
   end
 
   # One row, in the same shape as every other title row so enter plays it. The
   # title is the MAL entry's own name, which is also what matches it on Kitsu
   # when you open it — "Lupin III: Part 5", rather than seven seasons of "Lupin
   # the 3rd" to choose between.
-  defp unfinished_anime_title({mal_id, nil}, watched, order) do
+  defp unfinished_anime_title({mal_id, nil}, watched, order, cards) do
     # Never imported, so nothing is known about it yet — one request, here, where
     # the page is already fetching and says so.
     case Laev.Anime.learn(mal_id) do
-      %{} = learned -> unfinished_anime_title({mal_id, learned}, watched, order)
+      %{} = learned -> unfinished_anime_title({mal_id, learned}, watched, order, cards)
       _ -> nil
     end
   end
 
-  defp unfinished_anime_title({mal_id, anime}, watched, order) do
+  defp unfinished_anime_title({mal_id, anime}, watched, order, cards) do
     case Laev.AnimeMap.tmdb(mal_id) do
-      {type, tmdb_id, _season} -> anime_row(anime, mal_id, type, tmdb_id, watched, order)
-      {type, tmdb_id} -> anime_row(anime, mal_id, type, tmdb_id, watched, order)
+      {type, tmdb_id, _season} -> anime_row(anime, mal_id, type, tmdb_id, watched, order, cards)
+      {type, tmdb_id} -> anime_row(anime, mal_id, type, tmdb_id, watched, order, cards)
       _ -> nil
     end
   end
 
-  defp anime_row(anime, mal_id, type, tmdb_id, watched, order) do
-    details =
-      case fetch_details(%{type: type, id: tmdb_id}) do
-        {:ok, found} -> found
-        _ -> %{}
-      end
+  defp anime_row(anime, mal_id, type, tmdb_id, watched, order, cards) do
+    details = Map.get(cards, {type, tmdb_id}, %{})
 
     details
     |> unfinished_row(type, tmdb_id)

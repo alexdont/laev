@@ -202,8 +202,12 @@ each is counted from its own source:
     2442h 35m  anime      · 60 films · 5910 episodes from 302 anime
 ```
 
-**Watchlist** gathers everything you are in the middle of from every record laev
-keeps — episode marks, your MyAnimeList list, and its own history — so something
+**Watchlist** opens in about a sixth of a second, because the dozen TMDB fields a
+row is made of are kept in `cards.json` rather than asked for every time — it was
+making seventy-eight requests to draw a page whose answer hadn't changed. Cards
+refresh behind the list once they are a day old (a show gains seasons) or a week
+old (a film doesn't). It gathers everything you are in the middle of from every
+record laev keeps — episode marks, your MyAnimeList list, and its own history — so something
 you have progress in here shows up whether or not any list knows about it. A film
 you are half an hour into is in the middle of being watched too, and says where
 you got to. It lists anime beside shows, in three sections, because there are
