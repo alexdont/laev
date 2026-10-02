@@ -1321,12 +1321,43 @@ defmodule Laev.CLI do
   # what the page wrote down last time it looked, since the home screen fetches
   # nothing. A show laev has never looked at counts as behind: better to offer it
   # and find out than to hide it on a guess.
+  # The directory-wide pass of the same promotion, with the typical runtimes the
+  # stats already keep — once per session, before anything counts. Conservative:
+  # a title with no cached runtime waits for its episode list to reconcile it
+  # against the real one.
+  defp promote_finished_positions do
+    SessionCache.fetch(:promoted_positions, 86_400, fn ->
+      runtimes = Laev.Stats.known_runtimes()
+      anime = anime_list()
+
+      Laev.Position.promote_watched(fn name ->
+        cond do
+          match = Regex.run(~r/^movie-(\d+)$/, name) ->
+            as_seconds(runtimes["movie-#{Enum.at(match, 1)}"])
+
+          match = Regex.run(~r/^tv-(\d+)-/, name) ->
+            as_seconds(runtimes["tv-#{Enum.at(match, 1)}"])
+
+          match = Regex.run(~r/^mal-(\d+)-e/, name) ->
+            anime[String.to_integer(Enum.at(match, 1))][:seconds]
+
+          true ->
+            nil
+        end
+      end)
+    end)
+  end
+
+  defp as_seconds(seconds) when is_integer(seconds) and seconds > 0, do: seconds
+  defp as_seconds(_other), do: nil
+
   @doc false
   # Every number the home row and the stats line quote, counted once and grouped
   # exactly the way the page groups its rows. Two screens disagreeing about the
   # same word is worse than either of them being a little off — and they did
   # disagree, the moment the page started counting things the counts didn't.
   def watching_tally do
+    promote_finished_positions()
     shows = unfinished_shows()
     anime = unfinished_anime()
     loose = unfinished_resumes(shows, anime)
@@ -1819,6 +1850,39 @@ defmodule Laev.CLI do
       popularity: details["popularity"]
     }
   end
+
+  # TMDB's word for "no more is coming". Everything that finishes a show on the
+  # user's behalf asks this one question, so the three places that do it can't
+  # drift apart.
+  defp ended_status?(status), do: status in ["Ended", "Canceled"]
+
+  @doc false
+  # Whether the show a play belongs to has ended, answered from the card when
+  # one is on disk and from TMDB once when not. An anime is exempt: a MAL entry
+  # is one season by construction, and its last episode really is its end.
+  def show_ended?(%{mal_id: mal_id}) when is_integer(mal_id), do: true
+
+  def show_ended?(%{type: "tv", tmdb_id: id}) when is_integer(id) do
+    status =
+      case Laev.Cards.get("tv", id) do
+        %{"status" => status} when is_binary(status) ->
+          status
+
+        _ ->
+          case fetch_details(%{type: "tv", id: id}) do
+            {:ok, details} ->
+              Laev.Cards.put_many(%{{"tv", id} => details})
+              details["status"]
+
+            _ ->
+              nil
+          end
+      end
+
+    ended_status?(status)
+  end
+
+  def show_ended?(_ctx), do: false
 
   defp ended_and_complete?(%{"status" => status} = details, marks) when status in ["Ended", "Canceled"] do
     real = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
@@ -2888,6 +2952,8 @@ defmodule Laev.CLI do
         rt_of = fn ep -> runtime_seconds(Map.get(ep, :runtime)) end
         describe = fn ep -> watched_label(ctx_of.(ep), describe_anime_episode(ep), rt_of.(ep)) end
 
+        reconcile_watched(episodes, ctx_of, rt_of)
+
         initial = first_unwatched(episodes, ctx_of, rt_of, &(not Map.get(&1, :future, false)))
 
         episode =
@@ -3897,6 +3963,7 @@ defmodule Laev.CLI do
     rt_of = fn e -> runtime_seconds(e["runtime"]) end
     describe = fn e -> watched_label(ctx_of.(e), describe_episode(e), rt_of.(e)) end
 
+    reconcile_watched(episodes, ctx_of, rt_of)
     roll_up_single_season(details, episodes, ctx_of, rt_of)
     initial = first_unwatched(episodes, ctx_of, rt_of, &tmdb_aired?/1)
 
@@ -3958,14 +4025,27 @@ defmodule Laev.CLI do
   # watched, so the list says so on its way past — which is how a series
   # finished before laev rolled anything up gets its mark without a rewatch.
   #
-  # Only for a single-season show. With more than one, this list is one season
-  # of several and finishing it says nothing about the others; the playback path
-  # handles those, where "nothing next" has already rolled across seasons.
+  # What the list shows as watched — a position past 85% of the episode's own
+  # runtime — is written down as watched, here where the real runtime is in
+  # hand. The counters that scan the directory never see a runtime, so without
+  # this a season reads "everything watched" on one screen and "7 of 10" on the
+  # next, and never settles.
+  defp reconcile_watched(episodes, ctx_of, rt_of) do
+    promoted = Enum.count(episodes, &(Laev.Position.promote_finished(ctx_of.(&1), rt_of.(&1)) == :promoted))
+    if promoted > 0, do: Laev.Sync.live_push()
+    :ok
+  end
+
+  # Only for a single-season show that has *ended*. With more than one season,
+  # this list is one season of several and finishing it says nothing about the
+  # others; and a returning show with its one season behind you is caught up,
+  # not finished — season two is coming, and only you can say you are done
+  # waiting for it.
   defp roll_up_single_season(%{"number_of_seasons" => 1} = details, episodes, ctx_of, rt_of) do
     aired = Enum.filter(episodes, &tmdb_aired?/1)
     series = %{type: "tv", tmdb_id: details["id"], season: nil, episode: nil}
 
-    if aired != [] and not Laev.Position.finished?(series) and
+    if ended_status?(details["status"]) and aired != [] and not Laev.Position.finished?(series) and
          Enum.all?(aired, &Laev.Position.watched?(ctx_of.(&1), rt_of.(&1))) do
       Laev.Position.set_watched(series, true)
       Laev.Sync.live_push()
@@ -4939,10 +5019,12 @@ defmodule Laev.CLI do
   #
   # The moment to write it is this one: the episode is done and there is
   # nothing after it, which is the same answer that decides whether to offer
-  # "next episode" — and it is checked against TMDB rather than assumed, so a
-  # show still airing is not declared finished on its mid-season break.
+  # "next episode". But "nothing next" is not "nothing ever" — a returning show
+  # with its last aired episode behind you is *caught up*, and marking it
+  # finished threw it off the Watchlist mid-run. So only TMDB's own word that
+  # the show has ended finishes it; anything still returning is yours to ctrl-w.
   defp mark_series_if_done(ctx, nil) do
-    if Laev.Position.finished?(ctx) do
+    if Laev.Position.finished?(ctx) and show_ended?(ctx) do
       series = %{ctx | season: nil, episode: nil}
 
       unless Laev.Position.finished?(series) do

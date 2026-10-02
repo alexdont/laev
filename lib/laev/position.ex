@@ -300,6 +300,65 @@ defmodule Laev.Position do
   end
 
   @doc """
+  Promote a numeric position to "done" — played through, by the 85% rule.
+
+  `watched?/2` has always treated a saved position past 85% of the runtime as
+  watched, which retroactively covers episodes finished before the mpv script
+  wrote "done" at the end. But that answer lived only at read time, wherever a
+  runtime happened to be in hand: the season picker showed ✓ while the counters
+  that scan the directory saw a number — "everything is watched" on one screen,
+  "7 of 10" on the next. Writing the word down makes every screen read the same
+  file the same way.
+
+  Only ever promotes a number; "done", "seen" and short positions stay put.
+  """
+  def promote_finished(ctx, runtime_s) when is_number(runtime_s) and runtime_s > 0 do
+    with key when is_binary(key) <- key(ctx),
+         {:ok, body} <- File.read(position_file(key)),
+         {seconds, _} <- Integer.parse(String.trim(body)),
+         true <- seconds >= runtime_s * 0.85 do
+      File.write(position_file(key), "done")
+      :promoted
+    else
+      _ -> :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  def promote_finished(_ctx, _runtime_s), do: :ok
+
+  @doc """
+  The same, swept across the whole directory with whatever runtimes are already
+  known — `runtime_of` maps a position file name to that title's typical episode
+  (or film) length in seconds, or nil where nothing knows. Returns how many were
+  promoted. Conservative by construction: a title with no cached runtime is left
+  for the episode list to reconcile with the real one.
+  """
+  def promote_watched(runtime_of) do
+    dir = Path.join(data_dir(), "positions")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        Enum.count(names, fn name ->
+          with seconds when is_integer(seconds) and seconds > 0 <- runtime_of.(name),
+               {:ok, body} <- File.read(Path.join(dir, name)),
+               {at, _} <- Integer.parse(String.trim(body)),
+               true <- at >= seconds * 0.85 do
+            File.write(Path.join(dir, name), "done") == :ok
+          else
+            _ -> false
+          end
+        end)
+
+      _ ->
+        0
+    end
+  rescue
+    _ -> 0
+  end
+
+  @doc """
   Carry a saved position from one key to another, once.
 
   Anime used to be filed under its TMDB show and is now filed under its

@@ -266,6 +266,15 @@ defmodule Laev.Stats do
     end
   end
 
+  @doc """
+  The runtime cache as it stands — seconds per film, per typical episode, per
+  whole series — read from disk with nothing fetched. For callers that want to
+  reason about lengths without earning a lookup.
+  """
+  def known_runtimes do
+    load_cache()
+  end
+
   # ── runtimes, cached ──────────────────────────────────────────────
 
   # One lookup per film and per show — an episode borrows its show's typical

@@ -116,6 +116,52 @@ defmodule Laev.AnimeStatsTest do
     assert row.whole
   end
 
+  # The 85% rule, written down instead of recomputed: the picker always showed
+  # these as watched; now the directory counters see the same thing.
+  test "a position past 85% of the runtime becomes done", %{dir: dir} do
+    mark(dir, "tv-241609-s2e6", "2429")
+
+    assert Position.promote_finished(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 6}, 2700) == :promoted
+    assert Position.mark_state(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 6}) == :watched
+  end
+
+  test "a position short of 85% stays a position", %{dir: dir} do
+    mark(dir, "tv-241609-s2e6", "2429")
+
+    assert Position.promote_finished(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 6}, 3300) == :ok
+    assert Position.mark_state(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 6}) == {:partial, 2429}
+  end
+
+  test "promotion never rewrites words, only numbers", %{dir: dir} do
+    mark(dir, "tv-241609-s2e6", "seen")
+
+    assert Position.promote_finished(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 6}, 10) == :ok
+    assert File.read!(Path.join([dir, "positions", "tv-241609-s2e6"])) == "seen"
+  end
+
+  test "the directory sweep promotes what the runtimes vouch for", %{dir: dir} do
+    mark(dir, "tv-241609-s2e5", "3413")
+    mark(dir, "tv-241609-s2e6", "600")
+    mark(dir, "movie-78", "6500")
+    mark(dir, "mal-1425-e3", "1300")
+    mark(dir, "tv-241609", "seen")
+
+    promoted =
+      Position.promote_watched(fn name ->
+        cond do
+          String.starts_with?(name, "tv-241609-") -> 3300
+          String.starts_with?(name, "movie-78") -> 7000
+          String.starts_with?(name, "mal-1425-") -> 1440
+          true -> nil
+        end
+      end)
+
+    assert promoted == 3
+    assert Position.mark_state(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 5}) == :watched
+    assert Position.mark_state(%{type: "tv", tmdb_id: 241_609, season: 2, episode: 6}) == {:partial, 600}
+    assert Position.mark_state(%{mal_id: 1425, episode: 3}) == :watched
+  end
+
   # Anime moved from TMDB keys onto MAL keys; a position partway through an
   # episode should survive the move.
   test "a saved position is carried onto the new key", %{dir: dir} do
