@@ -1310,7 +1310,7 @@ defmodule Laev.CLI do
   defp watching_row do
     # Shows and anime both: the page lists what you left in the middle, and which
     # site keeps the record is not something the count should care about.
-    case length(shows_behind()) + length(anime_behind()) do
+    case watching_tally().behind do
       0 -> []
       n -> [{:watching, "≡ Watchlist — #{n} you're watching"}]
     end
@@ -1321,17 +1321,30 @@ defmodule Laev.CLI do
   # what the page wrote down last time it looked, since the home screen fetches
   # nothing. A show laev has never looked at counts as behind: better to offer it
   # and find out than to hide it on a guess.
-  defp shows_behind do
+  @doc false
+  # Every number the home row and the stats line quote, counted once and grouped
+  # exactly the way the page groups its rows. Two screens disagreeing about the
+  # same word is worse than either of them being a little off — and they did
+  # disagree, the moment the page started counting things the counts didn't.
+  def watching_tally do
+    shows = unfinished_shows()
+    anime = unfinished_anime()
+    loose = unfinished_resumes(shows, anime)
     held = Laev.Holds.set()
 
-    Enum.reject(unfinished_shows(), fn {{type, id}, marks} ->
-      MapSet.member?(held, {type, id}) or caught_up_by_cache?(id, marks)
-    end)
-  end
+    {held_shows, rest} = Enum.split_with(shows, fn {{type, id}, _marks} -> MapSet.member?(held, {type, id}) end)
+    {caught_up, behind_shows} = Enum.split_with(rest, fn {{_type, id}, marks} -> caught_up_by_cache?(id, marks) end)
+    {held_anime, behind_anime} = Enum.split_with(anime, fn {_id, entry} -> entry && entry.status == "on_hold" end)
+    {held_loose, behind_loose} = Enum.split_with(loose, &Laev.Holds.held?(&1["type"], &1["tmdb_id"]))
 
-  # Anime you are actually in the middle of — what you put down is not something
-  # to do tonight, which is the only thing these counts are for.
-  defp anime_behind, do: Enum.reject(unfinished_anime(), fn {_mal_id, anime} -> anime.status == "on_hold" end)
+    %{
+      behind: length(behind_shows) + length(behind_anime) + length(behind_loose),
+      caught_up: length(caught_up),
+      held: length(held_shows) + length(held_anime) + length(held_loose),
+      series_finished: Enum.count(series_marks()),
+      anime_finished: length(anime_finished())
+    }
+  end
 
   defp caught_up_by_cache?(id, marks) do
     case Laev.Seasons.aired_seasons(id) do
@@ -5602,27 +5615,15 @@ defmodule Laev.CLI do
   # in the middle of. The first line counts episodes and films, which says
   # nothing about either.
   defp print_shelf_counts do
-    finished = Enum.count(series_marks())
-    started = unfinished_shows()
-    behind = length(shows_behind())
-    # Counted the same way the home row counts it, or the two would disagree
-    # about the same word while sitting two screens apart.
-    caught_up = length(started) - behind
-
-    # Anime finished gets its own word — it is finished when MyAnimeList says it
-    # is — but "watching" counts the same things the home row counts, or the
-    # two would disagree about the same word two screens apart.
-    anime = length(anime_finished())
-    anime_started = length(anime_behind())
-    held = length(Laev.Holds.all()) + (length(unfinished_anime()) - anime_started)
+    tally = watching_tally()
 
     parts =
       [
-        finished > 0 && "#{finished} series finished",
-        anime > 0 && "#{anime} anime finished",
-        behind + anime_started > 0 && "#{behind + anime_started} watching",
-        caught_up > 0 && "#{caught_up} caught up",
-        held > 0 && "#{held} on hold"
+        tally.series_finished > 0 && "#{tally.series_finished} series finished",
+        tally.anime_finished > 0 && "#{tally.anime_finished} anime finished",
+        tally.behind > 0 && "#{tally.behind} watching",
+        tally.caught_up > 0 && "#{tally.caught_up} caught up",
+        tally.held > 0 && "#{tally.held} on hold"
       ]
       |> Enum.filter(& &1)
 
