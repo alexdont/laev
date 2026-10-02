@@ -1395,12 +1395,13 @@ defmodule Laev.CLI do
   def watching_rows(report \\ fn _line -> :ok end) do
     shows = unfinished_shows()
     anime = unfinished_anime()
+    loose = unfinished_resumes(shows, anime)
     marks = anime_marks()
 
-    if shows == [] and anime == [] do
+    if shows == [] and anime == [] and loose == [] do
       []
     else
-      report.("reading #{length(shows) + length(anime)} half-watched titles…")
+      report.("reading #{length(shows) + length(anime) + length(loose)} half-watched titles…")
 
       # Anime ordered after the shows, and ordered among themselves already — the
       # index continues across both so one sort keeps the whole page in order.
@@ -1411,10 +1412,16 @@ defmodule Laev.CLI do
           unfinished_anime_title({mal_id, entry}, Map.get(marks, mal_id, 0), order)
         end)
 
+      loose_rows =
+        loose
+        |> Enum.with_index(length(shows) + length(anime))
+        |> gather(fn {entry, order} -> unfinished_resume_title(entry, order) end)
+
       shows
       |> Enum.with_index()
       |> gather(fn {{{type, id}, seasons}, order} -> unfinished_title(type, id, seasons, order) end)
       |> Enum.concat(anime_rows)
+      |> Enum.concat(loose_rows)
       |> remember_aired_seasons()
       |> divide_sections()
     end
@@ -1489,21 +1496,88 @@ defmodule Laev.CLI do
   defp unfinished_anime do
     marks = anime_marks()
     finished = MapSet.new(anime_finished())
+    described = anime_list()
 
-    anime_list()
-    |> Enum.filter(fn {mal_id, anime} ->
-      Map.get(marks, mal_id, 0) > 0 and not MapSet.member?(finished, mal_id) and anime.status != "dropped"
-    end)
+    # Every anime laev has any record of being in the middle of — the marks it
+    # wrote, and its own history for one your list has never heard of. Driving
+    # this from the list alone is what hid an anime you are seven episodes into
+    # here because you had never added it there.
+    (Map.keys(marks) ++ resume_anime_ids())
+    |> Enum.uniq()
+    |> Enum.reject(&MapSet.member?(finished, &1))
+    |> Enum.reject(&(described[&1][:status] == "dropped"))
+    |> Enum.map(&{&1, described[&1]})
     |> Enum.sort_by(fn {mal_id, anime} ->
       # Watching first: that is the half of this list with something to do tonight.
-      {if(anime.status == "watching", do: 0, else: 1), -Map.get(marks, mal_id, 0)}
+      {if(anime && anime.status == "watching", do: 0, else: 1), -Map.get(marks, mal_id, 0)}
     end)
+  end
+
+  # Anime laev has a position in: the id comes from the history entry when it was
+  # played recently enough to carry one, and from the cross-id list otherwise —
+  # offline either way, and only when that list names exactly one anime for the
+  # show, since several parts means nothing here knows which you were watching.
+  defp resume_anime_ids do
+    for entry <- Laev.Resume.all(), not title_finished?(entry), id <- anime_ids_for(entry), do: id
+  end
+
+  defp anime_ids_for(%{"mal_id" => mal_id}) when is_integer(mal_id), do: [mal_id]
+
+  defp anime_ids_for(entry) do
+    case Laev.AnimeMap.mal_ids(entry["type"], entry["tmdb_id"]) do
+      [only] -> [only]
+      _ -> []
+    end
+  end
+
+  defp title_finished?(entry) do
+    Laev.Position.finished?(%{type: entry["type"], tmdb_id: entry["tmdb_id"], season: nil, episode: nil})
+  end
+
+  # Started, with nothing finished yet: an hour into a film, five minutes into an
+  # episode. Being in the middle of something doesn't wait for a whole episode to
+  # go by, and these were the rows missing from the page entirely — laev had the
+  # position, and nothing asked it.
+  defp unfinished_resumes(shows, anime) do
+    covered_shows = MapSet.new(shows, fn {{type, id}, _seasons} -> {type, id} end)
+    covered_anime = MapSet.new(anime, fn {mal_id, _described} -> mal_id end)
+
+    Enum.filter(Laev.Resume.all(), fn entry ->
+      not title_finished?(entry) and
+        not MapSet.member?(covered_shows, {entry["type"], entry["tmdb_id"]}) and
+        not Enum.any?(anime_ids_for(entry), &MapSet.member?(covered_anime, &1)) and
+        Laev.Position.resume_at(entry_ctx(entry)) != nil
+    end)
+  end
+
+  # The row says where you are from the history, like every other title row does,
+  # so there is nothing extra to write on it.
+  defp unfinished_resume_title(entry, order) do
+    type = entry["type"]
+    id = entry["tmdb_id"]
+
+    details =
+      case fetch_details(%{type: type, id: id}) do
+        {:ok, found} -> found
+        _ -> %{}
+      end
+
+    details |> unfinished_row(type, id) |> hold_note() |> Map.put(:order, order)
   end
 
   # One row, in the same shape as every other title row so enter plays it. The
   # title is the MAL entry's own name, which is also what matches it on Kitsu
   # when you open it — "Lupin III: Part 5", rather than seven seasons of "Lupin
   # the 3rd" to choose between.
+  defp unfinished_anime_title({mal_id, nil}, watched, order) do
+    # Never imported, so nothing is known about it yet — one request, here, where
+    # the page is already fetching and says so.
+    case Laev.Anime.learn(mal_id) do
+      %{} = learned -> unfinished_anime_title({mal_id, learned}, watched, order)
+      _ -> nil
+    end
+  end
+
   defp unfinished_anime_title({mal_id, anime}, watched, order) do
     case Laev.AnimeMap.tmdb(mal_id) do
       {type, tmdb_id, _season} -> anime_row(anime, mal_id, type, tmdb_id, watched, order)
@@ -1538,6 +1612,8 @@ defmodule Laev.CLI do
 
   # "7/24 episodes", with "on hold" said out loud — the difference between
   # something you are watching and something you put down.
+  defp anime_progress_note(anime, 0), do: if(anime.status == "on_hold", do: " · on hold", else: "")
+
   defp anime_progress_note(anime, watched) do
     held = if anime.status == "on_hold", do: " · on hold", else: ""
 

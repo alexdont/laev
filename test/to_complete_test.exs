@@ -34,6 +34,16 @@ defmodule Laev.ToCompleteTest do
     assert CLI.section_of(silent("anime")) == :behind
   end
 
+  # The page gathers from three records, and a row from any of them is a row: an
+  # anime your list never heard of, a film you are half an hour into. Both were
+  # invisible when the page was built from the MyAnimeList import alone.
+  test "progress with nothing marked is still progress" do
+    page = CLI.divide_sections([%{title: "Marriagetoxin", mal_id: 62_601, watched_at: 100}, behind("A", 1)])
+
+    assert Enum.map(page, & &1.title) == ["Marriagetoxin", "A"],
+           "most recently watched first, whatever record it came from"
+  end
+
   # Both of these took the page down once: a third sentinel row the list's
   # helpers had never been told about. They answer for anything now.
   test "a sentinel row is scenery, not a crash" do

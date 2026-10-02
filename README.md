@@ -202,14 +202,19 @@ each is counted from its own source:
     2442h 35m  anime      · 60 films · 5910 episodes from 302 anime
 ```
 
-**Watchlist** lists anime beside shows, in three sections, because there are
+**Watchlist** gathers everything you are in the middle of from every record laev
+keeps — episode marks, your MyAnimeList list, and its own history — so something
+you have progress in here shows up whether or not any list knows about it. A film
+you are half an hour into is in the middle of being watched too, and says where
+you got to. It lists anime beside shows, in three sections, because there are
 three answers to "why isn't this finished":
 
 ```
   Dogulwang                      · 11/12 episodes          ← last night
   Your Friends & Neighbors       · 1/2 seasons watched
-  Reacher                        · 2/4 seasons watched
-  …                                                      33 to finish
+  Marriagetoxin                  · Ep 7 · at 5:46          ← no list knows this one
+  Backrooms                      · at 35:35
+  …                                                      38 to finish
   ⌄ caught up ────────────────────────────────
   Severance                      · caught up · 2/2 seasons
   …                                                      16 up to date, waiting
