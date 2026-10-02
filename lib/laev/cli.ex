@@ -706,12 +706,12 @@ defmodule Laev.CLI do
 
     case pick(actions ++ [{:back, "← back"}], &elem(&1, 1), "enter selects · esc goes back") do
       {:login, _} ->
-        tmdb_account(["login"])
+        menu_step(&run_tmdb_login/0)
         IO.gets("  press enter to continue… ")
         tmdb_integration_menu()
 
       {:import, _} ->
-        tmdb_account(["import"])
+        menu_step(&run_tmdb_import/0)
         IO.gets("  press enter to continue… ")
         tmdb_integration_menu()
 
@@ -764,7 +764,7 @@ defmodule Laev.CLI do
         mal_integration_menu()
 
       {:login, _} ->
-        mal(["login"])
+        menu_step(&run_mal_login/0)
         mal_integration_menu()
 
       {:logout, _} ->
@@ -777,7 +777,7 @@ defmodule Laev.CLI do
         mal_integration_menu()
 
       {:import, _} ->
-        mal(["import"])
+        menu_step(&run_mal_import/0)
         IO.gets("\n  press enter to go back… ")
         mal_integration_menu()
     end
@@ -6949,40 +6949,32 @@ defmodule Laev.CLI do
 
   # ── TMDB account (ratings) ────────────────────────────────────────
 
-  defp tmdb_account(["login" | _]) do
-    unless Tmdb.configured?(), do: die("TMDB_API_KEY is not set — run: laev setup")
-    unless tty?(), do: die("tmdb login is interactive — run it at a terminal")
+  defp tmdb_account(["login" | _]), do: or_die(run_tmdb_login())
 
-    case Tmdb.start_login() do
-      {:ok, token, url} ->
-        IO.puts(:stderr, "approve laev on TMDB, then come back here:")
-        IO.puts(:stderr, IO.ANSI.format([:bright, "  #{url}", :reset]))
-        browser_open(url)
-        IO.gets("  press enter once you've approved it… ")
+  defp tmdb_account(["import" | _]), do: or_die(run_tmdb_import())
 
-        case Tmdb.finish_login(token) do
-          {:ok, session} ->
-            save_setting("TMDB_SESSION_ID", session)
-            name = Tmdb.account_name()
+  defp tmdb_account(["logout" | _]) do
+    save_setting("TMDB_SESSION_ID", "")
+    IO.puts(:stderr, "unlinked from your TMDB account — metadata still works, ratings won't send.")
+  end
 
-            IO.puts(:stderr, IO.ANSI.format([:green, "✓ linked to TMDB#{if name, do: " as #{name}"}", :reset]))
-            IO.puts(:stderr, "you can now rate episodes and films from the Now Playing menu.")
+  defp tmdb_account(_) do
+    if Tmdb.account?(),
+      do: IO.puts(:stderr, "TMDB: linked#{if name = Tmdb.account_name(), do: " as #{name}"} — laev tmdb logout to unlink"),
+      else: IO.puts(:stderr, "TMDB: metadata only — run: laev tmdb login  (to rate episodes)")
+  end
 
-          {:error, reason} ->
-            die("TMDB login failed: #{inspect(reason)} (was it approved?)")
-        end
-
-      {:error, reason} ->
-        die("TMDB wouldn't start a login: #{inspect(reason)}")
+  defp run_tmdb_import do
+    if not Tmdb.account?() do
+      {:error, "not linked to TMDB — run: laev tmdb login"}
+    else
+      IO.puts(:stderr, "")
+      finish_tmdb_import(Laev.Ratings.import_from_tmdb(&IO.puts(:stderr, "  #{&1}")))
     end
   end
 
-  defp tmdb_account(["import" | _]) do
-    unless Tmdb.account?(), do: die("not linked to TMDB — run: laev tmdb login")
-
-    IO.puts(:stderr, "")
-
-    case Laev.Ratings.import_from_tmdb(&IO.puts(:stderr, "  #{&1}")) do
+  defp finish_tmdb_import(result) do
+    case result do
       %{} = counts ->
         IO.puts(
           :stderr,
@@ -7002,21 +6994,47 @@ defmodule Laev.CLI do
           IO.puts(:stderr, "  stats now: #{Laev.Stats.duration(totals.seconds)} across #{length(totals.titles)} titles")
         end
 
+        :ok
+
       {:error, reason} ->
-        die("couldn't read your ratings (#{inspect(reason)})")
+        {:error, "couldn't read your ratings (#{inspect(reason)})"}
     end
   end
 
-  defp tmdb_account(["logout" | _]) do
-    save_setting("TMDB_SESSION_ID", "")
-    IO.puts(:stderr, "unlinked from your TMDB account — metadata still works, ratings won't send.")
+  defp run_tmdb_login do
+    cond do
+      not Tmdb.configured?() ->
+        {:error, "TMDB_API_KEY is not set — run: laev setup"}
+
+      not tty?() ->
+        {:error, "tmdb login is interactive — run it at a terminal"}
+
+      true ->
+        case Tmdb.start_login() do
+          {:ok, token, url} ->
+            IO.puts(:stderr, "approve laev on TMDB, then come back here:")
+            IO.puts(:stderr, IO.ANSI.format([:bright, "  #{url}", :reset]))
+            browser_open(url)
+            IO.gets("  press enter once you've approved it… ")
+
+            case Tmdb.finish_login(token) do
+              {:ok, session} ->
+                save_setting("TMDB_SESSION_ID", session)
+                name = Tmdb.account_name()
+
+                IO.puts(:stderr, IO.ANSI.format([:green, "✓ linked to TMDB#{if name, do: " as #{name}"}", :reset]))
+                IO.puts(:stderr, "you can now rate episodes and films from the Now Playing menu.")
+
+              {:error, reason} ->
+                {:error, "TMDB login failed: #{inspect(reason)} (was it approved?)"}
+            end
+
+          {:error, reason} ->
+            {:error, "TMDB wouldn't start a login: #{inspect(reason)}"}
+        end
+    end
   end
 
-  defp tmdb_account(_) do
-    if Tmdb.account?(),
-      do: IO.puts(:stderr, "TMDB: linked#{if name = Tmdb.account_name(), do: " as #{name}"} — laev tmdb logout to unlink"),
-      else: IO.puts(:stderr, "TMDB: metadata only — run: laev tmdb login  (to rate episodes)")
-  end
 
   defp describe_import_rest(counts) do
     [
@@ -7178,32 +7196,81 @@ defmodule Laev.CLI do
 
   # ── MyAnimeList ───────────────────────────────────────────────────
 
-  defp mal(["login" | _]) do
-    unless Laev.MAL.configured?() do
-      die("MAL_CLIENT_ID is not set — the app owner configures it in #{Config.path()}")
-    end
+  defp mal(["login" | _]), do: or_die(run_mal_login())
 
-    unless tty?(), do: die("mal login is interactive — run it at a terminal")
+  defp mal(["import" | _]), do: or_die(run_mal_import())
 
-    IO.puts(:stderr, "opening MyAnimeList in your browser — approve access, then come back…")
-    IO.puts(:stderr, IO.ANSI.format([:faint, "(redirect: #{Laev.MAL.redirect_uri()})", :reset]))
+  defp mal(["logout" | _]) do
+    Laev.MAL.logout()
+    IO.puts(:stderr, "unlinked from MyAnimeList.")
+  end
 
-    case Laev.MAL.login(&browser_open/1) do
-      {:ok, user} ->
-        IO.puts(:stderr, IO.ANSI.format([:green, "✓ linked to MyAnimeList as #{user}", :reset]))
-        IO.puts(:stderr, "anime you watch will now scrobble to your list automatically.")
+  defp mal(_) do
+    cond do
+      not Laev.MAL.configured?() ->
+        IO.puts(:stderr, "MyAnimeList: not configured (owner sets MAL_CLIENT_ID). ")
 
-      {:error, reason} ->
-        die("MAL login failed: #{inspect(reason)}")
+      Laev.MAL.authenticated?() ->
+        IO.puts(
+          :stderr,
+          "MyAnimeList: linked as #{Laev.MAL.username() || "?"} — " <>
+            "laev mal import pulls your list in, laev mal logout unlinks"
+        )
+
+      true ->
+        IO.puts(:stderr, "MyAnimeList: not linked — run: laev mal login")
     end
   end
 
-  defp mal(["import" | _]) do
-    unless Laev.MAL.authenticated?(), do: die("not linked to MyAnimeList — run: laev mal login")
+  # The command line gets an exit code; a menu gets its screen back. These cores
+  # answer :ok | {:error, message} so each caller can do its own kind of failing —
+  # die/1 from a menu halts the whole app over one failed request, which it did.
+  defp or_die(:ok), do: :ok
+  defp or_die({:error, message}), do: die(message)
 
-    IO.puts(:stderr, "")
+  # The menu's side of the same bargain: say what went wrong and hand the
+  # screen back.
+  defp menu_step(run) do
+    case run.() do
+      {:error, message} -> IO.puts(:stderr, IO.ANSI.format([:red, "  ✗ ", :reset, message]))
+      _ -> :ok
+    end
+  end
 
-    case Laev.Ratings.import_from_mal(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset]))) do
+  defp run_mal_login do
+    cond do
+      not Laev.MAL.configured?() ->
+        {:error, "MAL_CLIENT_ID is not set — the app owner configures it in #{Config.path()}"}
+
+      not tty?() ->
+        {:error, "mal login is interactive — run it at a terminal"}
+
+      true ->
+        IO.puts(:stderr, "opening MyAnimeList in your browser — approve access, then come back…")
+        IO.puts(:stderr, IO.ANSI.format([:faint, "(redirect: #{Laev.MAL.redirect_uri()})", :reset]))
+
+        case Laev.MAL.login(&browser_open/1) do
+          {:ok, user} ->
+            IO.puts(:stderr, IO.ANSI.format([:green, "✓ linked to MyAnimeList as #{user}", :reset]))
+            IO.puts(:stderr, "anime you watch will now scrobble to your list automatically.")
+
+          {:error, reason} ->
+            {:error, "MAL login failed: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  defp run_mal_import do
+    if not Laev.MAL.authenticated?() do
+      {:error, "not linked to MyAnimeList — run: laev mal login"}
+    else
+      IO.puts(:stderr, "")
+      finish_mal_import(Laev.Ratings.import_from_mal(&IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset]))))
+    end
+  end
+
+  defp finish_mal_import(result) do
+    case result do
       %{} = counts ->
         IO.puts(:stderr, IO.ANSI.format([:green, "\n  ✓ " <> describe_mal_import(counts), :reset, :faint, mal_import_rest(counts), :reset]))
 
@@ -7238,30 +7305,10 @@ defmodule Laev.CLI do
           )
         end
 
+        :ok
+
       {:error, reason} ->
-        die("couldn't read your MyAnimeList list (#{inspect(reason)})")
-    end
-  end
-
-  defp mal(["logout" | _]) do
-    Laev.MAL.logout()
-    IO.puts(:stderr, "unlinked from MyAnimeList.")
-  end
-
-  defp mal(_) do
-    cond do
-      not Laev.MAL.configured?() ->
-        IO.puts(:stderr, "MyAnimeList: not configured (owner sets MAL_CLIENT_ID). ")
-
-      Laev.MAL.authenticated?() ->
-        IO.puts(
-          :stderr,
-          "MyAnimeList: linked as #{Laev.MAL.username() || "?"} — " <>
-            "laev mal import pulls your list in, laev mal logout unlinks"
-        )
-
-      true ->
-        IO.puts(:stderr, "MyAnimeList: not linked — run: laev mal login")
+        {:error, "couldn't read your MyAnimeList list (#{inspect(reason)})"}
     end
   end
 
