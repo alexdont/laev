@@ -349,8 +349,15 @@ defmodule Laev.MAL do
   """
   def set_progress(mal_id, episode, total \\ nil) do
     with at when is_binary(at) <- access_token() do
-      count = max(episode, episodes_watched(mal_id))
+      current = list_status(mal_id)
+      count = max(episode, (current && current.episodes_watched) || 0)
       fields = progress_fields(count, total)
+
+      # An anime not on the list can't take a full update: MAL's PATCH only
+      # creates an entry when the form is a bare status, and answers a full
+      # form with 400 "should not contain extra fields" — so something you
+      # start watching out of nowhere is added first, then counted.
+      if current == nil, do: patch(mal_id, at, %{status: "watching"})
 
       # The fields come back so the caller knows what the list now says — the
       # count it settled on and whether that finished the anime. Guessing either
@@ -374,11 +381,15 @@ defmodule Laev.MAL do
   MAL doesn't know (a running series, a long-form shounen) stays *watching*,
   because nothing here can tell when it ends.
   """
+  # The request field is `num_watched_episodes`; MAL's *responses* spell it
+  # `num_episodes_watched`, and sending the response spelling is a 400 ("this
+  # form should not contain extra fields") — which, being silently swallowed,
+  # meant episode counts never reached the list at all.
   def progress_fields(count, total) do
     if is_integer(total) and total > 0 and count >= total do
-      %{num_episodes_watched: count, status: "completed", finish_date: today()}
+      %{num_watched_episodes: count, status: "completed", finish_date: today()}
     else
-      %{num_episodes_watched: count, status: "watching"}
+      %{num_watched_episodes: count, status: "watching"}
     end
   end
 

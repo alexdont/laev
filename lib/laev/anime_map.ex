@@ -20,6 +20,8 @@ defmodule Laev.AnimeMap do
 
   @url "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json"
   @cache "anime-map.json"
+  # Bumped when the trim learns a new column; an old cache refetches itself.
+  @version 2
   # The list gains entries as new anime air; a month-old copy is missing only
   # things that premiered since, which is nothing anyone has finished yet.
   @max_age 30 * 24 * 3600
@@ -33,8 +35,8 @@ defmodule Laev.AnimeMap do
   """
   def tmdb(mal_id) when is_integer(mal_id) do
     case Map.get(load().forward, Integer.to_string(mal_id)) do
-      ["tv", id, season] -> {"tv", id, season}
-      ["movie", id] -> {"movie", id}
+      ["tv", id, season | _rest] -> {"tv", id, season}
+      ["movie", id | _rest] -> {"movie", id}
       _ -> nil
     end
   end
@@ -65,7 +67,7 @@ defmodule Laev.AnimeMap do
   def mal_ids("tv", tmdb_id) when is_integer(tmdb_id) do
     load().forward
     |> Enum.flat_map(fn
-      {mal, ["tv", ^tmdb_id, _season]} -> [String.to_integer(mal)]
+      {mal, ["tv", ^tmdb_id, _season | _rest]} -> [String.to_integer(mal)]
       _ -> []
     end)
     |> Enum.sort()
@@ -79,6 +81,33 @@ defmodule Laev.AnimeMap do
   end
 
   def mal_ids(_type, _tmdb_id), do: []
+
+  @doc """
+  The AniDB id for a MAL entry, or nil.
+
+  What AnimeTosho is organized by — with it, an episode search gets the show's
+  whole feed (every episode, every batch) instead of guessing text queries at
+  engines that can't match them. Kitsu's own mapping API misses newer shows;
+  this list doesn't.
+  """
+  def anidb(mal_id) when is_integer(mal_id) do
+    case Map.get(load().forward, Integer.to_string(mal_id)) do
+      [_kind, _id, _season, anidb, _kitsu] -> anidb
+      _ -> nil
+    end
+  end
+
+  def anidb(_mal_id), do: nil
+
+  @doc "The Kitsu id for a MAL entry, or nil — Torrentio's anime path is keyed by it."
+  def kitsu_id(mal_id) when is_integer(mal_id) do
+    case Map.get(load().forward, Integer.to_string(mal_id)) do
+      [_kind, _id, _season, _anidb, kitsu] -> kitsu
+      _ -> nil
+    end
+  end
+
+  def kitsu_id(_mal_id), do: nil
 
   @doc """
   True when this TMDB title is anime — it appears in the cross-id list, which
@@ -140,15 +169,21 @@ defmodule Laev.AnimeMap do
     for %{"mal_id" => mal, "themoviedb_id" => tmdb} = row <- entries,
         is_integer(mal),
         is_map(tmdb),
-        pair = pair_for(tmdb, season_of(row)),
+        pair = pair_for(tmdb, season_of(row), row),
         into: %{} do
       {Integer.to_string(mal), pair}
     end
   end
 
-  defp pair_for(%{"tv" => id}, season), do: with(n when is_integer(n) <- one_id(id), do: ["tv", n, season])
-  defp pair_for(%{"movie" => id}, _season), do: with(n when is_integer(n) <- one_id(id), do: ["movie", n])
-  defp pair_for(_tmdb, _season), do: nil
+  # AniDB and Kitsu ride along: AnimeTosho is organized by the first, Torrentio
+  # by the second, and Kitsu's own mapping API doesn't know shows this list does.
+  defp pair_for(%{"tv" => id}, season, row),
+    do: with(n when is_integer(n) <- one_id(id), do: ["tv", n, season, one_id(row["anidb_id"]), one_id(row["kitsu_id"])])
+
+  defp pair_for(%{"movie" => id}, _season, row),
+    do: with(n when is_integer(n) <- one_id(id), do: ["movie", n, nil, one_id(row["anidb_id"]), one_id(row["kitsu_id"])])
+
+  defp pair_for(_tmdb, _season, _row), do: nil
 
   # A sixth of the rows write the id as a one-element list — `{"movie": [128]}`
   # rather than `{"movie": 128}`, and thirty list two. Either way the first is
@@ -185,18 +220,18 @@ defmodule Laev.AnimeMap do
     forward = read()
 
     tv =
-      for {mal, ["tv", id, season]} <- forward,
+      for {mal, ["tv", id, season | _rest]} <- forward,
           into: %{},
           do: {"#{id}-#{season || 1}", String.to_integer(mal)}
 
-    movie = for {mal, ["movie", id]} <- forward, into: %{}, do: {Integer.to_string(id), String.to_integer(mal)}
+    movie = for {mal, ["movie", id | _rest]} <- forward, into: %{}, do: {Integer.to_string(id), String.to_integer(mal)}
 
     %{
       forward: forward,
       tv: tv,
       movie: movie,
-      tv_ids: for({_m, ["tv", id, _s]} <- forward, into: MapSet.new(), do: id),
-      movie_ids: for({_m, ["movie", id]} <- forward, into: MapSet.new(), do: id)
+      tv_ids: for({_m, ["tv", id | _rest]} <- forward, into: MapSet.new(), do: id),
+      movie_ids: for({_m, ["movie", id | _rest]} <- forward, into: MapSet.new(), do: id)
     }
   end
 
@@ -210,16 +245,21 @@ defmodule Laev.AnimeMap do
   end
 
   defp write(forward) do
-    File.write(path(), Jason.encode!(%{"fetched_at" => System.os_time(:second), "ids" => forward}))
+    File.write(
+      path(),
+      Jason.encode!(%{"fetched_at" => System.os_time(:second), "v" => @version, "ids" => forward})
+    )
   rescue
     _ -> :ok
   end
 
   defp fresh? do
     with {:ok, body} <- File.read(path()),
-         {:ok, %{"fetched_at" => at}} <- Jason.decode(body) do
+         {:ok, %{"fetched_at" => at, "v" => @version}} <- Jason.decode(body) do
       System.os_time(:second) - at < @max_age
     else
+      # An older cache (no version, or an earlier one) is missing a column the
+      # readers want — refetch rather than answering nil for ids the list has.
       _ -> false
     end
   end

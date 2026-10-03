@@ -7,7 +7,7 @@ defmodule Laev.MalProgressTest do
     fields = MAL.progress_fields(12, 12)
 
     assert fields.status == "completed"
-    assert fields.num_episodes_watched == 12
+    assert fields.num_watched_episodes == 12
     assert fields.finish_date == Date.to_iso8601(Date.utc_today())
   end
 
@@ -15,7 +15,7 @@ defmodule Laev.MalProgressTest do
     fields = MAL.progress_fields(11, 12)
 
     assert fields.status == "watching"
-    assert fields.num_episodes_watched == 11
+    assert fields.num_watched_episodes == 11
     refute Map.has_key?(fields, :finish_date)
   end
 

@@ -3055,13 +3055,19 @@ defmodule Laev.CLI do
 
   defp kitsu_selected(anime) do
     # AniList-sourced entries (Kitsu down/slow) have no Kitsu id. Recover one
-    # from the MAL id when possible — Torrentio's anime path is keyed by
-    # Kitsu id, so this is what lets Russian/public trackers reach anime.
+    # from the MAL id — Kitsu's own mapping API first, the cross-id list when
+    # Kitsu has never heard of the show, which for anything recent it hasn't.
+    # Torrentio's anime path is keyed by Kitsu id; AnimeTosho by AniDB id, and
+    # that one is the difference between the show's whole feed — every episode,
+    # every batch — and text queries the engines can't match ("MARRIAGETOXIN
+    # 08" found nothing while episode 8 sat in forty releases).
+    mal_id = anime[:mal_id]
+
     kitsu_id =
       anime.id ||
-        case anime[:mal_id] && Kitsu.kitsu_id_from_mal(anime.mal_id) do
+        case mal_id && Kitsu.kitsu_id_from_mal(mal_id) do
           {:ok, id} -> id
-          _ -> nil
+          _ -> Laev.AnimeMap.kitsu_id(mal_id)
         end
 
     anidb =
@@ -3069,7 +3075,7 @@ defmodule Laev.CLI do
            {:ok, mapped} <- Kitsu.anidb_id(id) do
         mapped
       else
-        _ -> nil
+        _ -> Laev.AnimeMap.anidb(mal_id)
       end
 
     %{anime: anime, episodes: kitsu_episode_list(anime), anidb: anidb, kitsu_id: kitsu_id}
@@ -7616,7 +7622,7 @@ defmodule Laev.CLI do
   defp adopt_list_status(mal_id, fields) do
     Laev.Anime.learn(mal_id)
     Laev.Anime.set_status(mal_id, fields.status)
-    Laev.Ratings.catch_up(mal_id, fields.num_episodes_watched, fields.status)
+    Laev.Ratings.catch_up(mal_id, fields.num_watched_episodes, fields.status)
     :ok
   rescue
     _ -> :ok
