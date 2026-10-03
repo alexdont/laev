@@ -1421,9 +1421,18 @@ defmodule Laev.CLI do
         end
 
         case pick_with_save(titles, header) do
-          nil -> back()
-          title when is_map(title) -> play_title(title)
-          other -> other
+          nil ->
+            back()
+
+          title when is_map(title) ->
+            # Registered before playing, like every other list: a dead end in
+            # the source search comes back here, rather than closing laev —
+            # which is what "no playable source found" did from this page.
+            screen(fn -> watching_menu() end)
+            play_title(title)
+
+          other ->
+            other
         end
     end
   end
@@ -2891,11 +2900,20 @@ defmodule Laev.CLI do
         poster_path: details["poster_path"]
       )
 
-    verify_episode(ctx)
+    # An old show is usually one torrent for the whole season, and the next
+    # episode is already inside the one just played — the continue path has
+    # reused it for a while; picking the episode from a list deserves the same.
+    case reuse_pack(ctx, rd_opts(season, episode)) do
+      :played ->
+        :ok
 
-    title.type
-    |> title_sources(title_variants(details, title.title), title.year, imdb, season, episode)
-    |> probe_and_pick(rd_opts(season, episode), ctx)
+      :no ->
+        verify_episode(ctx)
+
+        title.type
+        |> title_sources(title_variants(details, title.title), title.year, imdb, season, episode)
+        |> probe_and_pick(rd_opts(season, episode), ctx)
+    end
   end
 
   # ── anime ─────────────────────────────────────────────────────────
@@ -2961,11 +2979,23 @@ defmodule Laev.CLI do
             back()
 
         n = episode.number
-        sources = anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id)
-        q = Sources.anime_episode_query(search_title, n)
+        ctx = anime_ctx(title, details, n, search_title, mal_id)
 
-        with_library(q, sources)
-        |> probe_and_pick([episode: n], anime_ctx(title, details, n, search_title, mal_id))
+        # The torrent you played last time usually holds this episode too —
+        # anime ships as season batches, and an episode-numbered search can't
+        # even see them ("MARRIAGETOXIN 07" finds nothing; the batch is named
+        # "(01-13)"). Same reuse the continue path has always had.
+        case reuse_pack(ctx, episode: n) do
+          :played ->
+            :ok
+
+          :no ->
+            sources = anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id)
+            q = Sources.anime_episode_query(search_title, n)
+
+            with_library(q, sources)
+            |> probe_and_pick([episode: n], ctx)
+        end
     end
   end
 
