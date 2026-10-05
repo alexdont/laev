@@ -5697,41 +5697,99 @@ defmodule Laev.CLI do
   @stats_page 50
 
 
-  defp stats_list(titles, shown, initial \\ 0) do
-    rows = Enum.take(titles, shown)
-    items = if length(titles) > shown, do: rows ++ [:more], else: rows
+  # The windows the list can be narrowed to, smallest first — "what did I watch
+  # last week" is a question an all-time list buried in a thousand imported
+  # titles cannot answer. A window keeps a title by when you *last* watched it
+  # (history and list timestamps); hand marks and imports carry no date, so
+  # they appear only in all time — which is exactly the separation wanted: the
+  # imported decade stops drowning out this month's evenings.
+  @stats_ranges [
+    {:week, "last week", 7},
+    {:month, "last month", 30},
+    {:half_year, "last 6 months", 183},
+    {:all, "all time", nil}
+  ]
+
+  defp stats_list(titles, shown, initial \\ nil, range \\ :all) do
+    seen = last_seen_map()
+    visible = Enum.filter(titles, &watched_within?(&1, range_days(range), seen))
+    rows = Enum.take(visible, shown)
+
+    buttons = Enum.map(@stats_ranges, fn {id, label, days} -> {:range, id, label, range_count(titles, days, seen)} end)
+    items = buttons ++ if(length(visible) > shown, do: rows ++ [:more], else: rows)
+    initial = initial || length(buttons)
 
     header =
-      "⧗ what you've watched · #{length(rows)} of #{length(titles)} titles · " <>
+      "⧗ what you've watched · #{range_label(range)} · #{length(rows)} of #{length(visible)} titles · " <>
         "!marked hides imports · ctrl-o info · ctrl-d forgets · esc"
 
-    case pick(items, &stats_row/1, header, nil, initial, ["ctrl-d", "ctrl-o"]) do
+    case pick(items, &stats_row(&1, range), header, nil, initial, ["ctrl-d", "ctrl-o"]) do
       # Land on the first row that wasn't there a moment ago.
       {nil, :more} ->
-        stats_list(titles, shown + @stats_page, shown)
+        stats_list(titles, shown + @stats_page, length(buttons) + shown, range)
 
       # Neither key means anything on a paging row.
       {key, :more} when key in ["ctrl-d", "ctrl-o"] ->
-        stats_list(titles, shown, initial)
+        stats_list(titles, shown, initial, range)
+
+      # Picking a window re-draws the list inside it, cursor on its first title.
+      {nil, {:range, id, _label, _count}} ->
+        stats_list(titles, @stats_page, nil, id)
+
+      {key, {:range, _id, _label, _count} = button} when key in ["ctrl-d", "ctrl-o"] ->
+        stats_list(titles, shown, Enum.find_index(items, &(&1 == button)) || 0, range)
 
       {"ctrl-o", t} ->
         open_media_page(t.type, t.tmdb_id, t.title)
-        stats_list(titles, shown, Enum.find_index(items, &(&1 == t)) || initial)
+        stats_list(titles, shown, Enum.find_index(items, &(&1 == t)) || initial, range)
 
       {"ctrl-d", t} ->
         if forget_media(t.type, t.tmdb_id, t.title),
           do: :refresh,
-          else: stats_list(titles, shown, Enum.find_index(items, &(&1 == t)) || initial)
+          else: stats_list(titles, shown, Enum.find_index(items, &(&1 == t)) || initial, range)
 
       _ ->
         :ok
     end
   end
 
-  defp stats_row(:more), do: "⋯ show more"
+  defp range_days(range), do: @stats_ranges |> List.keyfind(range, 0) |> elem(2)
+  defp range_label(range), do: @stats_ranges |> List.keyfind(range, 0) |> elem(1)
+
+  defp range_count(titles, days, seen), do: Enum.count(titles, &watched_within?(&1, days, seen))
+
+  # When each title was last watched: history timestamps for films and shows,
+  # the list's own for anime. A title with neither — a hand mark, an import —
+  # has no date to its name, and only the all-time window holds it.
+  defp last_seen_map do
+    SessionCache.fetch(:last_seen, 30, fn ->
+      history = Map.new(Laev.Resume.all(), &{{&1["type"], &1["tmdb_id"]}, &1["updated_at"]})
+      anime = Map.new(anime_list(), fn {mal_id, entry} -> {{"mal", mal_id}, entry[:updated]} end)
+      Map.merge(history, anime)
+    end)
+  end
+
+  defp watched_within?(_title, nil, _seen), do: true
+
+  defp watched_within?(title, days, seen) do
+    case seen[{title.type, title.tmdb_id}] do
+      at when is_integer(at) -> at >= System.os_time(:second) - days * 86_400
+      _ -> false
+    end
+  end
+
+  defp stats_row(:more, _range), do: "⋯ show more"
+
+  # The window buttons: the one you are in is lit, the others say how many
+  # titles are waiting inside them.
+  defp stats_row({:range, id, label, count}, range) do
+    if id == range,
+      do: "● " <> label,
+      else: IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, "○ #{label} · #{count}", :reset]))
+  end
 
   # One row of the most-watched list: title, time, and how it got there.
-  defp stats_row(t) do
+  defp stats_row(t, _range) do
     counts =
       [
         t.finished > 0 && "#{t.finished} finished",
