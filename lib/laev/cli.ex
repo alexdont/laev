@@ -5710,7 +5710,7 @@ defmodule Laev.CLI do
     {:all, "all time", nil}
   ]
 
-  defp stats_list(titles, shown, initial \\ nil, range \\ :all) do
+  defp stats_list(titles, shown, initial, range) do
     seen = last_seen_map()
     visible = Enum.filter(titles, &watched_within?(&1, range_days(range), seen))
     rows = Enum.take(visible, shown)
@@ -5751,6 +5751,13 @@ defmodule Laev.CLI do
       _ ->
         :ok
     end
+  end
+
+  # The page opens on last week — the question you actually came with — and on
+  # all time only when the week has nothing in it, since an empty list teaches
+  # nobody that the buttons above it exist.
+  defp default_stats_range(titles) do
+    if range_count(titles, range_days(:week), last_seen_map()) > 0, do: :week, else: :all
   end
 
   defp range_days(range), do: @stats_ranges |> List.keyfind(range, 0) |> elem(2)
@@ -6169,7 +6176,7 @@ defmodule Laev.CLI do
     # A picker rather than a prompt: esc leaves it the way esc leaves every
     # other screen. Reading a single keypress isn't open to us — a System.cmd
     # child has no controlling terminal, so raw mode can't be set.
-    stats_list(s.titles, @stats_page)
+    stats_list(s.titles, @stats_page, nil, default_stats_range(s.titles))
   end
 
   # ── continue watching ─────────────────────────────────────────────
