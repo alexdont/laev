@@ -529,35 +529,54 @@ defmodule Laev.CLI do
   # values). Every change is written to the config file immediately and
   # takes effect for the rest of the session.
 
+  # Grouped under the same faint dividers the Watchlist uses, so what a setting
+  # belongs to is readable at a glance instead of from its position in one long
+  # list. No glyph on the rows: the old mix of one-cell symbols and two-cell
+  # emoji started every other label a column off, and two labels leaned on the
+  # row above them ("…at this resolution") — each row stands alone now, at the
+  # same column, with its value aligned beside it.
   @settings [
-    {"LAEV_AUTO_SOURCE", "▶ Play the best source automatically", {:cycle, ["on", "off"]}},
-    {"LAEV_MAX_RESOLUTION", "🖥 …at this resolution, at most", {:cycle, ["1080p", "4K", "720p", "any"]}},
-    {"LAEV_STRICT_RESOLUTION", "🔒 …and don't even list higher ones", {:cycle, ["off", "on"]}},
-    {"LAEV_AUTOPLAY", "⚡ Autoplay next episode", {:cycle, ["off", "on"]}},
-    {"LAEV_SKIP", "⏭ Intro/credits skipping", {:cycle, ["ask", "auto", "off"]}},
-    {"LAEV_POSTERS", "🖼 Poster previews", {:cycle, ["auto", "ascii", "ascii-bg", "off"]}},
-    {"LAEV_LANG", "🗣 Audio language preference", :text},
-    {"LAEV_SUBS", "💬 Subtitle language (off = none)", :text},
-    {"LAEV_DOWNLOAD_DIR", "📁 Download folder", :text},
-    {"LAEV_MPV_ARGS", "🎬 Extra mpv arguments", :text}
+    {:divider, "playback"},
+    {"LAEV_AUTO_SOURCE", "Auto-pick the best source", {:cycle, ["on", "off"]}},
+    {"LAEV_MAX_RESOLUTION", "Resolution ceiling for auto-pick", {:cycle, ["1080p", "4K", "720p", "any"]}},
+    {"LAEV_STRICT_RESOLUTION", "Only list sources within the ceiling", {:cycle, ["off", "on"]}},
+    {"LAEV_AUTOPLAY", "Autoplay the next episode", {:cycle, ["off", "on"]}},
+    {"LAEV_SKIP", "Skip intros & credits", {:cycle, ["ask", "auto", "off"]}},
+    {:divider, "language"},
+    {"LAEV_LANG", "Audio language", :text},
+    {"LAEV_SUBS", "Subtitle language", :text},
+    {:divider, "appearance"},
+    {"LAEV_POSTERS", "Poster previews", {:cycle, ["auto", "ascii", "ascii-bg", "off"]}},
+    {:divider, "player & files"},
+    {"LAEV_DOWNLOAD_DIR", "Download folder", :text},
+    {"LAEV_MPV_ARGS", "Extra mpv arguments", :text}
   ]
 
-  defp settings_menu(selected \\ 0) do
+  defp settings_menu(selected \\ 1) do
     clear_screen()
 
     sync_status = if Laev.Sync.enabled?(), do: "on", else: "local only"
 
     items =
-      Enum.map(@settings, fn {key, label, kind} -> {:setting, key, label, kind} end) ++
+      Enum.map(@settings, fn
+        {:divider, _name} = divider -> divider
+        {key, label, kind} -> {:setting, key, label, kind}
+      end) ++
         [
-          {:sync, nil, "🔄 Cross-device sync — saved titles & progress  [#{sync_status}]", nil},
-          {:integrations, nil, "🔌 Integrations — optional API keys & services", nil},
-          {:keys, nil, "🔑 Core keys (RD / TorBox / TMDB) — rerun setup wizard", nil}
+          {:divider, "accounts"},
+          {:sync, nil, "Cross-device sync  [#{sync_status}]", nil},
+          {:integrations, nil, "Integrations — TMDB account · MyAnimeList · more", nil},
+          {:keys, nil, "Core keys — rerun the setup wizard (RD / TorBox / TMDB)", nil}
         ]
 
     case pick(items, &describe_setting/1, "enter toggles or edits · esc goes back", nil, selected) do
       nil ->
         main_menu()
+
+      # A divider is scenery here like it is on the Watchlist: any key aimed at
+      # it leaves the list as it was.
+      {:divider, _} = item ->
+        settings_menu(Enum.find_index(items, &(&1 == item)) || 0)
 
       {:sync, _, _, _} = item ->
         sync_menu()
@@ -1248,8 +1267,11 @@ defmodule Laev.CLI do
   defp describe_setting({:sync, _, label, _}), do: label
   defp describe_setting({:integrations, _, label, _}), do: label
 
+  defp describe_setting({:divider, name}),
+    do: faint("⌄ " <> name <> " " <> String.duplicate("─", max(36 - String.length(name), 4)))
+
   defp describe_setting({:setting, key, label, _kind}),
-    do: "#{String.pad_trailing(label, 34)}  [#{setting_value(key)}]"
+    do: "#{String.pad_trailing(label, 38)}[#{setting_value(key)}]"
 
   defp setting_value("LAEV_AUTO_SOURCE"), do: if(Config.auto_source?(), do: "on", else: "off")
 
@@ -4453,7 +4475,7 @@ defmodule Laev.CLI do
         # looks like the film has no sources at all.
         [] when sources != [] ->
           no_sources("nothing at #{resolution_label(cap)} or below — #{length(sources)} found above it " <>
-                       "(Settings → don't even list higher ones)")
+                       "(Settings → only list sources within the ceiling)")
 
         kept ->
           kept
