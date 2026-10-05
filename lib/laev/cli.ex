@@ -1565,15 +1565,22 @@ defmodule Laev.CLI do
   defp unfinished_title(type, id, seasons, order, cards) do
     case Map.fetch(cards, {type, id}) do
       {:ok, details} ->
-        # Even a show TMDB calls Ended sits in caught up rather than marking
-        # itself — TMDB files most K-dramas as Ended the week their first run
-        # closes, and "finished" is the one word only you get to write on a
-        # show. Films stay automatic; a series mark is always a ctrl-w.
-        details
-        |> unfinished_row(type, id)
-        |> Map.merge(season_progress_note(details, seasons))
-        |> hold_note()
-        |> Map.put(:order, order)
+        # A show watched through that has aired nothing for five years marks
+        # itself and leaves — at that point it is over by any reading, and the
+        # row would just sit here. Anything newer waits in caught up, marked
+        # only by your ctrl-w: a 2025 show between seasons is not finished,
+        # whatever TMDB's status says about it.
+        if concluded?(details) and seasons_complete?(details, seasons) do
+          Laev.Position.set_watched(%{type: "tv", tmdb_id: id, season: nil, episode: nil}, true)
+          Laev.Sync.live_push()
+          nil
+        else
+          details
+          |> unfinished_row(type, id)
+          |> Map.merge(season_progress_note(details, seasons))
+          |> hold_note()
+          |> Map.put(:order, order)
+        end
 
       _ ->
         %{
@@ -1597,6 +1604,37 @@ defmodule Laev.CLI do
       %{"updated_at" => at} when is_integer(at) -> at
       _ -> 0
     end
+  end
+
+  # "Probably obviously done": nothing has aired for five years. A newer show
+  # between seasons is not finished — marking it would let you forget it, and
+  # revivals routinely take three or four — so it waits in caught up however
+  # certain its ending looks. TMDB's status is deliberately not consulted: it
+  # files K-dramas as Ended in week one and keeps dead shows Returning for a
+  # decade; silence is the honest signal.
+  @concluded_after_days 5 * 365
+
+  @doc false
+  def concluded?(%{"last_air_date" => date}) when is_binary(date) and date != "" do
+    case Date.from_iso8601(date) do
+      {:ok, last} -> Date.diff(Date.utc_today(), last) > @concluded_after_days
+      _ -> false
+    end
+  end
+
+  def concluded?(_details), do: false
+
+  # Every aired season watched through — what "complete" means for a show.
+  defp seasons_complete?(details, marks) do
+    real = Enum.filter(details["seasons"] || [], &(&1["season_number"] > 0))
+
+    real != [] and
+      Enum.all?(real, fn season ->
+        number = season["season_number"]
+        total = Laev.Seasons.aired(details["id"], number) || season["episode_count"] || 0
+
+        total > 0 and Map.get(marks, number, 0) >= total
+      end)
   end
 
   # Said on the row as well as over the section, so typing "hold" in the filter
@@ -4994,6 +5032,22 @@ defmodule Laev.CLI do
   # with every aired season behind you sits in *caught up*, and the watched
   # mark is yours to ctrl-w — films stay automatic, since playing a film to the
   # end is finishing it by any definition.
+  defp mark_series_if_done(%{type: "tv", tmdb_id: id, mal_id: nil} = ctx, nil) when is_integer(id) do
+    card = Laev.Cards.get("tv", id) || %{}
+    marks = Map.get(Laev.Position.episode_marks(), {"tv", id}, %{})
+
+    if Laev.Position.finished?(ctx) and concluded?(card) and seasons_complete?(card, marks) do
+      series = %{ctx | season: nil, episode: nil}
+
+      unless Laev.Position.finished?(series) do
+        Laev.Position.set_watched(series, true)
+        Laev.Sync.live_push()
+      end
+    end
+
+    :ok
+  end
+
   defp mark_series_if_done(%{mal_id: mal_id} = ctx, nil) when is_integer(mal_id) do
     if Laev.Position.finished?(ctx) do
       series = %{ctx | season: nil, episode: nil}

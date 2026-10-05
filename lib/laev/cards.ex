@@ -25,8 +25,8 @@ defmodule Laev.Cards do
   @stale_movie 7 * 24 * 3600
 
   # Exactly what the row builders read, and nothing else.
-  @fields ~w(id name title first_air_date release_date poster_path overview vote_average
-             popularity status number_of_episodes number_of_seasons)
+  @fields ~w(id name title first_air_date last_air_date release_date poster_path overview
+             vote_average popularity status number_of_episodes number_of_seasons)
   @season_fields ~w(season_number episode_count air_date)
 
   @doc "Cards for these `{type, id}` keys that are already known."

@@ -58,12 +58,16 @@ a project.
   **caught up** (every season that exists is watched — you are waiting, not
   behind) and **on hold** (`ctrl-h`, for the things you got four episodes into and
   stopped). The home-screen count is only the first section, because being caught
-  up or put down is not something left to do. A show is never marked *finished* on
-  laev's say-so — not even one TMDB calls Ended, since it files most K-dramas that
-  way the week their first run closes. Finished stays a `ctrl-w`; films and anime
-  stay automatic, because playing a film to the end is finishing it by any
-  definition, and an anime entry on MAL is one season whose last episode really is
-  its end.
+  up or put down is not something left to do. A show marks itself *finished* only
+  when it is watched through **and silent** — nothing aired for five years, at
+  which point it is over by any reading. Anything newer waits in caught up
+  however certain its ending looks, because a 2025 show between seasons is not
+  finished and you shouldn't be made to forget it. TMDB's status is deliberately
+  not consulted: it files most K-dramas as Ended the week their first run closes
+  and keeps dead shows Returning for a decade — silence is the honest signal.
+  Films and anime stay automatic, because playing a film to the end is finishing
+  it by any definition, and an anime entry on MAL is one season whose last
+  episode really is its end.
 - **Saved** — the other list: titles you pressed `ctrl-s` on to watch later, with
   watched ones greyed and a count of what is left. Watchlist is what you *are*
   watching; Saved is what you *mean to*.
