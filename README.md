@@ -37,7 +37,16 @@ a project.
   between — in release order, with long-running shows listed a season at a time
   so they sit where they aired. Most series come straight from TMDB; the ones it
   groups badly are curated in `priv/franchises.json`. `ctrl-s` pins a whole list
-  to Saved, not just a title.
+  to Saved, not just a title. **Featured → Lists** browses every curated list with
+  how much of each is behind you — `Animation · 230 titles · 134/230 watched` —
+  which is the "have I seen all of these" question the lists exist to answer.
+- **Animation** is one of them, and not a franchise: every animated feature the
+  big studios have released, in release order, with tiers for Disney, Pixar,
+  DreamWorks, Illumination, Sony, stop-motion (LAIKA and Aardman) and everyone
+  else. Generated from TMDB by `tools/build_animated.py` rather than typed —
+  studio by studio, across the several company ids TMDB files each one's eras
+  under, kept to released features by the runtime on the details endpoint (which
+  is the only one that knows a 21-minute Madagascar special isn't a film).
 - **Only playable sources are offered.** Every source is actually resolved on
   your debrid provider before it reaches the picker — dead torrents, DMCA'd
   files, and 0-seeder stalls are filtered out with the reason shown.

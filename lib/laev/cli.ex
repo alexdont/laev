@@ -3324,12 +3324,56 @@ defmodule Laev.CLI do
       die("featured needs TMDB_API_KEY — add it to #{Config.path()} or the environment")
     end
 
-    case pick(["movies", "shows", "anime"], &String.capitalize/1, "what are you in the mood for?") do
+    case pick(["movies", "shows", "anime", "lists"], &featured_label/1, "what are you in the mood for?") do
       "movies" -> featured_browse("movie")
       "shows" -> featured_browse("tv")
       "anime" -> anime_season_menu()
+      "lists" -> curated_menu()
       nil -> back()
     end
+  end
+
+  defp featured_label("lists"), do: "Lists — curated franchises & collections, start to finish"
+  defp featured_label(kind), do: String.capitalize(kind)
+
+  # The curated lists, browsable. They were only ever reachable by searching
+  # something inside one — fine for "what else is in this franchise", useless
+  # for "have I seen all of these", which is the question a list of two hundred
+  # animated features exists to answer. Each row carries how much of it is
+  # behind you, read from the marks without fetching anything.
+  defp curated_menu(initial \\ 0) do
+    lists = Enum.sort_by(Laev.Franchises.all(), &{-length(&1.entries), &1.name})
+
+    case pick(lists, &describe_curated/1, "curated lists · enter opens one · esc goes back", nil, initial) do
+      nil ->
+        back()
+
+      franchise ->
+        at = Enum.find_index(lists, &(&1 == franchise)) || 0
+        screen(fn -> curated_menu(at) end)
+
+        case franchise_screen(franchise, fn -> curated_menu(at) end) do
+          title when is_map(title) -> play_title(title)
+          other -> other
+        end
+    end
+  end
+
+  defp describe_curated(franchise) do
+    entries = franchise.entries
+    watched = Enum.count(entries, &seen?(%{type: &1.type, id: &1.tmdb_id}))
+
+    progress =
+      cond do
+        watched == length(entries) -> " · all watched"
+        watched > 0 -> " · #{watched}/#{length(entries)} watched"
+        true -> ""
+      end
+
+    "🎬 #{String.pad_trailing(franchise.name, 18)}" <>
+      IO.iodata_to_binary(
+        IO.ANSI.format_fragment([:faint, " #{length(entries)} titles", progress, :reset])
+      )
   end
 
   # Anime is published and talked about in quarters, so "popular right now" is
@@ -3481,11 +3525,16 @@ defmodule Laev.CLI do
         # franchise and part of Marvel — so offer each, narrowest first. With
         # nothing curated, TMDB's own collection stands in, which covers the
         # series it groups correctly without anyone having to list them.
+        # Both kinds, narrowest first. A curated match used to suppress TMDB's
+        # own collection entirely, which was fine while every curated list was
+        # a franchise — but "Animation" matches almost any cartoon, and it
+        # would have stood in front of the four Shrek films someone searching
+        # Shrek actually wanted. Smaller list first is the same rule the
+        # curated index already sorts by.
         franchises =
-          case Laev.Franchises.detect(titles) do
-            [] -> List.wrap(tmdb_collection_franchise(titles))
-            curated -> curated
-          end
+          (Laev.Franchises.detect(titles) ++ List.wrap(tmdb_collection_franchise(titles)))
+          |> Enum.uniq_by(& &1.name)
+          |> Enum.sort_by(&length(&1.entries))
 
         items = Enum.map(franchises, &{:franchise, &1}) ++ items
 
@@ -3621,14 +3670,13 @@ defmodule Laev.CLI do
   # posters, same years — while the curated file decides only membership, order
   # and which tier a title belongs to.
   defp franchise_list(franchise, tier, on_back) do
-    titles =
-      franchise
-      |> Laev.Franchises.entries(tier)
-      |> Task.async_stream(&franchise_title/1, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
-      |> Enum.flat_map(fn
-        {:ok, title} when is_map(title) -> [title]
-        _ -> []
-      end)
+    entries = Laev.Franchises.entries(franchise, tier)
+
+    # Through the card cache, like the Watchlist: a curated list of two hundred
+    # films is two hundred TMDB lookups the first time and none after it, which
+    # is the difference between half a minute of waiting and none.
+    cards = load_cards(Enum.map(entries, &{&1.type, &1.tmdb_id}), &IO.puts(:stderr, IO.ANSI.format([:faint, "  #{&1}", :reset])))
+    titles = Enum.map(entries, &franchise_title(&1, cards))
 
     label =
       case Laev.Franchises.tier_label(franchise, tier) do
@@ -3685,8 +3733,8 @@ defmodule Laev.CLI do
   defp season_title(name, nil), do: name
   defp season_title(name, season), do: "#{name} · Season #{season}"
 
-  defp franchise_title(entry) do
-    case fetch_details(%{type: entry.type, id: entry.tmdb_id}) do
+  defp franchise_title(entry, cards) do
+    case Map.fetch(cards, {entry.type, entry.tmdb_id}) do
       {:ok, details} ->
         %{
           id: entry.tmdb_id,

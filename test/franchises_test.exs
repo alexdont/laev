@@ -13,6 +13,60 @@ defmodule Laev.FranchisesTest do
   @alien_earth {"tv", 157_239}
   @fight_club {"movie", 550}
 
+  # The curated animation list: a studio filmography rather than a franchise,
+  # which is a different shape with different invariants.
+  @toy_story {"movie", 862}
+  @elio {"movie", 1_022_787}
+  @spider_verse {"movie", 324_857}
+
+  test "the animation list holds the films it exists to answer for" do
+    animation = Franchises.by_name("Animation")
+
+    assert length(animation.entries) > 180, "a studio filmography, not a handful"
+
+    for {type, id} <- [@toy_story, @elio, @spider_verse] do
+      assert Enum.any?(animation.entries, &(&1.type == type and &1.tmdb_id == id)),
+             "#{type} #{id} should be in the animation list"
+    end
+  end
+
+  test "every animation entry is a dated, released film" do
+    today = Date.utc_today() |> Date.to_iso8601()
+
+    for entry <- Franchises.by_name("Animation").entries do
+      assert entry.type == "movie", "#{entry.title} — the list is features only"
+      assert entry.date =~ ~r/^\d{4}-\d{2}-\d{2}$/, "#{entry.title} has no release date"
+
+      assert entry.date <= today,
+             "#{entry.title} (#{entry.date}) isn't out yet — an unwatchable row can only ever read unwatched"
+    end
+  end
+
+  # Everything is the default view; the studio tiers are cuts of it, and every
+  # film belongs to at least one of them.
+  test "animation tiers partition the list" do
+    animation = Franchises.by_name("Animation")
+    studios = Enum.reject(animation.tiers, &(&1.key == "all"))
+
+    assert Enum.map(animation.tiers, & &1.key) |> List.first() == "all"
+    assert length(Franchises.entries(animation, "all")) == length(animation.entries)
+
+    for tier <- studios do
+      films = Franchises.entries(animation, tier.key)
+      assert films != [], "#{tier.label} is an empty tier"
+    end
+
+    covered = studios |> Enum.flat_map(&Franchises.entries(animation, &1.key)) |> Enum.uniq()
+    assert length(covered) == length(animation.entries), "every film sits in some studio tier"
+  end
+
+  # The point of sorting by size: a search for a Shrek film must not be answered
+  # with two hundred cartoons.
+  test "a film in both lists prefers the smaller one" do
+    assert [smaller | rest] = Franchises.lookup_all("movie", 862)
+    assert smaller.name == "Animation" or length(smaller.entries) <= length(List.first(rest).entries)
+  end
+
   test "every franchise has a name and entries" do
     for f <- Franchises.all() do
       assert is_binary(f.name) and f.name != ""

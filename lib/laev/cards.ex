@@ -2,8 +2,8 @@ defmodule Laev.Cards do
   @moduledoc """
   The dozen TMDB fields a list row is made of, kept on disk.
 
-  A row needs a title, a year, a poster, an overview, a score, and — for a show —
-  how long each season is and whether it has ended. None of that changes hour to
+  A row needs a title, a year, a poster, an overview, a score, a runtime, and —
+  for a show — how long each season is and whether it has ended. None of that changes hour to
   hour, and the Watchlist was asking TMDB for all of it every time it opened:
   seventy-eight requests to draw a page whose answer was the same as last time.
   Now it asks for what it has never seen and nothing else.
@@ -26,7 +26,8 @@ defmodule Laev.Cards do
 
   # Exactly what the row builders read, and nothing else.
   @fields ~w(id name title first_air_date last_air_date release_date poster_path overview
-             vote_average popularity status number_of_episodes number_of_seasons)
+             vote_average popularity status number_of_episodes number_of_seasons
+             runtime episode_run_time)
   @season_fields ~w(season_number episode_count air_date)
 
   @doc "Cards for these `{type, id}` keys that are already known."
