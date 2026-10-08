@@ -42,8 +42,10 @@ a project.
   which is the "have I seen all of these" question the lists exist to answer.
 - **Animation** is one of them, and not a franchise: every animated feature the
   big studios have released, in release order, with tiers for Disney, Pixar,
-  DreamWorks, Illumination, Sony, stop-motion (LAIKA and Aardman) and everyone
-  else. Generated from TMDB by `tools/build_animated.py` rather than typed —
+  DreamWorks, Illumination, Sony, stop-motion (LAIKA and Aardman), Ghibli and
+  everyone else. Ghibli needs the whole canon, so Nausicaä is added by hand —
+  TMDB credits it to Topcraft, who made it two years before the studio existed,
+  and files it under the name of the 1985 recut Miyazaki disowned. Generated from TMDB by `tools/build_animated.py` rather than typed —
   studio by studio, across the several company ids TMDB files each one's eras
   under, kept to released features by the runtime on the details endpoint (which
   is the only one that knows a 21-minute Madagascar special isn't a film).

@@ -3740,7 +3740,7 @@ defmodule Laev.CLI do
           id: entry.tmdb_id,
           type: entry.type,
           season: entry.season,
-          title: season_title(details["title"] || details["name"] || entry.title, entry.season),
+          title: season_title(entry[:rename] || details["title"] || details["name"] || entry.title, entry.season),
           year: Tmdb.year(details["release_date"] || details["first_air_date"]),
           poster: Tmdb.poster_url(details["poster_path"], "w342"),
           overview: details["overview"],

@@ -41,8 +41,20 @@ STUDIOS = [
     ("illumination", "Illumination", "Despicable Me, Minions, Mario", "6704"),
     ("sony", "Sony Animation", "Spider-Verse, Hotel Transylvania, Cloudy", "2251"),
     ("stopmotion", "Stop-motion", "LAIKA and Aardman — Coraline, Wallace & Gromit", "11537|297"),
+    ("ghibli", "Ghibli", "Spirited Away, Totoro, Mononoke — the whole studio", "10342"),
     ("other", "Everyone else", "Blue Sky, Warner Animation and the rest", "9383|25120"),
 ]
+
+# Films every filmography of a studio includes that TMDB credits to someone
+# else. Nausicaä is the one: made by Topcraft in 1984, two years before Studio
+# Ghibli existed — and the film whose success founded it, released and sold as
+# part of the canon ever since.
+ALSO = {"ghibli": [81]}
+
+# Where TMDB's English title is not the film's. Nausicaä is filed under
+# "Warriors of the Wind" — the title of the 1985 US recut that Miyazaki
+# disowned and that has not been the film's English name for twenty years.
+RENAME = {81: "Nausicaä of the Valley of the Wind"}
 
 MIN_RUNTIME = 60
 MIN_VOTES = 50
@@ -88,6 +100,10 @@ def main():
 
     for key, label, _blurb, companies in STUDIOS:
         found = discover(companies, today)
+
+        for movie_id in ALSO.get(key, []):
+            found.setdefault(movie_id, get(f"/movie/{movie_id}"))
+
         print(f"  {label:<16} {len(found):>3} candidates", file=sys.stderr)
         for movie_id, film in found.items():
             films_by_id[movie_id] = film
@@ -104,15 +120,18 @@ def main():
     dropped = []
     for movie_id, film in films_by_id.items():
         if runtimes[movie_id] >= MIN_RUNTIME:
-            entries.append(
-                {
-                    "type": "movie",
-                    "tmdb_id": movie_id,
-                    "title": film["title"],
-                    "date": film.get("release_date") or "",
-                    "tiers": sorted(tiers_by_id[movie_id]),
-                }
-            )
+            entry = {
+                "type": "movie",
+                "tmdb_id": movie_id,
+                "title": RENAME.get(movie_id, film["title"]),
+                "date": film.get("release_date") or "",
+                "tiers": sorted(tiers_by_id[movie_id]),
+            }
+
+            if movie_id in RENAME:
+                entry["rename"] = RENAME[movie_id]
+
+            entries.append(entry)
         else:
             dropped.append(f'{film["title"]} ({runtimes[movie_id]}m)')
 

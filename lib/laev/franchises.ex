@@ -45,6 +45,11 @@ defmodule Laev.Franchises do
                         title: &1["title"],
                         date: &1["date"],
                         tiers: &1["tiers"] || [],
+                        # The title to show when TMDB's English one is not the
+                        # film's — Nausicaä is filed under the name of the 1985
+                        # recut Miyazaki disowned. Everything else takes its
+                        # title from TMDB, which stays current on its own.
+                        rename: &1["rename"],
                         # Where TMDB and IMDb disagree about what is one show:
                         # the id and season number the release scene uses.
                         imdb_id: &1["imdb_id"],

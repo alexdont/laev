@@ -2679,6 +2679,7 @@
   },
   {
    "name": "Animation",
+   "broad": true,
    "tiers": [
     {
      "key": "all",
@@ -2714,6 +2715,11 @@
      "key": "stopmotion",
      "label": "Stop-motion",
      "blurb": "LAIKA and Aardman — Coraline, Wallace & Gromit"
+    },
+    {
+     "key": "ghibli",
+     "label": "Ghibli",
+     "blurb": "Spirited Away, Totoro, Mononoke — the whole studio"
     },
     {
      "key": "other",
@@ -2985,11 +2991,57 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 81,
+     "title": "Nausicaä of the Valley of the Wind",
+     "date": "1984-03-11",
+     "tiers": [
+      "ghibli"
+     ],
+     "rename": "Nausicaä of the Valley of the Wind"
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 10515,
+     "title": "Castle in the Sky",
+     "date": "1986-08-02",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 12477,
+     "title": "Grave of the Fireflies",
+     "date": "1988-04-16",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 8392,
+     "title": "My Neighbor Totoro",
+     "date": "1988-04-16",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 12233,
      "title": "Oliver & Company",
      "date": "1988-11-18",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 16859,
+     "title": "Kiki's Delivery Service",
+     "date": "1989-07-29",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3012,6 +3064,24 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 15080,
+     "title": "Only Yesterday",
+     "date": "1991-07-20",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 11621,
+     "title": "Porco Rosso",
+     "date": "1992-07-18",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 812,
      "title": "Aladdin",
      "date": "1992-11-25",
@@ -3021,11 +3091,29 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 21057,
+     "title": "Ocean Waves",
+     "date": "1993-10-09",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 8587,
      "title": "The Lion King",
      "date": "1994-06-15",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 15283,
+     "title": "Pom Poko",
+     "date": "1994-07-16",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3044,6 +3132,15 @@
      "date": "1995-06-16",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 37797,
+     "title": "Whisper of the Heart",
+     "date": "1995-07-15",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3071,6 +3168,15 @@
      "date": "1997-06-13",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 128,
+     "title": "Princess Mononoke",
+     "date": "1997-07-12",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3116,6 +3222,15 @@
      "date": "1999-06-17",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 16198,
+     "title": "My Neighbors the Yamadas",
+     "date": "1999-07-17",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3211,6 +3326,15 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 129,
+     "title": "Spirited Away",
+     "date": "2001-07-20",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 585,
      "title": "Monsters, Inc.",
      "date": "2001-11-01",
@@ -3234,6 +3358,15 @@
      "date": "2002-05-24",
      "tiers": [
       "dreamworks"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 15370,
+     "title": "The Cat Returns",
+     "date": "2002-07-19",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3265,6 +3398,15 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 12140,
+     "title": "Ghost in the Shell 2: Innocence",
+     "date": "2004-03-06",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 13700,
      "title": "Home on the Range",
      "date": "2004-04-02",
@@ -3279,6 +3421,15 @@
      "date": "2004-05-19",
      "tiers": [
       "dreamworks"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 4935,
+     "title": "Howl's Moving Castle",
+     "date": "2004-09-09",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3374,6 +3525,15 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 37933,
+     "title": "Tales from Earthsea",
+     "date": "2006-07-29",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 7484,
      "title": "Open Season",
      "date": "2006-09-27",
@@ -3461,6 +3621,15 @@
      "date": "2008-06-26",
      "tiers": [
       "pixar"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 12429,
+     "title": "Ponyo",
+     "date": "2008-07-19",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3582,6 +3751,15 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 51739,
+     "title": "Arrietty",
+     "date": "2010-07-16",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 51170,
      "title": "Open Season 3",
      "date": "2010-10-21",
@@ -3650,6 +3828,15 @@
      "date": "2011-06-11",
      "tiers": [
       "pixar"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 83389,
+     "title": "From Up on Poppy Hill",
+     "date": "2011-07-16",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3809,6 +3996,15 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 149870,
+     "title": "The Wind Rises",
+     "date": "2013-07-20",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 77931,
      "title": "The Smurfs 2",
      "date": "2013-07-30",
@@ -3832,6 +4028,15 @@
      "date": "2013-11-20",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 149871,
+     "title": "The Tale of The Princess Kaguya",
+     "date": "2013-11-23",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3868,6 +4073,15 @@
      "date": "2014-06-05",
      "tiers": [
       "dreamworks"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 242828,
+     "title": "When Marnie Was There",
+     "date": "2014-07-19",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -3985,6 +4199,15 @@
      "date": "2016-02-11",
      "tiers": [
       "disney"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 337703,
+     "title": "The Red Turtle",
+     "date": "2016-03-27",
+     "tiers": [
+      "ghibli"
      ]
     },
     {
@@ -4385,6 +4608,15 @@
     },
     {
      "type": "movie",
+     "tmdb_id": 683127,
+     "title": "Earwig and the Witch",
+     "date": "2021-02-03",
+     "tiers": [
+      "ghibli"
+     ]
+    },
+    {
+     "type": "movie",
      "tmdb_id": 587807,
      "title": "Tom & Jerry",
      "date": "2021-02-10",
@@ -4579,6 +4811,15 @@
      "date": "2023-06-28",
      "tiers": [
       "dreamworks"
+     ]
+    },
+    {
+     "type": "movie",
+     "tmdb_id": 508883,
+     "title": "The Boy and the Heron",
+     "date": "2023-07-14",
+     "tiers": [
+      "ghibli"
      ]
     },
     {

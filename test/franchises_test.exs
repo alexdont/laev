@@ -67,6 +67,33 @@ defmodule Laev.FranchisesTest do
     assert smaller.name == "Animation" or length(smaller.entries) <= length(List.first(rest).entries)
   end
 
+  # Ghibli: watched state has to reach these rows through the anime bridge,
+  # since laev marks anime by MyAnimeList entry and these rows are TMDB films.
+  @spirited_away {"movie", 129}
+  @nausicaa {"movie", 81}
+
+  test "the Ghibli canon is in the animation list, Nausicaä included" do
+    ghibli = Franchises.entries(Franchises.by_name("Animation"), "ghibli")
+    ids = MapSet.new(ghibli, &{&1.type, &1.tmdb_id})
+
+    assert length(ghibli) > 20, "the canon, not a selection"
+    assert MapSet.member?(ids, @spirited_away)
+
+    assert MapSet.member?(ids, @nausicaa),
+           "the film that founded the studio — TMDB credits it to Topcraft, so it is added by hand"
+  end
+
+  # TMDB's English title for it is the 1985 recut Miyazaki disowned, and rows
+  # take their titles from TMDB — so this one carries its own.
+  test "a film TMDB misnames carries the right title" do
+    nausicaa =
+      Franchises.by_name("Animation").entries
+      |> Enum.find(&(&1.tmdb_id == 81))
+
+    assert nausicaa.rename == "Nausicaä of the Valley of the Wind"
+    assert Enum.all?(Franchises.by_name("Animation").entries, &(&1.tmdb_id == 81 or is_nil(&1.rename)))
+  end
+
   test "every franchise has a name and entries" do
     for f <- Franchises.all() do
       assert is_binary(f.name) and f.name != ""
