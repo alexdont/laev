@@ -200,6 +200,16 @@ runtime belongs. Positions you are partway through are left alone — a rating i
 no reason to overwrite somebody's place in something. Run it as often as you
 like; it only ever fills gaps.
 
+**What counts as anime** is what MyAnimeList has an entry for, not what TMDB
+calls Japanese. Tomb Raider King is a Korean webtoon animated by Japanese studios
+and aired on Fuji TV, so TMDB files it as `ko`; testing the language alone sent
+it down the live-action path, with no scrobbler, no MyAnimeList rating row, and
+its marks under the TMDB show instead of the MAL entry — which is how one show
+ended up on the Watchlist twice, as two half-finished rows. The cross-id list
+already on disk knows the Korean and Chinese animation MAL carries, so laev asks
+it. The import also sends up progress the list has never heard about before
+clearing marks that were filed in the wrong place, rather than dropping it.
+
 `laev mal import` does the same for anime, from your MyAnimeList list — but on
 MyAnimeList's terms, not TMDB's. MAL keeps a season as its own entry ("Lupin III:
 Part II" is one anime with 155 episodes), and that is exactly what laev marks:

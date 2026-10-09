@@ -83,6 +83,7 @@ defmodule Laev.Ratings do
         # episode length — so the stats page and the lists never ask again.
         Anime.put_many(Map.new(entries, &{&1.mal_id, described(&1)}))
 
+        carried = carry_over_to_mal(report)
         cleared = clear_tmdb_anime_marks(report)
         started = Enum.filter(entries, &(&1.episodes_watched > 0))
         {plan, whole} = started |> Enum.map(&marks_for/1) |> unzip_marks()
@@ -98,7 +99,8 @@ defmodule Laev.Ratings do
           anime: length(started),
           episodes: Enum.sum(Enum.map(started, & &1.episodes_watched)),
           hours: div(Enum.sum(Enum.map(started, &((&1.episode_seconds || 0) * &1.episodes_watched))), 3600),
-          cleared: cleared
+          cleared: cleared,
+          carried: carried
         })
       else
         {:error, reason} -> {:error, reason}
@@ -148,6 +150,56 @@ defmodule Laev.Ratings do
     Enum.reduce(pairs, {[], []}, fn {episodes, whole}, {all_episodes, all_whole} ->
       {episodes ++ all_episodes, whole ++ all_whole}
     end)
+  end
+
+  @doc """
+  Send progress the TMDB side holds, and MyAnimeList doesn't, to the list.
+
+  Anime filed under a TMDB show rather than its MAL entry — laev used to do that
+  to every Korean and Chinese animation, whose original language isn't Japanese —
+  was tracked in the wrong place, and the marks were about to be cleared as
+  stale. Clearing watching is not what they are: they are episodes somebody
+  watched, and the list has never heard about them.
+
+  So they go up first. Only when the cross-id list names exactly one anime for
+  the show, since several parts means nothing here knows which these episodes
+  belonged to, and only when the TMDB side is actually ahead. Returns how many
+  anime were pushed.
+  """
+  def carry_over_to_mal(report \\ fn _line -> :ok end) do
+    carried =
+      for {{"tv", tmdb_id}, seasons} <- Position.episode_marks(),
+          [mal_id] <- [AnimeMap.mal_ids("tv", tmdb_id)],
+          watched = seasons |> Map.values() |> Enum.sum(),
+          watched > 0,
+          ahead?(mal_id, watched),
+          do: push_carried(mal_id, watched)
+
+      |> Enum.filter(& &1)
+
+    if carried != [], do: report.("sending #{length(carried)} anime's progress up to MyAnimeList…")
+    length(carried)
+  end
+
+  defp ahead?(mal_id, watched) do
+    case MAL.list_status(mal_id) do
+      %{episodes_watched: on_list} -> watched > on_list
+      _ -> true
+    end
+  end
+
+  defp push_carried(mal_id, watched) do
+    total = Anime.episodes(mal_id)
+
+    case MAL.set_progress(mal_id, watched, total) do
+      {:ok, fields} ->
+        Anime.set_status(mal_id, fields.status)
+        catch_up(mal_id, fields.num_watched_episodes, fields.status)
+        true
+
+      _ ->
+        false
+    end
   end
 
   # The one-time move off TMDB keys. Anime used to be marked as seasons of TMDB

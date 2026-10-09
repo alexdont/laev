@@ -2928,10 +2928,30 @@ defmodule Laev.CLI do
   # numbers (no seasons), and matches best by AniDB id — so route it through
   # Kitsu instead of the live-action season/episode flow.
 
-  defp anime?(%{"original_language" => "ja", "genres" => genres}) when is_list(genres),
-    do: Enum.any?(genres, &(&1["id"] == 16))
+  # Japanese and animated, or anything MyAnimeList has an entry for.
+  #
+  # The language test alone calls Tomb Raider King live action: a Korean webtoon
+  # animated by Japanese studios and aired on Fuji TV, so TMDB files it as `ko`
+  # — and laev sent it down the live-action path, where there is no scrobbler,
+  # no MyAnimeList rating row, and marks land under the TMDB show. It was on the
+  # list the whole time, so it ended up tracked twice: two rows for one show on
+  # the Watchlist, neither of them complete.
+  #
+  # The cross-id list is the authority on what anime is, and it knows the Korean
+  # and Chinese animation MAL carries. Asking it costs nothing — the file is
+  # already on disk — and the anime path serves this show better anyway:
+  # eighteen sources for the finale where the live-action search found none.
+  defp anime?(%{"original_language" => "ja", "genres" => genres} = details) when is_list(genres) do
+    Enum.any?(genres, &(&1["id"] == 16)) or on_mal?(details)
+  end
 
-  defp anime?(_details), do: false
+  defp anime?(details), do: on_mal?(details)
+
+  defp on_mal?(%{"id" => id} = details) when is_integer(id) do
+    Laev.AnimeMap.anime?(if(Map.has_key?(details, "name"), do: "tv", else: "movie"), id)
+  end
+
+  defp on_mal?(_details), do: false
 
   defp play_anime(title, details) do
     IO.puts(:stderr, "anime — matching on Kitsu for episode list + AniDB id…")
@@ -7524,6 +7544,17 @@ defmodule Laev.CLI do
             :reset
           ])
         )
+
+        if counts.carried > 0 do
+          IO.puts(
+            :stderr,
+            IO.ANSI.format([
+              :faint,
+              "  #{counts.carried} anime had progress here the list hadn't heard about — sent up.\n",
+              :reset
+            ])
+          )
+        end
 
         if counts.cleared > 0 do
           IO.puts(
