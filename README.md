@@ -185,7 +185,23 @@ LAEV_AUTOPLAY=off
 #LAEV_SYNC_TOKEN=...
 ```
 
-`laev config` shows which keys are set.
+`laev config` shows which keys are set. `laev doctor` validates every one of
+them live, and says how many days are left on your debrid plan.
+
+laev checks that plan once a day, at launch and again whenever the date turns —
+a window left open overnight would otherwise go on trusting an answer from
+before the subscription lapsed, which is how one user spent an evening watching
+every source fail with nothing on screen to say why. An expired plan is said
+plainly on the menu and stops a source search before it starts; a provider that
+simply can't be reached is not treated as expired, because being unsure is no
+reason to refuse to play something.
+
+Nothing but laev writes to your terminal. Errors — a TLS alert when a laptop
+sleeps, a DNS failure on a network change — go to `~/.laev/laev.log` instead.
+(They used to go to the screen, which on a long Mac session meant a background
+TLS error scrolling a picker away, and worse: the formatter needed modules that
+load lazily out of the binary's unpacked payload, the system had cleaned that
+directory up hours earlier, and so the log of the crash crashed, forever.)
 
 ### Bringing a watch history in
 

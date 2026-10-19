@@ -5,6 +5,10 @@ defmodule Laev.Application do
 
   @impl true
   def start(_type, _args) do
+    # First, before anything has the chance to log: nothing may write to the
+    # terminal laev is about to draw on.
+    Laev.Log.install()
+
     migrate_from_old_names()
     Laev.Config.load()
     Laev.Blocklist.init()
@@ -12,6 +16,9 @@ defmodule Laev.Application do
     Laev.SubtitleCache.init()
     Laev.Resume.init()
     Laev.Watchlist.init()
+    # In the background: the answer is wanted by the time the menu draws, and
+    # nothing should wait on it to get there.
+    Laev.Account.warm()
 
     children = [
       {Registry, keys: :unique, name: Laev.Remux.Registry},

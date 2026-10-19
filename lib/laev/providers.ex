@@ -28,6 +28,13 @@ defmodule Laev.Providers do
   """
   def resolve_magnet(magnet, opts \\ []) do
     cond do
+      # A lapsed subscription answers every source the same way. Asking fifty
+      # times is fifty waits for a reason already known — so a known-expired
+      # account short-circuits, and only a *known* one: an unchecked or
+      # unreachable account still gets to try.
+      expired = Laev.Account.blocked() ->
+        {:error, expired}
+
       RD.configured?() ->
         case RD.resolve_magnet(magnet, opts) do
           {:ok, stream} -> {:ok, Map.put_new(stream, :provider, :rd)}

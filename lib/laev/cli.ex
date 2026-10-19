@@ -487,6 +487,7 @@ defmodule Laev.CLI do
     print_banner()
     IO.puts(:stderr, greeting())
     print_update_status()
+    print_subscription_status()
 
     items =
       List.flatten([
@@ -2453,6 +2454,22 @@ defmodule Laev.CLI do
 
   # Version line under the greeting. Capped at 2s and silent on any failure
   # so the menu never waits on GitHub; the result is cached between launches.
+  # Said at the top of the menu rather than at the end of a source search: a
+  # lapsed subscription is the explanation for everything that would go wrong
+  # next, and the best moment to learn it is before trying.
+  defp print_subscription_status do
+    case Laev.Account.blocked() do
+      {:expired, detail} ->
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([:red, "  ✗ debrid subscription isn't active", :reset, :faint, " — #{detail}\n", :reset])
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
   defp print_update_status do
     task = Task.async(fn -> Laev.UpdateCheck.status() end)
 
@@ -4520,12 +4537,31 @@ defmodule Laev.CLI do
   end
 
   defp probe_and_pick(sources, rd_opts, ctx, playable_so_far, sub_task) do
+    check_subscription()
     sources = within_ceiling(sources)
 
     if Process.get(:laev_auto) do
       auto_play(sources, rd_opts, ctx)
     else
       do_probe_and_pick(sources, rd_opts, ctx, playable_so_far, sub_task)
+    end
+  end
+
+  # Every source about to be tried goes through the same subscription, so the
+  # one question worth asking is asked before the first of them rather than
+  # answered fifty times over. Checked once a day — see `Laev.Account`, which
+  # re-checks when the date turns so a session left open overnight can't go on
+  # trusting yesterday's answer.
+  defp check_subscription do
+    case Laev.Account.ensure() do
+      {:expired, detail} ->
+        no_sources(
+          "your debrid subscription isn't active — " <>
+            detail <> ". Renew it, then run `laev doctor` to check."
+        )
+
+      _ ->
+        :ok
     end
   end
 
@@ -8181,7 +8217,8 @@ defmodule Laev.CLI do
         :bright,
         "  terminal",
         :reset,
-        "\n    #{cols}×#{rows} · posters: #{Config.posters()} · skip: #{Config.skip()} · lang: #{Config.lang()}\n"
+        "\n    #{cols}×#{rows} · posters: #{Config.posters()} · skip: #{Config.skip()} · lang: #{Config.lang()}" <>
+          "\n    errors are logged to #{Laev.Log.path()} — nothing is printed over the screen\n"
       ])
     )
 
