@@ -77,10 +77,19 @@ defmodule Laev.NowPlaying do
   defp fresh?(nil), do: false
   defp fresh?(at), do: System.os_time(:second) - at <= @stale_after
 
+  # Whichever player was configured, under the names it runs as: VLC is `vlc`
+  # on Linux and `VLC` inside the bundle on macOS.
+  defp player_names do
+    case Laev.Config.player_atom() do
+      :vlc -> ["vlc", "VLC"]
+      _ -> ["mpv"]
+    end
+  end
+
   defp mpv_running? do
     case System.find_executable("pgrep") do
       nil -> true
-      pgrep -> match?({_, 0}, System.cmd(pgrep, ["-x", "mpv"], stderr_to_stdout: true))
+      pgrep -> Enum.any?(player_names(), &match?({_, 0}, System.cmd(pgrep, ["-x", &1], stderr_to_stdout: true)))
     end
   rescue
     _ -> true

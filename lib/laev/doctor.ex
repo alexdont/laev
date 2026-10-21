@@ -96,8 +96,13 @@ defmodule Laev.Doctor do
   order; `healthy?` is false when a required piece is broken.
   """
   def run do
+    # Whichever player is configured is the required one; the other is not
+    # needed and saying it is missing would be noise.
+    {player, other} = if Laev.Config.player_atom() == :vlc, do: {"vlc", "mpv"}, else: {"mpv", "vlc"}
+
     binaries = [
-      {"mpv", :required, "plays the streams"},
+      {player, :required, "plays the streams"},
+      {other, :optional, "the other player laev can use — switch in Settings"},
       {"fzf", :optional, "interactive pickers"},
       {"chafa", :optional, "poster previews"},
       {"curl", :optional, "laev download + posters"}

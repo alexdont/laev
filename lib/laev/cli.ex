@@ -549,6 +549,7 @@ defmodule Laev.CLI do
     {:divider, "appearance"},
     {"LAEV_POSTERS", "Poster previews", {:cycle, ["auto", "ascii", "ascii-bg", "off"]}},
     {:divider, "player & files"},
+    {"LAEV_PLAYER", "Player", {:cycle, ["mpv", "vlc"]}},
     {"LAEV_DOWNLOAD_DIR", "Download folder", :text},
     {"LAEV_MPV_ARGS", "Extra mpv arguments", :text}
   ]
@@ -1287,6 +1288,7 @@ defmodule Laev.CLI do
   end
   defp setting_value("LAEV_AUTOPLAY"), do: if(Config.autoplay?(), do: "on", else: "off")
   defp setting_value("LAEV_SKIP"), do: Config.skip()
+  defp setting_value("LAEV_PLAYER"), do: Config.player()
   defp setting_value("LAEV_POSTERS"), do: Config.posters()
   defp setting_value("LAEV_LANG"), do: Config.lang()
   defp setting_value("LAEV_SUBS"), do: Config.subs_lang() || "off"
@@ -1302,6 +1304,7 @@ defmodule Laev.CLI do
     index = Enum.find_index(values, &(&1 == current)) || 0
     next = Enum.at(values, rem(index + 1, length(values)))
     save_setting(key, next)
+    note_setting(key, next)
   end
 
   defp change_setting(key, label, :text) do
@@ -1316,6 +1319,34 @@ defmodule Laev.CLI do
         end
     end
   end
+
+  # Switching player is the one toggle that changes what laev can do rather
+  # than how it behaves, so it says so at the moment of switching — and says
+  # whether the player is even installed, which is the other thing you would
+  # rather learn here than when a film is ready to start.
+  defp note_setting("LAEV_PLAYER", "vlc") do
+    installed? = System.find_executable("vlc") || File.regular?("/Applications/VLC.app/Contents/MacOS/VLC")
+
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        :faint,
+        "\n  VLC plays the same streams and laev still tracks your position, resumes,\n" <>
+          "  and counts your stats — through VLC's web interface instead of a script.\n" <>
+          "  Intro skipping and the stinger prompt are mpv scripts and won't be there.\n",
+        :reset
+      ])
+    )
+
+    unless installed? do
+      IO.puts(:stderr, IO.ANSI.format([:yellow, "  VLC isn't on your PATH yet — install it before playing.\n", :reset]))
+    end
+
+    IO.gets("  press enter to continue… ")
+    :ok
+  end
+
+  defp note_setting(_key, _value), do: :ok
 
   defp save_setting(key, value) do
     write_config_keys([{key, value}])
@@ -4805,8 +4836,8 @@ defmodule Laev.CLI do
         download_stream(stream)
 
       :play ->
-        Player.open(
-          :mpv,
+        Player.play(
+          ctx,
           stream.url,
           await_subtitles(sub_task) ++ position_args(ctx, stream.filename) ++ Laev.Skip.script_args()
         )
@@ -5084,7 +5115,7 @@ defmodule Laev.CLI do
         Laev.Skip.stinger_args(ctx) ++
         position_args(ctx, stream.filename) ++ Laev.Skip.script_args()
 
-    Player.open(:mpv, stream.url, args)
+    Player.play(ctx, stream.url, args)
     Laev.NowPlaying.mark(ctx, stream)
     IO.puts(:stderr, "playing in mpv: #{stream.filename}")
     post_play_menu(ctx, stream)

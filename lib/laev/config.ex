@@ -16,6 +16,7 @@ defmodule Laev.Config do
     "LAEV_LANG" => :lang,
     "LAEV_SUBS" => :subs_lang,
     "LAEV_MPV_ARGS" => :mpv_args,
+    "LAEV_PLAYER" => :player,
     "LAEV_POSTERS" => :posters,
     "LAEV_SKIP" => :skip,
     "LAEV_AUTOPLAY" => :autoplay,
@@ -164,6 +165,31 @@ defmodule Laev.Config do
         end
     end
   end
+
+  @doc """
+  Which player to hand streams to (LAEV_PLAYER): "mpv" (default) or "vlc".
+
+  mpv is the better fit — laev gives it a script that tracks the position from
+  inside the player, skips intros and remembers your audio and subtitle
+  languages — but it isn't everyone's player, and VLC plays the same streams.
+  VLC is followed through its web interface instead, which costs intro skipping
+  and the stinger prompt and nothing else.
+  """
+  def player do
+    case Application.get_env(:laev_app, :player) do
+      value when is_binary(value) ->
+        case value |> String.trim() |> String.downcase() do
+          "vlc" -> "vlc"
+          _ -> "mpv"
+        end
+
+      _ ->
+        "mpv"
+    end
+  end
+
+  @doc "The player as an atom, for dispatch."
+  def player_atom, do: if(player() == "vlc", do: :vlc, else: :mpv)
 
   @doc """
   Poster preview style (LAEV_POSTERS): "auto" (sharp pixel graphics via the

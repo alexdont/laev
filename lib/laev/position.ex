@@ -535,6 +535,55 @@ defmodule Laev.Position do
     end)
   end
 
+  @doc """
+  The saved spot in seconds, or nil — the same number `--start=` is built from.
+  """
+  def saved_position(ctx), do: saved_seconds(ctx)
+
+  @doc """
+  Record a sample of playback: where the playhead is, how much has been watched
+  and skipped, and whether that counts as finished.
+
+  What the mpv Lua script does from inside the player, available from outside
+  it, so a player laev cannot put a script into can still be followed. The
+  rules are the script's own: a position under `floor` is the beginning rather
+  than a place to come back to, finishing writes the watched marker instead of
+  a number, and the day's log grows by `log_seconds` — whatever the caller has
+  watched since it last said so.
+  """
+  def record(ctx, %{position: position, watched: watched, skipped: skipped} = sample) do
+    with key when is_binary(key) <- key(ctx) do
+      File.write(played_file(key), "#{trunc(watched)} #{trunc(skipped)}")
+      log_seconds(sample[:log_seconds])
+
+      cond do
+        sample[:finished] ->
+          File.write(position_file(key), "done")
+
+        position < (sample[:floor] || 30) ->
+          File.write(position_file(key), "0")
+
+        true ->
+          File.write(position_file(key), "#{trunc(position)}")
+      end
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  # The heatmap's day-by-day log, appended to as it is earned. How much to add
+  # is the caller's to know: it is the only one holding what the last sample
+  # said, and keeping that here would mean global state outliving the play it
+  # belongs to.
+  defp log_seconds(seconds) when is_integer(seconds) and seconds >= 1 do
+    File.write(log_file(), "#{Laev.Days.today()} #{seconds}\n", [:append])
+    :ok
+  end
+
+  defp log_seconds(_seconds), do: :ok
+
   defp saved_seconds(ctx) do
     with key when is_binary(key) <- key(ctx),
          {:ok, body} <- File.read(position_file(key)),

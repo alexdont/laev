@@ -9,8 +9,10 @@ defmodule Laev.Player do
   argument, never interpolated into a shell command.
   """
 
-  # Friendly name -> macOS application bundle, for `open -a`.
-  @gui %{vlc: "VLC", iina: "IINA"}
+  # Friendly name -> macOS application bundle, for `open -a`. VLC is not here:
+  # it is played through `play/3` like mpv, with its position tracked, rather
+  # than handed to the OS and forgotten about.
+  @gui %{iina: "IINA"}
 
   # Low-RAM defaults, per the project goal (~200 MB while watching):
   # mpv's stock demuxer cache is 150+50 MiB and balloons on high-bitrate
@@ -26,11 +28,30 @@ defmodule Laev.Player do
   ]
 
   @doc """
+  Play `url` in whichever player is configured, for the thing `ctx` describes.
+
+  The arguments are built for mpv, because mpv is the default and most of them
+  are its scripts and script options. VLC takes the two that mean anything to
+  it — the stream and any external subtitle — and gets its position tracked
+  from outside instead. Everything downstream reads the same files either way.
+  """
+  def play(ctx, url, extra_args) do
+    case Laev.Config.player_atom() do
+      :vlc -> open_vlc(ctx, url, extra_args)
+      _ -> open(:mpv, url, extra_args)
+    end
+  end
+
+  @doc """
   Open `url` in the given player (`:vlc`, `:iina`, or `:mpv`). For mpv,
   `extra_args` are passed before the URL (e.g. `--sub-file=<path>`).
   """
   def open(player, url, extra_args \\ [])
 
+  # The configured player, with whatever the caller built for mpv: VLC takes
+  # the stream and the subtitle file, and is followed from outside rather than
+  # from a script within. Everything downstream reads the same files either
+  # way and never learns which player wrote them.
   def open(:mpv, url, extra_args) when is_binary(url) and is_list(extra_args) do
     case System.find_executable("mpv") do
       nil ->
@@ -60,6 +81,32 @@ defmodule Laev.Player do
       {_out, 0} -> :ok
       {out, _code} -> {:error, message(@gui[app], out)}
     end
+  end
+
+  defp open_vlc(ctx, url, extra_args) do
+    case vlc_binary() do
+      nil ->
+        {:error, "VLC is not installed or not on your PATH — install it, or set the player back to mpv"}
+
+      bin ->
+        # The resume line is already printed where the mpv arguments were
+        # built, from the same saved position.
+        {args, _resume_at, tracking} = Laev.VLC.launch_args(ctx, extra_args)
+
+        System.cmd("sh", ["-c", ~s("$@" >/dev/null 2>&1 &), "sh", bin] ++ args ++ [url])
+        Laev.VLC.track(ctx, tracking)
+        :ok
+    end
+  end
+
+  # VLC ships as an application bundle on macOS, where the binary inside it is
+  # not on anybody's PATH.
+  defp vlc_binary do
+    System.find_executable("vlc") ||
+      Enum.find(
+        ["/Applications/VLC.app/Contents/MacOS/VLC", "/usr/local/bin/vlc", "/opt/homebrew/bin/vlc"],
+        &File.regular?/1
+      )
   end
 
   # Auto-select the preferred audio + subtitle track inside a release so the

@@ -179,6 +179,8 @@ LAEV_STRICT_RESOLUTION=off
 # autoplay the next episode when one ends ("on" to enable — off by default;
 # --binge or the post-play menu's autoplay entry do it per session)
 LAEV_AUTOPLAY=off
+# which player to use: mpv (default) or vlc
+LAEV_PLAYER=mpv
 # optional: anime scrobbling, scores and list import on MyAnimeList
 # (owner-provided app id; then `laev mal login`)
 #MAL_CLIENT_ID=...
@@ -187,6 +189,18 @@ LAEV_AUTOPLAY=off
 #LAEV_SYNC_URL=https://your-server.example/laev
 #LAEV_SYNC_TOKEN=...
 ```
+
+**mpv or VLC.** mpv is the default and the better fit — laev hands it a script
+that tracks your position from inside the player, skips intros, and remembers
+the audio and subtitle language you picked for a show. VLC plays the same
+streams, and `LAEV_PLAYER=vlc` (or Settings → player & files → Player) switches
+to it: laev starts it with its web interface bound to localhost behind a random
+password and follows the playhead through that instead, on the same five-second
+cadence, writing the same files by the same rules. So resume, Up Next, the
+watched ticks, the stats and the heatmap all carry on working — none of that
+knows which player wrote them. What doesn't come across is the two things that
+*are* mpv scripts: intro skipping and the stinger prompt. laev says so when you
+switch.
 
 `laev config` shows which keys are set. `laev doctor` validates every one of
 them live, and says how many days are left on your debrid plan.
