@@ -416,10 +416,17 @@ Once on, laev pulls-merges-pushes on startup and after each episode (or run
 so pins, un-pins, positions and watched flags from every device converge — pick
 up on your laptop exactly where the phone left off.
 
-Seven collections travel: saved titles, history, positions, holds, track
-preferences, and —
+Nine collections travel: saved titles, history, positions, holds, track
+preferences, what MyAnimeList says about each anime, how many seasons of a show
+have aired, and —
 so the stats agree wherever you look at them — the measured watch time and the
-day-by-day log behind the calendar. That log is one file per device, because it
+day-by-day log behind the calendar. The last two are what the shelves are
+counted from, and a device without them cannot tell an anime you put on hold
+from one you are in the middle of, or a show you are caught up on from one you
+are behind: the same account used to read 27 on one machine and 69 on another.
+They merge as caches rather than as decisions — a device that simply hasn't got
+one is saying nothing, where un-pinning a title is saying something — so the
+emptiest machine can't erase the list for the rest. That log is one file per device, because it
 is append-only: a single shared file could only be merged by letting one
 machine's history overwrite another's.
 

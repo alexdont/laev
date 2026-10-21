@@ -58,7 +58,19 @@ defmodule Laev.Sync do
   # day-by-day log behind the calendar. Without them a second machine shows the
   # same watched marks and a different number of hours, which is the one thing a
   # synced account should never do.
-  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched, :holds]
+  # What the shelves are counted from travels too, not just the marks.
+  #
+  # A device that had never run `mal import` or opened many shows had no
+  # anime.json and no seasons.json, and without them it cannot tell an anime
+  # you put on hold from one you are in the middle of, or a show you are caught
+  # up on from one you are behind. So it counts them all as behind: the same
+  # account read 27 on one machine and 69 on another, which is not a cache
+  # being cold, it is two machines disagreeing about the same question.
+  #
+  # Both are facts about your account rather than this computer — what
+  # MyAnimeList says about each anime, how many seasons of a show have aired —
+  # so they belong with everything else that follows you around.
+  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched, :holds, :anime, :seasons]
 
   # The whole bundle lives in one document per token. The server treats the
   # last path segment as a free-form doc name — `<base>/<token>/<doc>`.
@@ -357,7 +369,9 @@ defmodule Laev.Sync do
       tracks: read_dir(Path.join(data_dir(), "tracks")),
       played: read_dir(Path.join(data_dir(), "played")),
       watched: read_dir(Path.join(data_dir(), "watched")),
-      holds: read_dir(Path.join(data_dir(), "holds"))
+      holds: read_dir(Path.join(data_dir(), "holds")),
+      anime: read_json_map(Path.join(data_dir(), "anime.json")),
+      seasons: read_json_map(Path.join(data_dir(), "seasons.json"))
     }
   end
 
@@ -404,6 +418,37 @@ defmodule Laev.Sync do
     end
   end
 
+  # Caches, as against things you did.
+  #
+  # Unpinning a title is a decision, and a device that no longer has it is
+  # saying so — that is what a tombstone is for. A device that has no
+  # anime.json is not saying anything: it has never asked MyAnimeList, or the
+  # file was cleared, and the only honest reading is "I don't have this", not
+  # "this should go away everywhere". Tombstoning it would have the emptiest
+  # machine win, which is how a laptop that had never imported anything could
+  # erase the list for every other one.
+  @caches [:anime, :seasons]
+
+  @doc false
+  # One record's fate, exposed because it is the rule that decides whether a
+  # device missing a file erases it for every other one.
+  def reconcile(coll, key, cur, old, now), do: reconcile_one(coll, key, cur, old, now)
+
+  @doc "Everything that travels between devices."
+  def collections, do: @collections
+
+  defp reconcile_one(coll, key, cur, old, now) when coll in @caches do
+    cond do
+      # Absent locally says nothing: keep whatever is known. Never a deletion.
+      is_nil(cur) -> old
+      is_nil(old) -> %{"data" => cur, "updated_at" => initial_ts(coll, key, cur, now), "deleted" => false}
+      # Having it again outranks a tombstone from before this rule existed.
+      old["deleted"] -> %{"data" => cur, "updated_at" => now, "deleted" => false}
+      cur == old["data"] -> old
+      true -> %{"data" => cur, "updated_at" => now, "deleted" => false}
+    end
+  end
+
   defp reconcile_one(coll, key, cur, old, now) do
     cond do
       # Present locally, unknown before → new record.
@@ -434,6 +479,11 @@ defmodule Laev.Sync do
   # sync between two machines with pre-existing history merges sensibly.
   defp initial_ts(:watchlist, _key, %{"added_at" => t}, _now) when is_integer(t), do: t
   defp initial_ts(:resume, _key, %{"updated_at" => t}, _now) when is_integer(t), do: t
+  # Both carry when they were learned, which is a better first timestamp than
+  # "whenever this machine happened to sync": two devices meeting for the first
+  # time should keep the fresher answer, not the one that synced second.
+  defp initial_ts(:seasons, _key, %{"at" => t}, _now) when is_integer(t), do: t
+  defp initial_ts(:anime, _key, %{"updated" => t}, _now) when is_integer(t), do: t
   defp initial_ts(_coll, _key, _data, now), do: now
 
   # ── merge two timestamped bundles (last-write-wins) ───────────────
@@ -471,6 +521,8 @@ defmodule Laev.Sync do
     apply_dir(Path.join(data_dir(), "played"), merged[:played] || %{})
     apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{})
     apply_dir(Path.join(data_dir(), "holds"), merged[:holds] || %{})
+    write_json_map(Path.join(data_dir(), "anime.json"), live(merged, :anime))
+    write_json_map(Path.join(data_dir(), "seasons.json"), live(merged, :seasons))
 
     # Watchlist and resume are cached in ETS at boot — without a reload the
     # continue page keeps showing pre-sync state, and the next put/persist

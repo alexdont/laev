@@ -1234,7 +1234,10 @@ defmodule Laev.CLI do
       positions: "positions",
       tracks: "track prefs",
       played: "watch time",
-      watched: "day log"
+      watched: "day log",
+      holds: "on hold",
+      anime: "anime list",
+      seasons: "season counts"
     ]
 
     for {coll, label} <- labels do
