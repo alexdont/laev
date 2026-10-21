@@ -3703,6 +3703,16 @@ defmodule Laev.CLI do
     end
   end
 
+  # Open on the one you would watch next: the first that isn't behind you. A
+  # list is opened to carry on through it, and landing on film one of a series
+  # you are three into means scrolling past your own checkmarks every time.
+  # Everything watched leaves the cursor at the top, where there is nothing
+  # pending to point at anyway.
+  @doc false
+  def first_unwatched_title(titles) do
+    Enum.find_index(titles, &(not seen?(&1))) || 0
+  end
+
   # Titles are taken from TMDB so the list looks like every other picker — same
   # posters, same years — while the curated file decides only membership, order
   # and which tier a title belongs to.
@@ -3721,7 +3731,7 @@ defmodule Laev.CLI do
         name -> "#{franchise.name} · #{name}"
       end
 
-    case pick_with_save(titles, "#{label} — #{franchise_summary(titles)}") do
+    case pick_with_save(titles, "#{label} — #{franchise_summary(titles)}", first_unwatched_title(titles)) do
       # Esc goes back a level: to the tier chooser where there is one, and to
       # the search results where there isn't.
       nil ->
