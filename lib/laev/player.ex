@@ -9,11 +9,6 @@ defmodule Laev.Player do
   argument, never interpolated into a shell command.
   """
 
-  # Friendly name -> macOS application bundle, for `open -a`. VLC is not here:
-  # it is played through `play/3` like mpv, with its position tracked, rather
-  # than handed to the OS and forgotten about.
-  @gui %{iina: "IINA"}
-
   # Low-RAM defaults, per the project goal (~200 MB while watching):
   # mpv's stock demuxer cache is 150+50 MiB and balloons on high-bitrate
   # remuxes; ~100 MiB of buffer is plenty over a debrid HTTPS stream.
@@ -30,6 +25,10 @@ defmodule Laev.Player do
   @doc """
   Play `url` in whichever player is configured, for the thing `ctx` describes.
 
+  The only way in, deliberately: when launching took a player name, four call
+  sites passed `:mpv`, and the one missed was Continue — where most films
+  start.
+
   The arguments are built for mpv, because mpv is the default and most of them
   are its scripts and script options. VLC takes the two that mean anything to
   it — the stream and any external subtitle — and gets its position tracked
@@ -38,21 +37,11 @@ defmodule Laev.Player do
   def play(ctx, url, extra_args) do
     case Laev.Config.player_atom() do
       :vlc -> open_vlc(ctx, url, extra_args)
-      _ -> open(:mpv, url, extra_args)
+      _ -> open_mpv(url, extra_args)
     end
   end
 
-  @doc """
-  Open `url` in the given player (`:vlc`, `:iina`, or `:mpv`). For mpv,
-  `extra_args` are passed before the URL (e.g. `--sub-file=<path>`).
-  """
-  def open(player, url, extra_args \\ [])
-
-  # The configured player, with whatever the caller built for mpv: VLC takes
-  # the stream and the subtitle file, and is followed from outside rather than
-  # from a script within. Everything downstream reads the same files either
-  # way and never learns which player wrote them.
-  def open(:mpv, url, extra_args) when is_binary(url) and is_list(extra_args) do
+  defp open_mpv(url, extra_args) when is_binary(url) and is_list(extra_args) do
     case System.find_executable("mpv") do
       nil ->
         {:error, "mpv is not installed or not on the server's PATH"}
@@ -73,13 +62,6 @@ defmodule Laev.Player do
         )
 
         :ok
-    end
-  end
-
-  def open(app, url, _extra_args) when is_map_key(@gui, app) and is_binary(url) do
-    case System.cmd("open", ["-a", @gui[app], url], stderr_to_stdout: true) do
-      {_out, 0} -> :ok
-      {out, _code} -> {:error, message(@gui[app], out)}
     end
   end
 

@@ -6550,11 +6550,12 @@ defmodule Laev.CLI do
 
     case Providers.resolve_magnet(source["magnet"], rd_opts) do
       {:ok, stream} ->
-        Player.open(
-          :mpv,
+        Player.play(
+          ctx,
           stream.url,
           await_subtitles(sub_task) ++ position_args(ctx, stream.filename) ++ Laev.Skip.script_args()
         )
+
         Laev.NowPlaying.mark(ctx, stream)
 
         Laev.Resume.put(
@@ -7283,7 +7284,9 @@ defmodule Laev.CLI do
           die("play needs a magnet link or URL, got: #{String.slice(other, 0, 40)}")
       end
 
-    Player.open(:mpv, url)
+    # No ctx for a bare magnet or URL — there is no title to keep a position
+    # for — but it still goes to whichever player is configured.
+    Player.play(nil, url, [])
     IO.puts(Jason.encode!(%{playing: url}))
   end
 
