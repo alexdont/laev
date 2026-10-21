@@ -5,13 +5,12 @@ defmodule Laev.NextInListTest do
 
   defp ctx(type, id), do: %{type: type, tmdb_id: id, season: nil}
 
+  # The real lookup, not a re-implementation of it: the guard being tested
+  # lives inside next_in_list, and a helper that walks the entries itself would
+  # pass whether or not the guard exists.
   defp next_after(ctx) do
-    with %{} = list <- CLI.onward_list(ctx),
-         entries <- Franchises.entries(list, "all"),
-         index when is_integer(index) <- Enum.find_index(entries, &(&1.tmdb_id == ctx.tmdb_id)),
-         %{} = entry <- Enum.at(entries, index + 1) do
-      {list.name, entry.title}
-    else
+    case CLI.next_in_list(ctx, CLI.onward_list(ctx)) do
+      %{list: name, entry: entry} -> {name, entry.title}
       _ -> nil
     end
   end
@@ -38,6 +37,21 @@ defmodule Laev.NextInListTest do
   test "a broad list is still somewhere to jump to" do
     assert %{name: "Animation"} = CLI.browse_list(ctx("movie", 129))
     assert %{name: "Marvel"} = CLI.browse_list(ctx("movie", 1726))
+  end
+
+  # TMDB collections carry the announced ones too. Finishing Little Fockers
+  # offered Focker-in-Law a month before it existed, and the only thing behind
+  # that row was a source search that could not succeed.
+  test "an unreleased entry is never handed over as next" do
+    list = CLI.onward_list(ctx("movie", 1597))
+    entries = Franchises.entries(list, "all")
+    last_out = Enum.filter(entries, &(&1.date <= Date.to_iso8601(Date.utc_today()))) |> List.last()
+
+    refute next_after(ctx("movie", last_out.tmdb_id)),
+           "the film after the last released one isn't out yet"
+
+    assert Enum.any?(entries, &(&1.date > Date.to_iso8601(Date.utc_today()))),
+           "the list still shows what's coming — that is what a list is for"
   end
 
   test "something in no list has nowhere to jump" do

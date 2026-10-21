@@ -5083,11 +5083,18 @@ defmodule Laev.CLI do
   # The entry after this one in whatever list it belongs to — a curated
   # franchise, or one of TMDB's own collections, which laev already treats the
   # same way. nil when the title is in no list, or is the last thing in it.
-  defp next_in_list(ctx, list) do
+  @doc false
+  def next_in_list(ctx, list) do
     with %{} = franchise <- list,
          entries <- Laev.Franchises.entries(franchise, "all"),
          index when is_integer(index) <- Enum.find_index(entries, &same_entry?(&1, ctx)),
-         %{} = entry <- Enum.at(entries, index + 1) do
+         %{} = entry <- Enum.at(entries, index + 1),
+         # TMDB's collections carry the announced ones too: finishing Little
+         # Fockers offered Focker-in-Law, a month before it existed, and the
+         # only thing waiting behind that row was a source search that could
+         # not succeed. The list still shows it — knowing what is coming is
+         # the point of a list — but it is not handed to anyone as next.
+         true <- released?(entry) do
       %{list: franchise.name, entry: entry}
     else
       _ -> nil
@@ -5143,6 +5150,13 @@ defmodule Laev.CLI do
   end
 
   defp collection_for(_type, _id), do: nil
+
+  # Undated entries are let through, the way the episode checks let an undated
+  # episode through: TMDB has plenty of them, and refusing is the worse mistake.
+  defp released?(%{date: date}) when is_binary(date) and date != "",
+    do: date <= Date.to_iso8601(Date.utc_today())
+
+  defp released?(_entry), do: true
 
   # A curated list can name a single season of a show, so the season has to
   # match too — otherwise finishing season two would offer season two again.
