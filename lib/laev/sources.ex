@@ -400,7 +400,7 @@ defmodule Laev.Sources do
   def torrentio_movie(imdb_id), do: fetch_torrentio("movie/#{imdb_id}")
 
   @doc "Torrentio sources for a TV episode, by IMDb id + season + episode."
-  def torrentio_series(imdb_id, season, episode), do: fetch_torrentio("series/#{imdb_id}:#{season}:#{episode}")
+  def torrentio_series(imdb_id, season, episode), do: both_torrentios("series/#{imdb_id}:#{season}:#{episode}")
 
   @doc """
   Torrentio anime sources by Kitsu id — the anime-native path Torrentio
@@ -415,9 +415,46 @@ defmodule Laev.Sources do
   def torrentio_anime_movie(nil), do: {:ok, []}
   def torrentio_anime_movie(kitsu_id), do: fetch_torrentio("movie/kitsu:#{kitsu_id}")
 
-  defp fetch_torrentio(path) do
-    url = "#{torrentio_base()}/stream/#{path}.json"
-    req = Req.new(url: url, retry: :transient, max_retries: 1, receive_timeout: 20_000)
+  # Both of Torrentio's answers, merged.
+  #
+  # Asked through a debrid token it reports what that debrid can serve now;
+  # asked plainly it reports everything there is, including torrents nobody has
+  # cached yet — which laev can still play, because probing adds the magnet and
+  # waits. Superjail's first season is eleven releases plainly and eight through
+  # the token, and the three in between are three more chances for an episode
+  # that would otherwise come up empty.
+  #
+  # It is also the retry: these are two requests to one service that throttles
+  # when it is asked for a whole season in a row, and a run of them failing is
+  # what left that show with no sources at all — the only other place laev looks
+  # for a 2008 cartoon is a text search that finds one release.
+  defp both_torrentios(path) do
+    plain = Task.async(fn -> fetch_torrentio(path, @torrentio) end)
+    debrid = fetch_torrentio(path, torrentio_base())
+
+    merged =
+      [debrid, Task.await(plain, 30_000)]
+      |> Enum.flat_map(fn
+        {:ok, sources} -> sources
+        _ -> []
+      end)
+      # The debrid answer comes first, so where both know a release it is the
+      # one that keeps its cached flag.
+      |> Enum.uniq_by(& &1.hash)
+
+    case {merged, debrid} do
+      # Nothing from either, and the debrid one had a reason: pass the reason
+      # on rather than an empty list, which reads as "this does not exist".
+      {[], {:error, _} = error} -> error
+      {sources, _} -> {:ok, sources}
+    end
+  end
+
+  defp fetch_torrentio(path, base \\ nil) do
+    url = "#{base || torrentio_base()}/stream/#{path}.json"
+    # Three tries, not one: it throttles under a run of requests — somebody
+    # working through a season — and one refusal used to mean no sources.
+    req = Req.new(url: url, retry: :transient, max_retries: 3, receive_timeout: 20_000)
 
     case Req.get(req) do
       {:ok, %{status: 200, body: %{"streams" => streams}}} when is_list(streams) ->
@@ -777,7 +814,8 @@ defmodule Laev.Sources do
     cond do
       wanted == [] -> true
       candidates == [] -> true
-      true -> Enum.any?(candidates, fn {cand, y} -> compact(cand) in wanted and year_close?(y, year) end)
+      Enum.any?(candidates, fn {cand, y} -> compact(cand) in wanted and year_close?(y, year) end) -> true
+      true -> multi_title?(name, wanted, year, kind)
     end
   end
 
@@ -785,6 +823,32 @@ defmodule Laev.Sources do
     do: release_ok?(name, [title], year, kind)
 
   def release_ok?(_name, _titles, _year, _kind), do: true
+
+  # Releases that carry a show's name in several languages at once, separated
+  # by slashes: "Супертюрьма! / Тюряга / Superjail! / Сезон: 1 / Серии: 1-10".
+  # The title is in there exactly, just not first, and reading only the start
+  # of the name threw away every Russian release of an English show — three or
+  # four per episode on a catalogue where those are most of what exists.
+  #
+  # Each segment is read as a release name of its own and has to match exactly,
+  # the same test as before, so this cannot turn "The Runner" into "Runner":
+  # that name has no slashes and one segment, which is where it already failed.
+  defp multi_title?(name, wanted, year, kind) do
+    name
+    |> String.split("/")
+    |> Enum.drop(1)
+    |> Enum.any?(fn segment ->
+      segment = String.trim(segment)
+
+      # A segment that is nothing but the title carries no year or season to
+      # read a boundary from, so it is compared as it stands. Exactly, which
+      # is what keeps this from accepting a name that merely contains another.
+      compact(segment) in wanted or
+        segment
+        |> release_titles(kind)
+        |> Enum.any?(fn {cand, y} -> compact(cand) in wanted and year_close?(y, year) end)
+    end)
+  end
 
   # Where the title stops in a release name. A film's name is followed by its
   # year; a show's by a season/episode tag, a year, or both — so every

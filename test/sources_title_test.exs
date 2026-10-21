@@ -155,4 +155,32 @@ defmodule Laev.SourcesTitleTest do
 
   defp ok?(titles, year, name, kind \\ :movie),
     do: Sources.release_ok?(name, List.wrap(titles), year, kind)
+
+  describe "releases that name a show in several languages" do
+    # Most of what Torrentio carries for an English show is Russian-packaged,
+    # with the title in there exactly — just not first. Reading only the start
+    # of the name threw away three or four sources per episode, which for an
+    # obscure show is the difference between a list and nothing.
+    test "a title after the slash still counts" do
+      assert Sources.release_ok?(
+               "Супертюрьма! / Тюряга / Superjail! / Сезон: 1 / Серии: 1-10 (10) [2008 WEB-DLRip]",
+               ["Superjail!"],
+               "2008",
+               :tv
+             )
+
+      assert Sources.release_ok?("Разрушитель / Demolition Man [1993]", ["Demolition Man"], "1993", :movie)
+    end
+
+    # The whole point of the filter, which this must not undo: a name that
+    # merely contains the wanted one is still a different film.
+    test "a longer title is still not the shorter one" do
+      refute Sources.release_ok?("Бегун / The Runner [2022]", ["Runner"], "2024", :movie)
+      refute Sources.release_ok?("The Runner 2022 1080p", ["Runner"], "2024", :movie)
+    end
+
+    test "the right title with the wrong year is still the wrong film" do
+      refute Sources.release_ok?("Нечто / The Thing [2011]", ["The Thing"], "1982", :movie)
+    end
+  end
 end
