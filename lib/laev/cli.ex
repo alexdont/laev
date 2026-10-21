@@ -4945,16 +4945,24 @@ defmodule Laev.CLI do
       next = if episodic?, do: next_target(ctx)
       if episodic?, do: mark_series_if_done(ctx, next)
 
+      # The list this came from, if it came from one.
+      list = browse_list(ctx)
+
       # Nothing left in this show? Then the next thing is the next entry in the
       # list this came from — the point of a curated list is watching it in
       # order, and leaving the player to go and find season three by hand is
       # exactly what it was meant to save you.
-      onward = if is_nil(next), do: next_in_list(ctx)
+      onward = if is_nil(next), do: next_in_list(ctx, onward_list(ctx))
 
       items =
         List.flatten([
           if(next, do: [{:next, "⏭  #{next.label}"}], else: []),
           if(onward, do: [{:onward, "⏭  next in #{onward.list} — #{onward.entry.title}"}], else: []),
+          # Next is one answer; the list is the question. Watching Toy Story 2
+          # does not mean Toy Story 3 is what you want tonight, and the row
+          # above is the only way back into the list you came from without
+          # leaving the player and finding it again by hand.
+          if(list, do: [{:list, "≡  #{list.name} — pick another from the list"}], else: []),
           {:play, "▶  play — from where you stopped"},
           # The two ratings sit either side of the browser row on purpose. Next
           # to each other, "this episode" and "the whole series" are one careless
@@ -5000,6 +5008,17 @@ defmodule Laev.CLI do
       case pick(items, &elem(&1, 1), "what next? · esc goes back to the menu") do
         {:next, _} -> play_to(ctx, next)
         {:onward, _} -> play_next_in_list(onward.entry)
+
+        {:list, _} ->
+          # Esc anywhere inside the list comes back here, so going to look is
+          # free — the same way every other screen that opens a list behaves.
+          screen(fn -> post_play_menu(ctx, stream) end)
+
+          case franchise_screen(list, fn -> post_play_menu(ctx, stream) end) do
+            title when is_map(title) -> play_title(title)
+            other -> other
+          end
+
         {:binge, _} ->
           Process.put(:laev_binge, true)
           binge_wait(ctx)
@@ -5064,8 +5083,8 @@ defmodule Laev.CLI do
   # The entry after this one in whatever list it belongs to — a curated
   # franchise, or one of TMDB's own collections, which laev already treats the
   # same way. nil when the title is in no list, or is the last thing in it.
-  defp next_in_list(ctx) do
-    with %{} = franchise <- list_for(ctx),
+  defp next_in_list(ctx, list) do
+    with %{} = franchise <- list,
          entries <- Laev.Franchises.entries(franchise, "all"),
          index when is_integer(index) <- Enum.find_index(entries, &same_entry?(&1, ctx)),
          %{} = entry <- Enum.at(entries, index + 1) do
@@ -5077,14 +5096,41 @@ defmodule Laev.CLI do
     _ -> nil
   end
 
-  defp list_for(%{type: type, tmdb_id: id}) do
-    case Laev.Franchises.lookup(type, id) do
-      nil -> collection_for(type, id)
-      franchise -> franchise
-    end
+  # The list an "and then this one" can honestly come from: the narrowest that
+  # is a franchise rather than a filmography. Adding the Animation list made
+  # this distinction matter — it is the only list Toy Story 2 belongs to by
+  # name, and the film after it in release order across eight studios is
+  # Fantasia 2000. Its TMDB collection knows the real answer, so when the only
+  # curated match is broad, that is what is asked.
+  @doc false
+  def onward_list(%{type: type, tmdb_id: id}) do
+    narrow =
+      %{type: type, id: id}
+      |> Laev.Franchises.all_for_title()
+      |> Enum.reject(&Laev.Franchises.broad?/1)
+      |> List.first()
+
+    # A curated franchise still wins outright where there is one — the Marvel
+    # list is hand-ordered for exactly this, and Iron Man is meant to lead to
+    # The Incredible Hulk rather than to Iron Man 2. TMDB's collection is the
+    # answer only when no curated franchise claims the film.
+    narrow || collection_for(type, id)
   end
 
-  defp list_for(_ctx), do: nil
+  def onward_list(_ctx), do: nil
+
+  # The list to open and look through, which a filmography is perfectly good
+  # for — "Animation, pick another" is a real answer where "Animation, next"
+  # is not. The narrow list still wins when there is one: somebody three films
+  # into a franchise means that franchise.
+  @doc false
+  def browse_list(%{type: type, tmdb_id: id} = ctx) do
+    onward_list(ctx) || (%{type: type, id: id} |> Laev.Franchises.all_for_title() |> List.first())
+  end
+
+  def browse_list(_ctx), do: nil
+
+
 
   # TMDB files most film series in a collection of its own; for the ones it gets
   # right that is the same thing as a curated list.

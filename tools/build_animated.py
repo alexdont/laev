@@ -143,6 +143,11 @@ def main():
         json.dumps(
             {
                 "name": "Animation",
+                # Not a franchise: a filmography. There is no "next after this
+                # one" in release order across eight studios — the film after
+                # Toy Story 2 is Fantasia 2000 — so laev never offers it as a
+                # next-up, only as a list to browse.
+                "broad": True,
                 "broad": True,
                 "tiers": [
                     {

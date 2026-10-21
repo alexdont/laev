@@ -40,6 +40,9 @@ a project.
   to Saved, not just a title. **Featured → Lists** browses every curated list with
   how much of each is behind you — `Animation · 230 titles · 134/230 watched` —
   which is the "have I seen all of these" question the lists exist to answer.
+  When something you played came from a list, the post-play menu offers the list
+  itself — `≡ Marvel — pick another from the list` — beside the next-up row, so
+  "what now" doesn't have to mean the one that happens to come next.
 - **Animation** is one of them, and not a franchise: every animated feature the
   big studios have released, in release order, with tiers for Disney, Pixar,
   DreamWorks, Illumination, Sony, stop-motion (LAIKA and Aardman), Ghibli and

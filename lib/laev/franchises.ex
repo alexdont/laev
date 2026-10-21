@@ -34,6 +34,10 @@ defmodule Laev.Franchises do
               |> Enum.map(fn f ->
                 %{
                   name: f["name"],
+                  # A filmography rather than a franchise: something to browse,
+                  # never something with a next entry. Release order across
+                  # eight studios puts Fantasia 2000 after Toy Story 2.
+                  broad: f["broad"] == true,
                   tiers: Enum.map(f["tiers"] || [], &%{key: &1["key"], label: &1["label"], blurb: &1["blurb"]}),
                   entries:
                     f["entries"]
@@ -110,6 +114,13 @@ defmodule Laev.Franchises do
 
   @doc "Every curated franchise."
   def all, do: @franchises
+
+  @doc """
+  True for a list that is a filmography rather than a franchise — one to browse
+  through, with no meaningful "and then this one".
+  """
+  def broad?(%{broad: broad}), do: broad == true
+  def broad?(_franchise), do: false
 
   @doc "A curated franchise by name — how a pinned one is found again."
   def by_name(name), do: Enum.find(@franchises, &(&1.name == name))
