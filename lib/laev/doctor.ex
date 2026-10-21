@@ -71,6 +71,42 @@ defmodule Laev.Doctor do
   defp torbox_plan(3), do: "standard plan"
   defp torbox_plan(_), do: "key accepted"
 
+  @doc """
+  Whether VLC can actually decode the things laev hands it.
+
+  VLC's own package is a shell: on most Linux distributions the codecs live in
+  separate packages, and a VLC installed without them opens a window and then
+  refuses the file — "could not decode the format hevc" — for the h265/TrueHD/
+  AC3/PGS that debrid releases are full of. Nothing about that looks like a
+  player problem until you know to look for it, so laev looks.
+
+  The signal is libavcodec, which is where VLC gets nearly every format it
+  understands. Where the plugin directory can't be found at all — macOS, where
+  it lives inside the bundle, or a distribution that lays it out differently —
+  nothing is claimed either way.
+  """
+  def check_vlc_codecs(dirs \\ vlc_plugin_dirs()) do
+    case Enum.find(dirs, &File.dir?/1) do
+      nil ->
+        {:ok, "codec plugins not checked here"}
+
+      dir ->
+        if Path.wildcard(Path.join(dir, "**/libavcodec_plugin.so")) != [] do
+          {:ok, "libavcodec present — h265, AC3 and TrueHD will play"}
+        else
+          {:error,
+           "no libavcodec plugin — VLC will refuse h265/TrueHD/AC3. " <>
+             "Install it (Arch: vlc-plugin-ffmpeg, Debian: vlc-plugin-video-codec-ffmpeg)"}
+        end
+    end
+  rescue
+    _ -> {:ok, "codec plugins not checked here"}
+  end
+
+  defp vlc_plugin_dirs do
+    ["/usr/lib/vlc/plugins", "/usr/lib64/vlc/plugins", "/usr/local/lib/vlc/plugins"]
+  end
+
   @doc "Validate a TMDB key (v3 api_key or v4 bearer) against /configuration."
   def check_tmdb(key) do
     opts = [url: "https://api.themoviedb.org/3/configuration", retry: false, receive_timeout: @check_timeout]
@@ -141,6 +177,13 @@ defmodule Laev.Doctor do
     rd_token = Application.get_env(:laev_app, :rd_token)
     tmdb_key = Application.get_env(:laev_app, :tmdb_key)
 
+    # Only when VLC is the player: a missing codec plugin is nothing to anyone
+    # playing through mpv, which carries its own decoders.
+    vlc_check =
+      if Laev.Config.player_atom() == :vlc,
+        do: [{"VLC codecs", &check_vlc_codecs/0}],
+        else: []
+
     keyed = [
       rd_token && {"Real-Debrid", fn -> check_rd(rd_token) end},
       rd_token == nil && {"Real-Debrid", fn -> {:error, "RD_TOKEN not set — run: laev setup"} end},
@@ -174,7 +217,7 @@ defmodule Laev.Doctor do
         {"Jackett", fn -> ping(Application.get_env(:laev_app, :jackett_url)) end}
     ]
 
-    Enum.filter(keyed ++ public ++ optional, &is_tuple/1)
+    Enum.filter(vlc_check ++ keyed ++ public ++ optional, &is_tuple/1)
   end
 
   defp timed(name, fun) do

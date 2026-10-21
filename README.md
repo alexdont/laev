@@ -202,6 +202,13 @@ knows which player wrote them. What doesn't come across is the two things that
 *are* mpv scripts: intro skipping and the stinger prompt. laev says so when you
 switch.
 
+On Linux, install VLC's codecs along with VLC — the player's own package is a
+shell, and without `libavcodec` it opens a window and then refuses the file
+("VLC could not decode the format hevc"), which is most debrid releases. Arch:
+`vlc-plugin-ffmpeg`. Debian/Ubuntu: `vlc-plugin-video-codec-ffmpeg`. `laev
+doctor` checks for it whenever VLC is the selected player, and so does the
+setting when you switch.
+
 `laev config` shows which keys are set. `laev doctor` validates every one of
 them live, and says how many days are left on your debrid plan.
 

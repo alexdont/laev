@@ -1338,8 +1338,20 @@ defmodule Laev.CLI do
       ])
     )
 
-    unless installed? do
-      IO.puts(:stderr, IO.ANSI.format([:yellow, "  VLC isn't on your PATH yet — install it before playing.\n", :reset]))
+    cond do
+      not installed? ->
+        IO.puts(:stderr, IO.ANSI.format([:yellow, "  VLC isn't on your PATH yet — install it before playing.\n", :reset]))
+
+      match?({:error, _}, Laev.Doctor.check_vlc_codecs()) ->
+        # The trap every Linux VLC falls into: the player installs, opens a
+        # window, and then refuses the file. Most debrid releases are h265
+        # with TrueHD or AC3 audio, so this is not an edge case — it is every
+        # film, and nothing about the error points at a missing package.
+        {:error, detail} = Laev.Doctor.check_vlc_codecs()
+        IO.puts(:stderr, IO.ANSI.format([:yellow, "  ", detail, "\n", :reset]))
+
+      true ->
+        :ok
     end
 
     IO.gets("  press enter to continue… ")
