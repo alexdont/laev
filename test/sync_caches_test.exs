@@ -35,4 +35,40 @@ defmodule Laev.SyncCachesTest do
 
     assert %{"data" => ^mine, "deleted" => false} = Laev.Sync.reconcile(:anime, "62601", mine, tombstone, now)
   end
+
+  describe "a device that was never told" do
+    # Asking MyAnimeList about an anime that isn't on your list answers with no
+    # status at all. Such a record used to win on a timestamp and overwrite the
+    # real one: twenty-one anime came back from "on hold" to "watching" after a
+    # sync with a machine that had never been told they were put down.
+    test "knowing a status beats not knowing one, whatever the clock says" do
+      now = 1_700_000_000
+      knows = %{"data" => %{"status" => "on_hold"}, "updated_at" => now - 10_000, "deleted" => false}
+      blank = %{"data" => %{"status" => nil, "title" => "Nana"}, "updated_at" => now, "deleted" => false}
+
+      assert Laev.Sync.pick_record(:anime, blank, knows) == knows, "the newer empty one must lose"
+      assert Laev.Sync.pick_record(:anime, knows, blank) == knows
+    end
+
+    test "between two that both know, the newer one still wins" do
+      now = 1_700_000_000
+      older = %{"data" => %{"status" => "watching"}, "updated_at" => now - 10_000, "deleted" => false}
+      newer = %{"data" => %{"status" => "on_hold"}, "updated_at" => now, "deleted" => false}
+
+      assert Laev.Sync.pick_record(:anime, older, newer) == newer
+      assert Laev.Sync.pick_record(:anime, newer, older) == newer
+    end
+
+    # A record laev looked up rather than one MyAnimeList described knows
+    # nothing about when it was true, so it must not start at this moment.
+    test "a record with no timestamp of its own starts at the beginning" do
+      now = 1_700_000_000
+
+      assert %{"updated_at" => 0} =
+               Laev.Sync.reconcile(:anime, "877", %{"title" => "Nana", "status" => nil}, nil, now)
+
+      assert %{"updated_at" => 1_600_000_000} =
+               Laev.Sync.reconcile(:anime, "877", %{"status" => "on_hold", "updated" => 1_600_000_000}, nil, now)
+    end
+  end
 end

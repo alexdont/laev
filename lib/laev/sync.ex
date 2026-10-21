@@ -484,6 +484,11 @@ defmodule Laev.Sync do
   # time should keep the fresher answer, not the one that synced second.
   defp initial_ts(:seasons, _key, %{"at" => t}, _now) when is_integer(t), do: t
   defp initial_ts(:anime, _key, %{"updated" => t}, _now) when is_integer(t), do: t
+  # An anime record with no timestamp of its own is one laev looked up rather
+  # than one MyAnimeList described — it knows nothing about when it was true,
+  # so it starts at the beginning of time rather than at this moment, where it
+  # would outrank every record that does.
+  defp initial_ts(:anime, _key, _data, _now), do: 0
   defp initial_ts(_coll, _key, _data, now), do: now
 
   # ── merge two timestamped bundles (last-write-wins) ───────────────
@@ -496,17 +501,44 @@ defmodule Laev.Sync do
 
       recs =
         for key <- keys, into: %{} do
-          {key, pick(Map.get(am, key), Map.get(bm, key))}
+          {key, pick(coll, Map.get(am, key), Map.get(bm, key))}
         end
 
       {coll, recs}
     end
   end
 
-  defp pick(nil, b), do: b
-  defp pick(a, nil), do: a
+  @doc false
+  # Which of two records survives, exposed because it is the rule that decides
+  # whether a machine that knows nothing can overwrite one that does.
+  def pick_record(coll, a, b), do: pick(coll, a, b)
+
+  defp pick(_coll, nil, b), do: b
+  defp pick(_coll, a, nil), do: a
+
+  # What MyAnimeList says about an anime, where one side may not have been
+  # told. Asking MAL about an anime that isn't on your list answers with no
+  # status at all, and such a record used to win on a timestamp and overwrite
+  # the real one — twenty-one anime came back from "on hold" to "watching"
+  # that way, on a machine that had never been told they were put down.
+  #
+  # So knowing beats not knowing, whatever the clock says. Between two records
+  # that both know something, the newer one still wins.
+  defp pick(:anime, a, b) do
+    case {knows_status?(a), knows_status?(b)} do
+      {true, false} -> a
+      {false, true} -> b
+      _ -> newer(a, b)
+    end
+  end
+
+  defp pick(_coll, a, b), do: newer(a, b)
+
   # Higher updated_at wins; local (a) wins exact ties for determinism.
-  defp pick(a, b), do: if(ts(a) >= ts(b), do: a, else: b)
+  defp newer(a, b), do: if(ts(a) >= ts(b), do: a, else: b)
+
+  defp knows_status?(%{"data" => %{"status" => status}}) when is_binary(status) and status != "", do: true
+  defp knows_status?(_record), do: false
 
   defp ts(%{"updated_at" => t}) when is_integer(t), do: t
   defp ts(_), do: 0
