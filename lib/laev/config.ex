@@ -167,7 +167,9 @@ defmodule Laev.Config do
   end
 
   @doc """
-  Which player to hand streams to (LAEV_PLAYER): "mpv" (default) or "vlc".
+  Which player to hand streams to (LAEV_PLAYER): "mpv" (the default in a
+  terminal), "vlc", or "browser" — the film in the page, which is what a web
+  interface uses unless somebody asks for their own player instead.
 
   mpv is the better fit — laev gives it a script that tracks the position from
   inside the player, skips intros and remembers your audio and subtitle
@@ -180,16 +182,26 @@ defmodule Laev.Config do
       value when is_binary(value) ->
         case value |> String.trim() |> String.downcase() do
           "vlc" -> "vlc"
+          "browser" -> "browser"
           _ -> "mpv"
         end
 
       _ ->
+        # The terminal has no page to play anything in, so its default is a
+        # player on the machine. A web interface sets "browser" on the scope
+        # it builds, which is where that default belongs.
         "mpv"
     end
   end
 
   @doc "The player as an atom, for dispatch."
-  def player_atom, do: if(player() == "vlc", do: :vlc, else: :mpv)
+  def player_atom do
+    case player() do
+      "vlc" -> :vlc
+      "browser" -> :browser
+      _ -> :mpv
+    end
+  end
 
   @doc """
   Poster preview style (LAEV_POSTERS): "auto" (sharp pixel graphics via the

@@ -21,7 +21,7 @@ defmodule Laev.Settings do
   # Taken from the same names the config file uses, so a form and a config file
   # and the terminal all describe one thing.
   @options [
-    %{key: "LAEV_PLAYER", label: "Player", group: :playback, type: {:one_of, ~w(mpv vlc)}},
+    %{key: "LAEV_PLAYER", label: "Player", group: :playback, type: {:one_of, ~w(browser mpv vlc)}},
     %{key: "LAEV_AUTO_SOURCE", label: "Auto-pick the best source", group: :playback, type: {:one_of, ~w(on off)}},
     %{key: "LAEV_MAX_RESOLUTION", label: "Resolution ceiling", group: :playback, type: {:one_of, ~w(1080p 4K 720p any)}},
     %{key: "LAEV_STRICT_RESOLUTION", label: "Only list within the ceiling", group: :playback, type: {:one_of, ~w(off on)}},
@@ -47,8 +47,10 @@ defmodule Laev.Settings do
   to put somebody's debrid token back on the wire, and "set" or "not set" is
   what the page is actually asking.
   """
-  def all do
-    Enum.map(@options, fn option ->
+  def all(interface \\ :browser) do
+    @options
+    |> Enum.map(&narrow(&1, interface))
+    |> Enum.map(fn option ->
       value = raw(option.key)
 
       option
@@ -57,9 +59,16 @@ defmodule Laev.Settings do
     end)
   end
 
+  # A player is only worth offering where it can actually be used: the browser
+  # needs a page, and mpv and VLC need to be installed.
+  defp narrow(%{key: "LAEV_PLAYER"} = option, interface),
+    do: %{option | type: {:one_of, Laev.Playback.available(interface)}}
+
+  defp narrow(option, _interface), do: option
+
   @doc "Settings grouped the way the screens group them."
-  def groups do
-    all() |> Enum.group_by(& &1.group) |> Map.new(fn {group, options} -> {group, options} end)
+  def groups(interface \\ :browser) do
+    all(interface) |> Enum.group_by(& &1.group) |> Map.new(fn {group, options} -> {group, options} end)
   end
 
   @doc "One setting's current value, unmasked — for the code that uses it."

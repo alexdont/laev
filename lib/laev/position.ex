@@ -553,7 +553,7 @@ defmodule Laev.Position do
   """
   def record(ctx, %{position: position, watched: watched, skipped: skipped} = sample) do
     with key when is_binary(key) <- key(ctx) do
-      File.write(played_file(key), "#{trunc(watched)} #{trunc(skipped)}")
+      File.write(played_file(key), played_line(watched, skipped, sample[:reported]))
       log_seconds(sample[:log_seconds])
 
       cond do
@@ -583,6 +583,14 @@ defmodule Laev.Position do
   end
 
   defp log_seconds(_seconds), do: :ok
+
+  # "watched skipped" as it always was, with the last reported position after
+  # it when a caller has one. A player that keeps its own running total — the
+  # mpv script, the VLC poller — has no use for the third number; a browser
+  # posting one position per request has nothing else to measure from, since
+  # the position it reads back is floored to zero at the start of a film.
+  defp played_line(watched, skipped, nil), do: "#{trunc(watched)} #{trunc(skipped)}"
+  defp played_line(watched, skipped, reported), do: "#{trunc(watched)} #{trunc(skipped)} #{trunc(reported)}"
 
   defp saved_seconds(ctx) do
     with key when is_binary(key) <- key(ctx),
@@ -701,14 +709,23 @@ defmodule Laev.Position do
   def played(ctx) do
     with key when is_binary(key) <- key(ctx),
          {:ok, body} <- File.read(played_file(key)),
-         [watched, skipped] <- String.split(String.trim(body), " ", parts: 2),
+         [watched, skipped | rest] <- String.split(String.trim(body), " "),
          {watched, _} <- Integer.parse(watched),
          {skipped, _} <- Integer.parse(skipped) do
-      %{watched: watched, skipped: skipped}
+      %{watched: watched, skipped: skipped, reported: reported(rest)}
     else
       _ -> nil
     end
   end
+
+  defp reported([value | _]) do
+    case Integer.parse(value) do
+      {n, _} -> n
+      _ -> nil
+    end
+  end
+
+  defp reported(_rest), do: nil
 
   @doc """
   Where this machine's day-by-day watch log lives.

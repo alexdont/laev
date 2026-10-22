@@ -90,12 +90,12 @@ defmodule Laev.Remux.Worker do
     {video_codec, audio_codec} = probe(url)
     audios = probe_audios(url)
 
-    # Copy h264 video (lossless, fast); otherwise hardware-encode to h264 so
-    # the browser can play it.
+    # Copy h264 video (lossless, fast); otherwise encode to h264 so the browser
+    # can play it, on whatever this machine can encode with.
     video =
       if video_codec == "h264",
         do: ["-c:v", "copy"],
-        else: ["-c:v", "h264_videotoolbox", "-b:v", "6M"]
+        else: ["-c:v", h264_encoder(), "-b:v", "6M"]
 
     hls =
       if length(audios) > 1,
@@ -111,9 +111,64 @@ defmodule Laev.Remux.Worker do
     ["-nostdin", "-loglevel", "error", "-i", url] ++ hls ++ sub_outputs
   end
 
+  # Which h264 encoder this machine has, best first.
+  #
+  # This used to be videotoolbox and nothing else, which exists only on macOS —
+  # so on a Linux server every release that was not already h264 failed the
+  # moment ffmpeg started, and the page waited for segments that were never
+  # going to come. Asked once per run and remembered.
+  @encoders ["h264_nvenc", "h264_qsv", "h264_vaapi", "h264_amf", "h264_videotoolbox", "libx264"]
+
+  defp h264_encoder do
+    case :persistent_term.get({__MODULE__, :encoder}, nil) do
+      nil ->
+        found = detect_encoder()
+        :persistent_term.put({__MODULE__, :encoder}, found)
+        found
+
+      cached ->
+        cached
+    end
+  end
+
+  defp detect_encoder do
+    # Tried rather than listed. ffmpeg will happily report an encoder it cannot
+    # actually run — h264_nvenc is in the list on a machine with no NVIDIA
+    # driver, and only says "Cannot load libcuda.so.1" once a film is waiting
+    # on it. Encoding two frames of a test pattern settles it in about a
+    # second, once per run.
+    Enum.find(@encoders, "libx264", &encodes?/1)
+  end
+
+  defp encodes?(name) do
+    args = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=128x128:rate=5:duration=0.4",
+      "-c:v",
+      name,
+      "-f",
+      "null",
+      "-"
+    ]
+
+    match?({_out, 0}, System.cmd("ffmpeg", args, stderr_to_stdout: true))
+  rescue
+    _ -> false
+  end
+
   # One audio track: a plain HLS media playlist (index.m3u8). Copy AAC, else AAC.
   defp single_audio_hls(dir, video, audio_codec) do
-    audio = if audio_codec == "aac", do: ["-c:a", "copy"], else: ["-c:a", "aac", "-b:a", "192k"]
+    # Downmixed to stereo when it has to be re-encoded at all: HLS carries AAC
+    # in ADTS, which cannot describe more than seven channels, and a TrueHD
+    # 7.1 track is eight — ffmpeg refuses the whole file over it, which is a
+    # silent failure on exactly the releases most worth watching. A browser
+    # plays stereo regardless.
+    audio = if audio_codec == "aac", do: ["-c:a", "copy"], else: ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
 
     ["-map", "0:v:0", "-map", "0:a:0", "-sn"] ++
       video ++
@@ -133,7 +188,7 @@ defmodule Laev.Remux.Worker do
     maps ++
       ["-sn"] ++
       video ++
-      ["-c:a", "aac", "-b:a", "192k"] ++
+      ["-c:a", "aac", "-b:a", "192k", "-ac", "2"] ++
       hls_common() ++
       [
         "-master_pl_name", "master.m3u8",

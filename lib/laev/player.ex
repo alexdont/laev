@@ -35,9 +35,18 @@ defmodule Laev.Player do
   from outside instead. Everything downstream reads the same files either way.
   """
   def play(ctx, url, extra_args) do
-    case Laev.Config.player_atom() do
-      :vlc -> open_vlc(ctx, url, extra_args)
-      _ -> open_mpv(url, extra_args)
+    case Laev.Config.player() do
+      "vlc" ->
+        open_vlc(ctx, url, extra_args)
+
+      # Nothing here can play in a page; the web interface asks
+      # Laev.Playback for a source instead. A terminal that somehow holds this
+      # setting falls back rather than refusing to play anything at all.
+      "browser" ->
+        open_mpv(url, extra_args)
+
+      _ ->
+        open_mpv(url, extra_args)
     end
   end
 
