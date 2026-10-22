@@ -6,15 +6,15 @@ defmodule Laev.AnimeStatsTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "laev-anime-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "positions"))
-    previous = Application.get_env(:laev_app, :data_dir)
-    Application.put_env(:laev_app, :data_dir, dir)
+    previous = Application.get_env(:laev, :data_dir)
+    Application.put_env(:laev, :data_dir, dir)
 
     on_exit(fn ->
       File.rm_rf(dir)
 
       if previous,
-        do: Application.put_env(:laev_app, :data_dir, previous),
-        else: Application.delete_env(:laev_app, :data_dir)
+        do: Application.put_env(:laev, :data_dir, previous),
+        else: Application.delete_env(:laev, :data_dir)
     end)
 
     # Two anime as MAL describes them: a 24-minute series and a 110-minute film.
@@ -31,7 +31,7 @@ defmodule Laev.AnimeStatsTest do
   test "an anime episode is keyed by its MAL entry, not by a TMDB show" do
     assert Position.set_watched(%{mal_id: 1425, episode: 12}, true) == :ok
     assert Position.mark_state(%{mal_id: 1425, episode: 12}) == :watched
-    assert File.exists?(Path.join([Application.get_env(:laev_app, :data_dir), "positions", "mal-1425-e12"]))
+    assert File.exists?(Path.join([Application.get_env(:laev, :data_dir), "positions", "mal-1425-e12"]))
   end
 
   test "episodes count at the length MAL gives that anime", %{dir: dir} do

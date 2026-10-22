@@ -31,12 +31,21 @@ defmodule Laev.Application do
     # the CLI invocation — run it and halt before `elixir start_cli` gets a
     # chance to misread our arguments as a script path. As an escript,
     # escript's main/1 drives instead.
-    if Burrito.Util.running_standalone?() do
+    if standalone?() do
       Laev.CLI.main(Burrito.Util.Args.argv())
       System.halt(0)
     end
 
     result
+  end
+
+  # Whether this is the standalone binary rather than a library inside
+  # somebody else's app. Asked carefully: burrito is optional for anyone
+  # depending on laev, so on a web server the module is simply not there.
+  defp standalone? do
+    Code.ensure_loaded?(Burrito.Util) and
+      function_exported?(Burrito.Util, :running_standalone?, 0) and
+      Burrito.Util.running_standalone?()
   end
 
   # One-time rename migration: adopt the old ~/.config/{kala,kino}/config and

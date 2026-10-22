@@ -59,7 +59,7 @@ defmodule Laev.Config do
   @doc "The currently-set syncable keys, as ENV_KEY => value."
   def export do
     for key <- syncable_keys(),
-        value = Application.get_env(:laev_app, Map.fetch!(@keys, key)),
+        value = Application.get_env(:laev, Map.fetch!(@keys, key)),
         value not in [nil, ""],
         into: %{},
         do: {key, value}
@@ -79,7 +79,7 @@ defmodule Laev.Config do
 
     if pairs != [] do
       write(pairs)
-      for {key, value} <- pairs, do: Application.put_env(:laev_app, Map.fetch!(@keys, key), value)
+      for {key, value} <- pairs, do: Application.put_env(:laev, Map.fetch!(@keys, key), value)
     end
 
     length(pairs)

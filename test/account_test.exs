@@ -8,12 +8,12 @@ defmodule Laev.AccountTest do
 
     # No providers, so a re-check reaches its own conclusion instead of this
     # machine's actual subscription.
-    keys = for key <- [:rd_token, :torbox_api_key], do: {key, Application.get_env(:laev_app, key)}
-    for {key, _} <- keys, do: Application.delete_env(:laev_app, key)
+    keys = for key <- [:rd_token, :torbox_api_key], do: {key, Application.get_env(:laev, key)}
+    for {key, _} <- keys, do: Application.delete_env(:laev, key)
 
     on_exit(fn ->
       Account.forget()
-      for {key, value} <- keys, value != nil, do: Application.put_env(:laev_app, key, value)
+      for {key, value} <- keys, value != nil, do: Application.put_env(:laev, key, value)
     end)
 
     :ok

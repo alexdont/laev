@@ -6,8 +6,8 @@ defmodule Laev.AnimeDetectionTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "laev-detect-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    previous = Application.get_env(:laev_app, :data_dir)
-    Application.put_env(:laev_app, :data_dir, dir)
+    previous = Application.get_env(:laev, :data_dir)
+    Application.put_env(:laev, :data_dir, dir)
 
     # Tomb Raider King: TMDB files it as `ko`, MyAnimeList has it as Dogulwang.
     File.write!(
@@ -26,8 +26,8 @@ defmodule Laev.AnimeDetectionTest do
       AnimeMap.forget()
 
       if previous,
-        do: Application.put_env(:laev_app, :data_dir, previous),
-        else: Application.delete_env(:laev_app, :data_dir)
+        do: Application.put_env(:laev, :data_dir, previous),
+        else: Application.delete_env(:laev, :data_dir)
     end)
 
     :ok

@@ -43,11 +43,11 @@ defmodule Laev.TmdbRatingTest do
     # and on a machine where someone has run `laev tmdb login` the ambient
     # answer is the opposite of what this is testing.
     setup do
-      previous = Application.get_env(:laev_app, :tmdb_session)
-      Application.delete_env(:laev_app, :tmdb_session)
+      previous = Application.get_env(:laev, :tmdb_session)
+      Application.delete_env(:laev, :tmdb_session)
 
       on_exit(fn ->
-        if previous, do: Application.put_env(:laev_app, :tmdb_session, previous)
+        if previous, do: Application.put_env(:laev, :tmdb_session, previous)
       end)
 
       :ok

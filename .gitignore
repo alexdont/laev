@@ -25,3 +25,7 @@ laev_app-*.tar
 /laev
 /deps/
 /burrito_out/
+
+# hex / docs build output
+/doc/
+*.tar

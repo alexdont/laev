@@ -96,11 +96,11 @@ defmodule Laev.Scope do
       %__MODULE__{config: config} ->
         case Map.fetch(config, key) do
           {:ok, value} -> value
-          :error -> Application.get_env(:laev_app, key, default)
+          :error -> Application.get_env(:laev, key, default)
         end
 
       _ ->
-        Application.get_env(:laev_app, key, default)
+        Application.get_env(:laev, key, default)
     end
   end
 
@@ -118,7 +118,7 @@ defmodule Laev.Scope do
         :ok
 
       _ ->
-        Application.put_env(:laev_app, key, value)
+        Application.put_env(:laev, key, value)
     end
   end
 
@@ -126,7 +126,7 @@ defmodule Laev.Scope do
   def dir do
     case current() do
       %__MODULE__{dir: dir} when is_binary(dir) -> dir
-      _ -> Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+      _ -> Application.get_env(:laev, :data_dir) || Path.join(System.user_home!(), ".laev")
     end
   end
 

@@ -6,22 +6,22 @@ defmodule Laev.AnimeCatchUpTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "laev-catchup-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "positions"))
-    previous = Application.get_env(:laev_app, :data_dir)
-    Application.put_env(:laev_app, :data_dir, dir)
+    previous = Application.get_env(:laev, :data_dir)
+    Application.put_env(:laev, :data_dir, dir)
 
     on_exit(fn ->
       File.rm_rf(dir)
 
       if previous,
-        do: Application.put_env(:laev_app, :data_dir, previous),
-        else: Application.delete_env(:laev_app, :data_dir)
+        do: Application.put_env(:laev, :data_dir, previous),
+        else: Application.delete_env(:laev, :data_dir)
     end)
 
     {:ok, dir: dir}
   end
 
   defp marked(mal_id) do
-    Path.wildcard(Path.join([Application.get_env(:laev_app, :data_dir), "positions", "mal-#{mal_id}-e*"]))
+    Path.wildcard(Path.join([Application.get_env(:laev, :data_dir), "positions", "mal-#{mal_id}-e*"]))
     |> Enum.map(&(&1 |> Path.basename() |> String.replace("mal-#{mal_id}-e", "") |> String.to_integer()))
     |> Enum.sort()
   end

@@ -8,8 +8,8 @@ defmodule Laev.AnimeMapTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "laev-map-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    previous = Application.get_env(:laev_app, :data_dir)
-    Application.put_env(:laev_app, :data_dir, dir)
+    previous = Application.get_env(:laev, :data_dir)
+    Application.put_env(:laev, :data_dir, dir)
 
     File.write!(
       Path.join(dir, "anime-map.json"),
@@ -30,8 +30,8 @@ defmodule Laev.AnimeMapTest do
       AnimeMap.forget()
 
       if previous,
-        do: Application.put_env(:laev_app, :data_dir, previous),
-        else: Application.delete_env(:laev_app, :data_dir)
+        do: Application.put_env(:laev, :data_dir, previous),
+        else: Application.delete_env(:laev, :data_dir)
     end)
 
     {:ok, dir: dir}

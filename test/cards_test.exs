@@ -6,15 +6,15 @@ defmodule Laev.CardsTest do
   setup do
     dir = Path.join(System.tmp_dir!(), "laev-cards-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    previous = Application.get_env(:laev_app, :data_dir)
-    Application.put_env(:laev_app, :data_dir, dir)
+    previous = Application.get_env(:laev, :data_dir)
+    Application.put_env(:laev, :data_dir, dir)
 
     on_exit(fn ->
       File.rm_rf(dir)
 
       if previous,
-        do: Application.put_env(:laev_app, :data_dir, previous),
-        else: Application.delete_env(:laev_app, :data_dir)
+        do: Application.put_env(:laev, :data_dir, previous),
+        else: Application.delete_env(:laev, :data_dir)
     end)
 
     :ok
@@ -74,7 +74,7 @@ defmodule Laev.CardsTest do
 
   defp write_card(key, at) do
     Cards.put_many(%{key => %{"name" => "x"}})
-    path = Path.join(Application.get_env(:laev_app, :data_dir), "cards.json")
+    path = Path.join(Application.get_env(:laev, :data_dir), "cards.json")
     stored = path |> File.read!() |> Jason.decode!()
     disk = "#{elem(key, 0)}-#{elem(key, 1)}"
     File.write!(path, Jason.encode!(put_in(stored[disk]["laev_at"], at)))

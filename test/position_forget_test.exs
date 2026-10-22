@@ -5,12 +5,12 @@ defmodule Laev.PositionForgetTest do
     dir = Path.join(System.tmp_dir!(), "laev-forget-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "positions"))
     File.mkdir_p!(Path.join(dir, "played"))
-    previous = Application.get_env(:laev_app, :data_dir)
-    Application.put_env(:laev_app, :data_dir, dir)
+    previous = Application.get_env(:laev, :data_dir)
+    Application.put_env(:laev, :data_dir, dir)
 
     on_exit(fn ->
       File.rm_rf(dir)
-      if previous, do: Application.put_env(:laev_app, :data_dir, previous), else: Application.delete_env(:laev_app, :data_dir)
+      if previous, do: Application.put_env(:laev, :data_dir, previous), else: Application.delete_env(:laev, :data_dir)
     end)
 
     {:ok, dir: dir}

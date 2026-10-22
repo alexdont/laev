@@ -27,7 +27,7 @@ defmodule Laev.UpdateCheck do
     _ -> :unknown
   end
 
-  defp current_version, do: Application.spec(:laev_app, :vsn) |> to_string()
+  defp current_version, do: Application.spec(:laev, :vsn) |> to_string()
 
   @doc "Latest release version straight from GitHub (no cache), or nil."
   def fetch_latest do

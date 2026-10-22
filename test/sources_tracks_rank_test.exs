@@ -18,20 +18,20 @@ defmodule Laev.SourcesTracksRankTest do
   defp order(pairs), do: pairs |> Sources.rank_playable() |> Enum.map(fn {s, _} -> s.name end)
 
   setup do
-    lang = Application.get_env(:laev_app, :lang)
-    subs = Application.get_env(:laev_app, :subs_lang)
+    lang = Application.get_env(:laev, :lang)
+    subs = Application.get_env(:laev, :subs_lang)
 
     on_exit(fn ->
-      Application.put_env(:laev_app, :lang, lang)
-      Application.put_env(:laev_app, :subs_lang, subs)
+      Application.put_env(:laev, :lang, lang)
+      Application.put_env(:laev, :subs_lang, subs)
     end)
 
     :ok
   end
 
   test "English default: foreign audio with English subs stays neutral, without them sinks" do
-    Application.put_env(:laev_app, :lang, "en")
-    Application.put_env(:laev_app, :subs_lang, nil)
+    Application.put_env(:laev, :lang, "en")
+    Application.put_env(:laev, :subs_lang, nil)
 
     untagged = pair("untagged", %{})
     anime = pair("ja+en-subs", %{langs: ["ja"], subs: ["en"]})
@@ -44,8 +44,8 @@ defmodule Laev.SourcesTracksRankTest do
   end
 
   test "non-English preference: real audio ranks exact > multi > subs-only > wrong" do
-    Application.put_env(:laev_app, :lang, "ru")
-    Application.put_env(:laev_app, :subs_lang, "ru")
+    Application.put_env(:laev, :lang, "ru")
+    Application.put_env(:laev, :subs_lang, "ru")
 
     exact = pair("ru", %{langs: ["ru"]})
     multi = pair("ru+en", %{langs: ["ru", "en"]})
@@ -56,8 +56,8 @@ defmodule Laev.SourcesTracksRankTest do
   end
 
   test "subtitles are ignored when LAEV_SUBS is off" do
-    Application.put_env(:laev_app, :lang, "ru")
-    Application.put_env(:laev_app, :subs_lang, "off")
+    Application.put_env(:laev, :lang, "ru")
+    Application.put_env(:laev, :subs_lang, "off")
 
     subs_only = pair("en+ru-subs", %{langs: ["en"], subs: ["ru"]})
     untagged = pair("untagged", %{})

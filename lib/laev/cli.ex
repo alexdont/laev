@@ -699,7 +699,7 @@ defmodule Laev.CLI do
   # writing straight to the config file — no hand-editing needed.
   defp configure_keys(keys) do
     for {env_key, prompt} <- keys do
-      current = Application.get_env(:laev_app, Map.fetch!(Config.keys(), env_key))
+      current = Application.get_env(:laev, Map.fetch!(Config.keys(), env_key))
       hint = if current in [nil, ""], do: "", else: " [#{mask(current)}]"
 
       case IO.gets("  #{prompt}#{hint} — enter to keep, or type a value: ") do
@@ -1388,7 +1388,7 @@ defmodule Laev.CLI do
     write_config_keys([{key, value}])
     # Env vars beat the file, so a shell-exported key won't budge — put the
     # new value straight into the app env so the change applies either way.
-    Application.put_env(:laev_app, Map.fetch!(Config.keys(), key), value)
+    Application.put_env(:laev, Map.fetch!(Config.keys(), key), value)
   end
 
   # The smart first row: if the most recent thing was an episode watched to
@@ -7814,7 +7814,7 @@ defmodule Laev.CLI do
         "from a source checkout: git pull && mix escript.build")
     end
 
-    current = Application.spec(:laev_app, :vsn) |> to_string()
+    current = Application.spec(:laev, :vsn) |> to_string()
     IO.puts(:stderr, "current: v#{current} — checking the latest release…")
 
     latest =

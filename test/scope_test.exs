@@ -22,8 +22,8 @@ defmodule Laev.ScopeTest do
   # Anything the scope doesn't carry falls back to what the server holds, so a
   # shared TMDB key can be shared while debrid accounts are not.
   test "what a scope doesn't carry falls back", %{alice: alice} do
-    Application.put_env(:laev_app, :shared_thing, "server-wide")
-    on_exit(fn -> Application.delete_env(:laev_app, :shared_thing) end)
+    Application.put_env(:laev, :shared_thing, "server-wide")
+    on_exit(fn -> Application.delete_env(:laev, :shared_thing) end)
 
     assert Scope.run(alice, fn -> Scope.get(:shared_thing) end) == "server-wide"
     assert Scope.run(alice, fn -> Scope.get(:rd_token) end) == "alice-token"
@@ -114,7 +114,7 @@ defmodule Laev.ScopeTest do
   # And the CLI, which binds nothing, must behave exactly as it always did.
   test "no scope means the machine's own laev" do
     assert Scope.current() == nil
-    assert Scope.dir() == Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    assert Scope.dir() == Application.get_env(:laev, :data_dir) || Path.join(System.user_home!(), ".laev")
     assert Scope.tag() == "global"
   end
 end
