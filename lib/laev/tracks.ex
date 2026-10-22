@@ -7,7 +7,7 @@ defmodule Laev.Tracks do
   `/streaming/mediaInfos` reads the actual container server-side and lists
   every track with an ISO 639-2 code; this module folds that answer into
   `%{audio: ["ru", "en"], subs: ["ru"]}` — the two-letter codes the rest of
-  laev already speaks (`Config.lang/0`, Torrentio flags) — and renders it
+  laev already speaks (`Laev.Config.lang/0`, Torrentio flags) — and renders it
   for the source row.
   """
 
@@ -92,7 +92,7 @@ defmodule Laev.Tracks do
   def label(_), do: ""
 
   @doc """
-  Codes safe to rank on: `Config.lang/0` / `Config.subs_lang/0` are
+  Codes safe to rank on: `Laev.Config.lang/0` / `Laev.Config.subs_lang/0` are
   two-letter, so a 639-2 code we couldn't fold ("pob") would never match
   and must not sink a release — it stays visible in the row, that's all.
   """
