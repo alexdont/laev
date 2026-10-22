@@ -140,6 +140,49 @@ mix escript.build               # → ./laev (needs Erlang installed to run)
 MIX_ENV=prod mix release laev   # → burrito_out/laev_* (self-contained)
 ```
 
+## As a library
+
+Everything the terminal does is callable, per user, from anything else — a web
+app, a script, a job. The CLI is one caller of it rather than where it lives.
+
+```elixir
+{:laev, "~> 0.1"}
+```
+
+A scope is a user: a directory to keep their state in, and the keys to the
+services they have connected. Bind one and every call underneath is theirs —
+process-bound, so a Phoenix request or a LiveView is already the right
+boundary, and nothing bound means this machine's own laev, which is what the
+terminal uses.
+
+```elixir
+scope = Laev.Scope.load("/data/users/42", %{rd_token: token_from_your_db})
+
+Laev.Scope.run(scope, fn ->
+  Laev.Shelf.rows()                     # the Watchlist, in order, with its sections
+  Laev.Shelf.tally()                    # watching / caught up / on hold
+  Laev.Stats.all_time()                 # hours, split films & tv from anime
+  Laev.Settings.all()                   # every setting, secrets masked
+  Laev.Settings.put("LAEV_PLAYER", "browser")
+end)
+```
+
+Playing goes to whichever player that user chose — `browser`, `mpv` or `vlc`.
+For a browser it hands back a source rather than a file, remuxing to HLS where
+the release is not something a browser can read, which is most of them:
+
+```elixir
+{:ok, source} = Laev.Playback.browser_source(ctx, stream)
+# %{kind: :remux, remux_id: …, dir: …, resume_at: 1847, playable: true}
+
+Laev.Playback.ready(source.remux_id, :fast)   # first segments on disk
+Laev.Playback.playlist(source.remux_id)       # serve this from source.dir
+Laev.Playback.progress(ctx, 1860)             # posted back as it plays
+```
+
+That needs **ffmpeg**, and somewhere with room for segments — point `TMPDIR` at
+real disk rather than a container's tmpfs.
+
 ## Configure
 
 Run `laev setup` — an interactive wizard that asks for your two keys,
