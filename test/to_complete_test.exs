@@ -1,6 +1,8 @@
 defmodule Laev.ToCompleteTest do
   use ExUnit.Case, async: true
 
+  alias Laev.Shelf
+
   alias Laev.CLI
 
   defp behind(title, order \\ 0), do: %{title: title, caught_up: false, order: order}
@@ -12,33 +14,33 @@ defmodule Laev.ToCompleteTest do
   test "the three sections come in order, each behind its own divider" do
     rows = [caught_up("C"), held("H"), behind("A")]
 
-    assert CLI.divide_sections(rows) == [behind("A"), :caught_up, caught_up("C"), :on_hold, held("H")]
+    assert Shelf.divide_sections(rows) == [behind("A"), :caught_up, caught_up("C"), :on_hold, held("H")]
   end
 
   test "a section with nothing in it gets no divider" do
-    assert CLI.divide_sections([behind("A")]) == [behind("A")]
-    assert CLI.divide_sections([behind("A"), held("H")]) == [behind("A"), :on_hold, held("H")]
-    assert CLI.divide_sections([]) == []
+    assert Shelf.divide_sections([behind("A")]) == [behind("A")]
+    assert Shelf.divide_sections([behind("A"), held("H")]) == [behind("A"), :on_hold, held("H")]
+    assert Shelf.divide_sections([]) == []
   end
 
   # A section can be the only one there is, divider included — it is still a
   # section, and saying so beats a bare list of things you put down.
   test "only-held rows still sit under their divider" do
-    assert CLI.divide_sections([held("H")]) == [:on_hold, held("H")]
+    assert Shelf.divide_sections([held("H")]) == [:on_hold, held("H")]
   end
 
   # The crash: an anime row carries no :caught_up, and being in progress it is
   # behind by definition.
   test "a row that says nothing about being caught up or held is behind" do
-    assert CLI.divide_sections([silent("anime"), caught_up("C")]) == [silent("anime"), :caught_up, caught_up("C")]
-    assert CLI.section_of(silent("anime")) == :behind
+    assert Shelf.divide_sections([silent("anime"), caught_up("C")]) == [silent("anime"), :caught_up, caught_up("C")]
+    assert Shelf.section_of(silent("anime")) == :behind
   end
 
   # The page gathers from three records, and a row from any of them is a row: an
   # anime your list never heard of, a film you are half an hour into. Both were
   # invisible when the page was built from the MyAnimeList import alone.
   test "progress with nothing marked is still progress" do
-    page = CLI.divide_sections([%{title: "Marriagetoxin", mal_id: 62_601, watched_at: 100}, behind("A", 1)])
+    page = Shelf.divide_sections([%{title: "Marriagetoxin", mal_id: 62_601, watched_at: 100}, behind("A", 1)])
 
     assert Enum.map(page, & &1.title) == ["Marriagetoxin", "A"],
            "most recently watched first, whatever record it came from"
@@ -47,38 +49,38 @@ defmodule Laev.ToCompleteTest do
   # Both of these took the page down once: a third sentinel row the list's
   # helpers had never been told about. They answer for anything now.
   test "a sentinel row is scenery, not a crash" do
-    assert CLI.section_of(:more) == :behind
-    assert CLI.section_of(:caught_up) == :behind
-    assert CLI.divide_sections([behind("A"), :more]) == [behind("A"), :more]
+    assert Shelf.section_of(:more) == :behind
+    assert Shelf.section_of(:caught_up) == :behind
+    assert Shelf.divide_sections([behind("A"), :more]) == [behind("A"), :more]
   end
 
   # ctrl-h has to move the row on the frame you pressed it, not on the next visit
   # to the page — and the sections are re-derived from the rows in hand.
   test "a held row lands in the on-hold section without a rebuild" do
     rows = [behind("A", 1), behind("B", 2), caught_up("C", 3)]
-    page = CLI.divide_sections(rows)
+    page = Shelf.divide_sections(rows)
 
     held_b = rows |> Enum.at(1) |> Map.put(:held, true)
-    moved = CLI.divide_sections(Enum.map(rows, &if(&1.title == "B", do: held_b, else: &1)))
+    moved = Shelf.divide_sections(Enum.map(rows, &if(&1.title == "B", do: held_b, else: &1)))
 
     assert Enum.map(page, &(is_map(&1) && &1.title)) == ["A", "B", false, "C"]
     assert Enum.map(moved, &(is_map(&1) && &1.title)) == ["A", false, "C", false, "B"]
   end
 
   test "rows with nothing said never raise" do
-    assert CLI.divide_sections([silent("a"), silent("b")]) == [silent("a"), silent("b")]
+    assert Shelf.divide_sections([silent("a"), silent("b")]) == [silent("a"), silent("b")]
   end
 
   # On hold wins: something you put down is not something you are up to date on,
   # even when both are true of it.
   test "held beats caught up" do
-    assert CLI.section_of(%{held: true, caught_up: true}) == :on_hold
+    assert Shelf.section_of(%{held: true, caught_up: true}) == :on_hold
   end
 
   test "order within a section is kept" do
     rows = [behind("B", 2), behind("A", 1), caught_up("D", 4), caught_up("C", 3)]
 
-    assert Enum.map(CLI.divide_sections(rows), &(is_map(&1) && &1.title)) ==
+    assert Enum.map(Shelf.divide_sections(rows), &(is_map(&1) && &1.title)) ==
              ["A", "B", false, "C", "D"]
   end
 end

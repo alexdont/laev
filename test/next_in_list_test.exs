@@ -1,6 +1,8 @@
 defmodule Laev.NextInListTest do
   use ExUnit.Case, async: false
 
+  alias Laev.Shelf
+
   alias Laev.{CLI, Franchises}
 
   defp ctx(type, id), do: %{type: type, tmdb_id: id, season: nil}
@@ -71,19 +73,19 @@ defmodule Laev.NextInListTest do
     end)
 
     titles = for id <- [1597, 693, 41_154, 301_528], do: %{type: "movie", id: id, title: "film #{id}"}
-    assert CLI.first_unwatched_title(titles) == 0
+    assert Shelf.first_unwatched_title(titles) == 0
 
     for id <- [1597, 693] do
       Laev.Position.set_watched(%{type: "movie", tmdb_id: id, season: nil, episode: nil}, true)
     end
 
-    assert CLI.first_unwatched_title(titles) == 2, "two behind you means the third"
+    assert Shelf.first_unwatched_title(titles) == 2, "two behind you means the third"
 
     for id <- [41_154, 301_528] do
       Laev.Position.set_watched(%{type: "movie", tmdb_id: id, season: nil, episode: nil}, true)
     end
 
-    assert CLI.first_unwatched_title(titles) == 0, "nothing pending — the top is as good as anywhere"
+    assert Shelf.first_unwatched_title(titles) == 0, "nothing pending — the top is as good as anywhere"
   end
 
   test "something in no list has nowhere to jump" do

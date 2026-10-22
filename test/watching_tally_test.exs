@@ -1,6 +1,8 @@
 defmodule Laev.WatchingTallyTest do
   use ExUnit.Case, async: false
 
+  alias Laev.Shelf
+
   alias Laev.{CLI, Holds, Resume}
 
   setup do
@@ -28,7 +30,7 @@ defmodule Laev.WatchingTallyTest do
   test "a show with episodes watched is one thing you are in the middle of", %{dir: dir} do
     for e <- 1..3, do: mark(dir, "tv-1399-s1e#{e}", "seen")
 
-    assert CLI.watching_tally().behind == 1
+    assert Shelf.tally().behind == 1
   end
 
   # The bug this nearly shipped with: held rows were subtracted from "behind" and
@@ -38,7 +40,7 @@ defmodule Laev.WatchingTallyTest do
     for e <- 1..3, do: mark(dir, "tv-1399-s1e#{e}", "seen")
     Holds.hold("tv", 1399)
 
-    tally = CLI.watching_tally()
+    tally = Shelf.tally()
 
     assert tally.held == 1
     assert tally.behind == 0
@@ -49,7 +51,7 @@ defmodule Laev.WatchingTallyTest do
     for e <- 1..3, do: mark(dir, "tv-1399-s1e#{e}", "seen")
     mark(dir, "tv-1399", "seen")
 
-    tally = CLI.watching_tally()
+    tally = Shelf.tally()
 
     assert tally.behind == 0
     assert tally.series_finished == 1
@@ -61,18 +63,18 @@ defmodule Laev.WatchingTallyTest do
     mark(dir, "movie-671", "2135")
     Resume.put("movie", 671, %{"type" => "movie", "tmdb_id" => 671, "title" => "Harry Potter", "updated_at" => 100})
 
-    assert CLI.watching_tally().behind == 1
+    assert Shelf.tally().behind == 1
   end
 
   test "a film you finished does not", %{dir: dir} do
     mark(dir, "movie-671", "done")
     Resume.put("movie", 671, %{"type" => "movie", "tmdb_id" => 671, "title" => "Harry Potter", "updated_at" => 100})
 
-    assert CLI.watching_tally().behind == 0
+    assert Shelf.tally().behind == 0
   end
 
   test "nothing watched is nothing to finish" do
-    assert CLI.watching_tally() == %{
+    assert Shelf.tally() == %{
              behind: 0,
              caught_up: 0,
              held: 0,
