@@ -45,6 +45,38 @@ defmodule Laev.SettingsTest do
     Scope.run(other, fn -> assert Laev.Config.player() == "mpv" end)
   end
 
+  # A change that lived only until the end of the request would be a setting
+  # that never saved — worse than one that cannot be changed at all.
+  test "a user's change survives their next request", %{scope: scope} do
+    Scope.run(scope, fn -> assert Settings.put("LAEV_PLAYER", "vlc") == :ok end)
+
+    # A new request for the same user: built from what they saved, not from
+    # whatever the last process happened to hold.
+    fresh = Scope.load(scope.dir)
+    assert Scope.run(fresh, fn -> Laev.Config.player() end) == "vlc"
+    assert File.read!(Path.join(scope.dir, "config")) =~ "LAEV_PLAYER=vlc"
+  end
+
+  test "one user's settings are not another's", %{scope: scope} do
+    other_dir = Path.join(scope.dir, "someone-else")
+    File.mkdir_p!(other_dir)
+
+    Scope.run(scope, fn -> Settings.put("LAEV_PLAYER", "vlc") end)
+    Scope.run(Scope.load(other_dir), fn -> Settings.put("LAEV_PLAYER", "mpv") end)
+
+    assert Scope.run(Scope.load(scope.dir), fn -> Laev.Config.player() end) == "vlc"
+    assert Scope.run(Scope.load(other_dir), fn -> Laev.Config.player() end) == "mpv"
+  end
+
+  # What the server holds for somebody beats what is on their disk: a token
+  # kept in a database is the authority on that token.
+  test "what the caller passes in wins over the file", %{scope: scope} do
+    Scope.run(scope, fn -> Settings.put("LAEV_PLAYER", "vlc") end)
+
+    forced = Scope.load(scope.dir, %{player: "browser"})
+    assert Scope.run(forced, fn -> Laev.Config.player() end) == "browser"
+  end
+
   test "a setting refuses a value it does not accept", %{scope: scope} do
     Scope.run(scope, fn ->
       assert {:error, {:must_be_one_of, "LAEV_PLAYER", _}} = Settings.put("LAEV_PLAYER", "iina")

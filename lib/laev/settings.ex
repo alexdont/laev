@@ -84,7 +84,11 @@ defmodule Laev.Settings do
   def put(key, value) do
     with {:ok, option} <- option(key),
          :ok <- accepts?(option, value) do
-      if Scope.current(), do: :ok, else: Config.write([{key, value}])
+      # Written down and applied at once, in a scope exactly as in a terminal:
+      # a change that only lived until the end of the request would be a
+      # setting that never saved, which is worse than one that cannot be
+      # changed at all.
+      Config.write([{key, value}])
       Scope.set(Map.fetch!(Config.keys(), key), value)
       :ok
     end

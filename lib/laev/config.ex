@@ -121,8 +121,31 @@ defmodule Laev.Config do
   end
 
   def path do
-    config_home = System.get_env("XDG_CONFIG_HOME") || Path.join(System.user_home!(), ".config")
-    Path.join([config_home, "laev", "config"])
+    case Laev.Scope.current() do
+      # A user on a server keeps their settings beside their own state, not in
+      # the home directory of whoever the server runs as — which is one
+      # directory shared by everybody.
+      %Laev.Scope{dir: dir} when is_binary(dir) ->
+        Path.join(dir, "config")
+
+      _ ->
+        config_home = System.get_env("XDG_CONFIG_HOME") || Path.join(System.user_home!(), ".config")
+        Path.join([config_home, "laev", "config"])
+    end
+  end
+
+  @doc """
+  The settings written in a directory, as the names the application uses.
+
+  For building a scope out of what a user has saved, which is the other half of
+  being able to change it: `Laev.Scope.load/2` reads this.
+  """
+  def read_dir(dir) do
+    file = read_file(Path.join(dir, "config"))
+
+    for {env_key, app_key} <- @keys, value = file[env_key], value not in [nil, ""], into: %{} do
+      {app_key, value}
+    end
   end
 
   def load do

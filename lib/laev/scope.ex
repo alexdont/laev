@@ -44,6 +44,18 @@ defmodule Laev.Scope do
     %__MODULE__{dir: dir, config: config}
   end
 
+  @doc """
+  A scope over a directory, with whatever that user has already saved in it.
+
+  How a request should build one: the settings a user changed last time are in
+  their own directory, and anything the server holds for them — a token kept in
+  a database rather than on disk, say — is passed in and wins.
+  """
+  def load(dir, overrides \\ %{}) when is_binary(dir) do
+    File.mkdir_p(dir)
+    new(dir, Map.merge(Laev.Config.read_dir(dir), overrides))
+  end
+
   @doc "The scope bound to this process, or nil when there isn't one."
   def current, do: Process.get(@key)
 
