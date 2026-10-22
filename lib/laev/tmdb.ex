@@ -343,7 +343,7 @@ defmodule Laev.Tmdb do
 
   def round_half(_value), do: nil
 
-  defp session_id, do: Application.get_env(:laev_app, :tmdb_session)
+  defp session_id, do: Laev.Scope.get(:tmdb_session)
 
   @doc "The IMDb id (tt…) for a details map, or nil."
   def imdb_id(details) when is_map(details), do: details["imdb_id"] || get_in(details, ["external_ids", "imdb_id"])
@@ -396,5 +396,5 @@ defmodule Laev.Tmdb do
     end
   end
 
-  defp key, do: Application.get_env(:laev_app, :tmdb_key)
+  defp key, do: Laev.Scope.get(:tmdb_key)
 end

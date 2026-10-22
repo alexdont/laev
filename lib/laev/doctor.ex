@@ -155,7 +155,7 @@ defmodule Laev.Doctor do
 
     service_results =
       service_checks()
-      |> Task.async_stream(fn {name, fun} -> timed(name, fun) end,
+      |> Laev.Scope.async_stream(fn {name, fun} -> timed(name, fun) end,
         max_concurrency: 8,
         timeout: @check_timeout + 2_000,
         on_timeout: :kill_task
@@ -174,8 +174,8 @@ defmodule Laev.Doctor do
   end
 
   defp service_checks do
-    rd_token = Application.get_env(:laev_app, :rd_token)
-    tmdb_key = Application.get_env(:laev_app, :tmdb_key)
+    rd_token = Laev.Scope.get(:rd_token)
+    tmdb_key = Laev.Scope.get(:tmdb_key)
 
     # Only when VLC is the player: a missing codec plugin is nothing to anyone
     # playing through mpv, which carries its own decoders.
@@ -201,20 +201,20 @@ defmodule Laev.Doctor do
     ]
 
     optional = [
-      Application.get_env(:laev_app, :torbox_api_key) &&
+      Laev.Scope.get(:torbox_api_key) &&
         {"TorBox",
-         fn -> check_torbox(Application.get_env(:laev_app, :torbox_api_key)) end},
-      Application.get_env(:laev_app, :opensubtitles_api_key) &&
+         fn -> check_torbox(Laev.Scope.get(:torbox_api_key)) end},
+      Laev.Scope.get(:opensubtitles_api_key) &&
         {"OpenSubtitles",
          fn ->
            ping("https://api.opensubtitles.com/api/v1/infos/formats",
-             headers: [{"api-key", Application.get_env(:laev_app, :opensubtitles_api_key)}]
+             headers: [{"api-key", Laev.Scope.get(:opensubtitles_api_key)}]
            )
          end},
-      Application.get_env(:laev_app, :jimaku_api_key) &&
+      Laev.Scope.get(:jimaku_api_key) &&
         {"Jimaku", fn -> ping("https://jimaku.cc") end},
-      Application.get_env(:laev_app, :jackett_url) &&
-        {"Jackett", fn -> ping(Application.get_env(:laev_app, :jackett_url)) end}
+      Laev.Scope.get(:jackett_url) &&
+        {"Jackett", fn -> ping(Laev.Scope.get(:jackett_url)) end}
     ]
 
     Enum.filter(vlc_check ++ keyed ++ public ++ optional, &is_tuple/1)

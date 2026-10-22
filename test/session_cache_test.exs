@@ -60,7 +60,7 @@ defmodule Laev.SessionCacheTest do
 
   # Backdate an entry by rewriting its timestamp.
   defp age(key, seconds) do
-    {value, at} = Process.get({SessionCache, key})
-    Process.put({SessionCache, key}, {value, at - seconds})
+    {value, at} = Process.get({SessionCache, Laev.Scope.tag(), key})
+    Process.put({SessionCache, Laev.Scope.tag(), key}, {value, at - seconds})
   end
 end

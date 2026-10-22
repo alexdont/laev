@@ -131,5 +131,5 @@ defmodule Laev.Jimaku do
     end
   end
 
-  defp key, do: Application.get_env(:laev_app, :jimaku_api_key)
+  defp key, do: Laev.Scope.get(:jimaku_api_key)
 end

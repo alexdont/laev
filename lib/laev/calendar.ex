@@ -33,7 +33,7 @@ defmodule Laev.Calendar do
     all =
       Watchlist.all()
       |> Enum.reject(&pinned_list?/1)
-      |> Task.async_stream(&entry_events/1,
+      |> Laev.Scope.async_stream(&entry_events/1,
         max_concurrency: 4,
         timeout: 20_000,
         on_timeout: :kill_task
@@ -71,7 +71,7 @@ defmodule Laev.Calendar do
   Pre-fetch one entry's schedule into the disk cache, detached — called
   when a title is pinned, so opening the calendar later is all cache hits.
   """
-  def warm(entry), do: spawn(fn -> entry_events(entry) end)
+  def warm(entry), do: Laev.Scope.spawn(fn -> entry_events(entry) end)
 
   defp entry_events(entry) do
     cached("#{entry["type"]}-#{entry["tmdb_id"]}", fn -> fetch_entry_events(entry) end)

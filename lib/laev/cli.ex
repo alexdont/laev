@@ -121,7 +121,7 @@ defmodule Laev.CLI do
   # laev, see it live; delete the file to get the built-in back. Rows are
   # padded to a uniform width so the gradient/panel alignment holds.
   defp banner_lines do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
 
     with {:ok, contents} <- File.read(Path.join(dir, "banner.txt")),
          rows = contents |> String.split("\n") |> trim_blank_edges(),
@@ -242,7 +242,7 @@ defmodule Laev.CLI do
   # LAEV_LOGO_COLORS="#rrggbb,#rrggbb" forces the gradient endpoints — a
   # reliable manual path when the terminal won't answer the palette query.
   defp logo_override do
-    with s when is_binary(s) <- Application.get_env(:laev_app, :logo_colors),
+    with s when is_binary(s) <- Laev.Scope.get(:logo_colors),
          [a, b] <- s |> String.split(",", parts: 2) |> Enum.map(&parse_hex/1),
          true <- a != nil and b != nil do
       {a, b}
@@ -692,7 +692,7 @@ defmodule Laev.CLI do
 
   defp configured_key?(env_key) do
     app_key = Map.fetch!(Config.keys(), env_key)
-    Application.get_env(:laev_app, app_key) not in [nil, ""]
+    Laev.Scope.get(app_key) not in [nil, ""]
   end
 
   # Prompt for each key in turn (current value shown masked, enter keeps),
@@ -1032,7 +1032,7 @@ defmodule Laev.CLI do
 
       {:off, _} ->
         save_setting("LAEV_SYNC_URL", "")
-        Application.put_env(:laev_app, :sync_url, nil)
+        Laev.Scope.set(:sync_url, nil)
         IO.puts(:stderr, "  local-only.")
         sync_menu()
     end
@@ -1318,10 +1318,10 @@ defmodule Laev.CLI do
   defp setting_value("LAEV_SUBS"), do: Config.subs_lang() || "off"
 
   defp setting_value("LAEV_DOWNLOAD_DIR"),
-    do: Application.get_env(:laev_app, :download_dir) || Path.join(System.user_home!(), "Videos")
+    do: Laev.Scope.get(:download_dir) || Path.join(System.user_home!(), "Videos")
 
   defp setting_value("LAEV_MPV_ARGS"),
-    do: Application.get_env(:laev_app, :mpv_args) || "(none)"
+    do: Laev.Scope.get(:mpv_args) || "(none)"
 
   defp change_setting(key, _label, {:cycle, values}) do
     current = setting_value(key)
@@ -2030,7 +2030,7 @@ defmodule Laev.CLI do
   end
 
   defp print_update_status do
-    task = Task.async(fn -> Laev.UpdateCheck.status() end)
+    task = Laev.Scope.async(fn -> Laev.UpdateCheck.status() end)
 
     case Task.yield(task, 2000) || Task.shutdown(task, :brutal_kill) do
       {:ok, {:current, version}} ->
@@ -2217,7 +2217,7 @@ defmodule Laev.CLI do
   defp search_choice(out), do: out |> String.split("\n", parts: 2) |> hd()
 
   defp search_history_path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
     Path.join(dir, "search_history")
   end
 
@@ -3156,7 +3156,7 @@ defmodule Laev.CLI do
     titles
     |> Enum.filter(&(&1.type == "movie"))
     |> Enum.take(8)
-    |> Task.async_stream(&collection_id_of/1, max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task)
+    |> Laev.Scope.async_stream(&collection_id_of/1, max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task)
     |> Enum.with_index()
     |> Enum.flat_map(fn
       {{:ok, {id, votes}}, rank} when is_integer(id) -> [{id, {rank, votes}}]
@@ -3819,7 +3819,7 @@ defmodule Laev.CLI do
 
   defp push_anime_status(mal_id, status) do
     if Laev.MAL.authenticated?() and Config.mal_scrobble?() do
-      spawn(fn -> Laev.MAL.set_status(mal_id, status) end)
+      Laev.Scope.spawn(fn -> Laev.MAL.set_status(mal_id, status) end)
     end
 
     :ok
@@ -3837,7 +3837,7 @@ defmodule Laev.CLI do
       episodes = anime_marks() |> Map.get(mal_id, 0)
       total = Laev.Anime.episodes(mal_id)
 
-      spawn(fn ->
+      Laev.Scope.spawn(fn ->
         {count, cap} = if watched?, do: {total || episodes, total}, else: {episodes, nil}
 
         case Laev.MAL.set_progress(mal_id, count, cap) do
@@ -5094,7 +5094,7 @@ defmodule Laev.CLI do
   # support; its progress bar renders on stderr.
   defp download_stream(stream) do
     dir =
-      Application.get_env(:laev_app, :download_dir) ||
+      Laev.Scope.get(:download_dir) ||
         Path.join(System.user_home!(), "Videos")
 
     File.mkdir_p!(dir)
@@ -5144,7 +5144,7 @@ defmodule Laev.CLI do
 
   defp start_subtitle_task(ctx),
     do:
-      Task.async(fn ->
+      Laev.Scope.async(fn ->
         subtitle_args(ctx) ++
           Laev.Skip.window_args(ctx) ++ Laev.Skip.stinger_args(ctx)
       end)
@@ -6304,7 +6304,7 @@ defmodule Laev.CLI do
   # escript, which does stay on the tty, polls the size instead and pushes a
   # recomputed layout + preview refresh into fzf over its --listen HTTP API.
   defp start_resize_watcher(port_file, api_key, mode, marker) do
-    spawn(fn ->
+    Laev.Scope.spawn(fn ->
       case await_fzf_port(port_file, 50) do
         nil -> :ok
         port -> watch_resize(port, api_key, tty_size(), mode, marker)
@@ -6322,7 +6322,7 @@ defmodule Laev.CLI do
   # redraw the pane once it lands.
   defp start_quality_watcher(port_file, api_key, metas, path, render, preview?) do
     if Enum.any?(metas) do
-      spawn(fn ->
+      Laev.Scope.spawn(fn ->
         case await_fzf_port(port_file, 50) do
           nil -> :ok
           port ->
@@ -6582,7 +6582,7 @@ defmodule Laev.CLI do
     mode = if preview?, do: :preview, else: resize
     watcher = start_resize_watcher(port_file, api_key, mode, marker)
     quality_watcher = start_quality_watcher(port_file, api_key, metas, path, render, preview?)
-    if metas != [], do: spawn(fn -> Laev.Quality.prune() end)
+    if metas != [], do: Laev.Scope.spawn(fn -> Laev.Quality.prune() end)
 
     try do
       # fzf draws its UI on /dev/tty, reads the list from the redirected file,
@@ -7220,7 +7220,7 @@ defmodule Laev.CLI do
   defp start_mal_scrobbler(ctx) do
     if ctx && ctx[:anime] && is_integer(ctx.episode) && Laev.MAL.authenticated?() &&
          Config.mal_scrobble?() do
-      spawn(fn -> mal_scrobble_loop(ctx, System.os_time(:second)) end)
+      Laev.Scope.spawn(fn -> mal_scrobble_loop(ctx, System.os_time(:second)) end)
     end
 
     :ok
@@ -7257,7 +7257,7 @@ defmodule Laev.CLI do
   # the next launch's startup sync are the safety nets.
   defp start_sync_watcher(ctx) do
     if ctx && Laev.Sync.enabled?() and (Laev.Sync.auto?() or Laev.Sync.live?()) do
-      spawn(fn -> sync_watch_loop(ctx, System.os_time(:second)) end)
+      Laev.Scope.spawn(fn -> sync_watch_loop(ctx, System.os_time(:second)) end)
     end
 
     :ok
@@ -7589,7 +7589,7 @@ defmodule Laev.CLI do
       prompt_key(
         "Real-Debrid API token",
         "https://real-debrid.com/apitoken",
-        Application.get_env(:laev_app, :rd_token),
+        Laev.Scope.get(:rd_token),
         &Laev.Doctor.check_rd/1
       )
 
@@ -7597,7 +7597,7 @@ defmodule Laev.CLI do
       prompt_key(
         "TMDB API key",
         "https://www.themoviedb.org/settings/api",
-        Application.get_env(:laev_app, :tmdb_key),
+        Laev.Scope.get(:tmdb_key),
         &Laev.Doctor.check_tmdb/1
       )
 
@@ -7605,7 +7605,7 @@ defmodule Laev.CLI do
       prompt_optional_key(
         "TorBox API key (optional — second debrid provider)",
         "https://torbox.app/settings",
-        Application.get_env(:laev_app, :torbox_api_key),
+        Laev.Scope.get(:torbox_api_key),
         &Laev.Doctor.check_torbox/1
       )
 

@@ -125,8 +125,8 @@ defmodule Laev.OpenSubtitles do
 
   defp auth_headers(token), do: [{"authorization", "Bearer #{token}"} | base_headers()]
 
-  defp api_key, do: Application.get_env(:laev_app, :opensubtitles_api_key)
-  defp username, do: Application.get_env(:laev_app, :opensubtitles_username)
-  defp password, do: Application.get_env(:laev_app, :opensubtitles_password)
-  defp user_agent, do: Application.get_env(:laev_app, :opensubtitles_user_agent) || "laev v1.0"
+  defp api_key, do: Laev.Scope.get(:opensubtitles_api_key)
+  defp username, do: Laev.Scope.get(:opensubtitles_username)
+  defp password, do: Laev.Scope.get(:opensubtitles_password)
+  defp user_agent, do: Laev.Scope.get(:opensubtitles_user_agent) || "laev v1.0"
 end

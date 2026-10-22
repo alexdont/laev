@@ -182,7 +182,7 @@ defmodule Laev.Shelf do
 
     fetched =
       missing
-      |> Task.async_stream(&{&1, fetch_card(&1)}, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
+      |> Laev.Scope.async_stream(&{&1, fetch_card(&1)}, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
       |> Enum.flat_map(fn
         {:ok, {key, details}} when is_map(details) -> [{key, details}]
         _ -> []
@@ -208,9 +208,9 @@ defmodule Laev.Shelf do
         :ok
 
       stale ->
-        spawn(fn ->
+        Laev.Scope.spawn(fn ->
           stale
-          |> Task.async_stream(&{&1, fetch_card(&1)}, max_concurrency: 4, timeout: 20_000, on_timeout: :kill_task)
+          |> Laev.Scope.async_stream(&{&1, fetch_card(&1)}, max_concurrency: 4, timeout: 20_000, on_timeout: :kill_task)
           |> Enum.flat_map(fn
             {:ok, {key, details}} when is_map(details) -> [{key, details}]
             _ -> []
@@ -225,7 +225,7 @@ defmodule Laev.Shelf do
   # not be reached for is a row missing, not a page that fails.
   defp gather(items, build) do
     items
-    |> Task.async_stream(build, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
+    |> Laev.Scope.async_stream(build, max_concurrency: 8, timeout: 20_000, on_timeout: :kill_task)
     |> Enum.flat_map(fn
       {:ok, row} when is_map(row) -> [row]
       _ -> []
@@ -629,7 +629,7 @@ defmodule Laev.Shelf do
   # Whole shows marked watched — the bare tv-<id> marks, which is what "finished
   # a series" means on disk.
   def series_marks do
-    dir = Path.join(Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev"), "positions")
+    dir = Path.join(Laev.Scope.dir(), "positions")
 
     case File.ls(dir) do
       {:ok, names} -> Enum.filter(names, &Regex.match?(~r/^tv-\d+$/, &1))

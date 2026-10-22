@@ -17,8 +17,8 @@ defmodule Laev.MAL do
 
   # ── config / state ────────────────────────────────────────────────
 
-  def client_id, do: Application.get_env(:laev_app, :mal_client_id)
-  def client_secret, do: Application.get_env(:laev_app, :mal_client_secret)
+  def client_id, do: Laev.Scope.get(:mal_client_id)
+  def client_secret, do: Laev.Scope.get(:mal_client_secret)
   def configured?, do: is_binary(client_id()) and client_id() != ""
 
   @doc "True once the user has logged in (a token is stored)."
@@ -27,7 +27,7 @@ defmodule Laev.MAL do
   def redirect_uri, do: @redirect
 
   defp token_path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
     File.mkdir_p!(dir)
     Path.join(dir, "mal.json")
   end

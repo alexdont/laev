@@ -138,14 +138,14 @@ defmodule Laev.Config do
       value =
         Enum.find_value(names, &System.get_env/1) || Enum.find_value(names, &file[&1])
 
-      if value not in [nil, ""], do: Application.put_env(:laev_app, app_key, value)
+      if value not in [nil, ""], do: Laev.Scope.set(app_key, value)
     end
 
     :ok
   end
 
   @doc "Preferred audio language for source ranking (LAEV_LANG), default \"en\"."
-  def lang, do: Application.get_env(:laev_app, :lang) || "en"
+  def lang, do: Laev.Scope.get(:lang) || "en"
 
   @doc """
   Subtitle language (LAEV_SUBS): the normalized language code, or `nil` when
@@ -154,7 +154,7 @@ defmodule Laev.Config do
   still wants English subs unless they say otherwise).
   """
   def subs_lang do
-    case Application.get_env(:laev_app, :subs_lang) do
+    case Laev.Scope.get(:subs_lang) do
       nil ->
         "en"
 
@@ -176,7 +176,7 @@ defmodule Laev.Config do
   and the stinger prompt and nothing else.
   """
   def player do
-    case Application.get_env(:laev_app, :player) do
+    case Laev.Scope.get(:player) do
       value when is_binary(value) ->
         case value |> String.trim() |> String.downcase() do
           "vlc" -> "vlc"
@@ -198,7 +198,7 @@ defmodule Laev.Config do
   backgrounds), or "off" (no poster previews).
   """
   def posters do
-    case Application.get_env(:laev_app, :posters) do
+    case Laev.Scope.get(:posters) do
       value when is_binary(value) -> value |> String.trim() |> String.downcase()
       _ -> "auto"
     end
@@ -210,7 +210,7 @@ defmodule Laev.Config do
   or "off". Detection: AniSkip timestamps for anime + named chapters.
   """
   def skip do
-    case Application.get_env(:laev_app, :skip) do
+    case Laev.Scope.get(:skip) do
       value when is_binary(value) ->
         case value |> String.trim() |> String.downcase() do
           off when off in ["off", "none", "false"] -> "off"
@@ -233,7 +233,7 @@ defmodule Laev.Config do
   anyone who always does.
   """
   def auto_source? do
-    case Application.get_env(:laev_app, :auto_source) do
+    case Laev.Scope.get(:auto_source) do
       value when is_binary(value) -> String.downcase(String.trim(value)) not in ["off", "false", "no", "0"]
       _ -> true
     end
@@ -249,7 +249,7 @@ defmodule Laev.Config do
   lists everything.
   """
   def max_resolution do
-    case Application.get_env(:laev_app, :max_resolution) do
+    case Laev.Scope.get(:max_resolution) do
       value when is_binary(value) ->
         case value |> String.trim() |> String.downcase() do
           v when v in ["2160p", "4k", "uhd"] -> "2160p"
@@ -275,7 +275,7 @@ defmodule Laev.Config do
   spend the check on them.
   """
   def strict_resolution? do
-    case Application.get_env(:laev_app, :strict_resolution) do
+    case Laev.Scope.get(:strict_resolution) do
       value when is_binary(value) -> String.downcase(String.trim(value)) in ["on", "true", "yes", "1"]
       _ -> false
     end
@@ -287,7 +287,7 @@ defmodule Laev.Config do
   menu's autoplay entry).
   """
   def autoplay? do
-    case Application.get_env(:laev_app, :autoplay) do
+    case Laev.Scope.get(:autoplay) do
       value when is_binary(value) ->
         String.downcase(String.trim(value)) in ["on", "true", "yes", "1"]
 
@@ -298,19 +298,19 @@ defmodule Laev.Config do
 
   @doc "Whether finishing an anime episode scrobbles to MyAnimeList (LAEV_MAL_SCROBBLE, default on)."
   def mal_scrobble? do
-    case Application.get_env(:laev_app, :mal_scrobble) do
+    case Laev.Scope.get(:mal_scrobble) do
       value when is_binary(value) -> String.downcase(String.trim(value)) not in ["off", "false", "no", "0"]
       _ -> true
     end
   end
 
   @doc "True when the user explicitly set LAEV_SUBS."
-  def subs_explicit?, do: Application.get_env(:laev_app, :subs_lang) != nil
+  def subs_explicit?, do: Laev.Scope.get(:subs_lang) != nil
 
   @doc "Which keys are configured (by env-var name), for `laev config`."
   def status do
     for {env_key, app_key} <- @keys, into: %{} do
-      {env_key, Application.get_env(:laev_app, app_key) not in [nil, ""]}
+      {env_key, Laev.Scope.get(app_key) not in [nil, ""]}
     end
   end
 

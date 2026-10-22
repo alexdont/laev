@@ -154,7 +154,7 @@ defmodule Laev.Quality do
   defp path(type, tmdb_id), do: Path.join(dir(), "#{type}-#{tmdb_id}")
 
   defp dir do
-    base = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    base = Laev.Scope.dir()
     Path.join(base, @dir)
   end
 end

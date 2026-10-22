@@ -18,7 +18,16 @@ defmodule Laev.SessionCache do
 
   Per-process, like the process dictionary it is built on: each laev run has
   its own, and nothing survives the exit.
+
+  And per *scope* within that process, because a process is not always one
+  person: a server looping over accounts, or answering two of them in turn,
+  would otherwise hand the second one the first one's answers — which it did,
+  the first time this was tried, and the symptom was a watchlist count of five
+  where it should have read twenty-seven.
   """
+
+  # Whose answer this is. Unscoped it is the same key it always was.
+  defp scoped(key), do: {__MODULE__, Laev.Scope.tag(), key}
 
   @doc """
   The cached value for `key`, or `fun.()` when there is none or it has aged
@@ -41,7 +50,7 @@ defmodule Laev.SessionCache do
   def get(key, ttl_s) when is_integer(ttl_s) do
     now = System.os_time(:second)
 
-    case Process.get({__MODULE__, key}, :miss) do
+    case Process.get(scoped(key), :miss) do
       {value, at} when now - at <= ttl_s -> value
       _ -> nil
     end
@@ -49,17 +58,17 @@ defmodule Laev.SessionCache do
 
   @doc "Remember `value` under `key`, starting its clock now. Returns it."
   def put(key, value) do
-    Process.put({__MODULE__, key}, {value, System.os_time(:second)})
+    Process.put(scoped(key), {value, System.os_time(:second)})
     value
   end
 
   @doc "Drop a key, so the next `fetch/3` goes back to the source."
-  def forget(key), do: Process.delete({__MODULE__, key})
+  def forget(key), do: Process.delete(scoped(key))
 
   @doc false
   # Tests and anything that needs to know whether a value is being held.
   def peek(key) do
-    case Process.get({__MODULE__, key}, :miss) do
+    case Process.get(scoped(key), :miss) do
       {value, _at} -> {:ok, value}
       _ -> :miss
     end

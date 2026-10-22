@@ -63,7 +63,7 @@ defmodule Laev.Account do
 
   @doc "Check in the background, for the moments worth knowing early."
   def warm do
-    spawn(fn -> ensure() end)
+    Laev.Scope.spawn(fn -> ensure() end)
     :ok
   end
 
@@ -107,8 +107,8 @@ defmodule Laev.Account do
   defp rejection?(detail) when is_binary(detail), do: detail =~ ~r/\b(401|403|rejected|locked|not premium)\b/
   defp rejection?(_detail), do: false
 
-  defp token(:rd), do: Application.get_env(:laev_app, :rd_token)
-  defp token(:torbox), do: Application.get_env(:laev_app, :torbox_api_key)
+  defp token(:rd), do: Laev.Scope.get(:rd_token)
+  defp token(:torbox), do: Laev.Scope.get(:torbox_api_key)
 
   defp today, do: Laev.Days.today()
 end

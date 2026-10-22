@@ -100,7 +100,7 @@ defmodule Laev.Providers do
   """
   def attach_tracks(playable) when is_list(playable) do
     playable
-    |> Task.async_stream(fn {source, stream} -> {source, with_tracks(stream)} end,
+    |> Laev.Scope.async_stream(fn {source, stream} -> {source, with_tracks(stream)} end,
       max_concurrency: 8,
       ordered: true,
       timeout: 20_000,
@@ -133,7 +133,7 @@ defmodule Laev.Providers do
     resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
 
     indexed_sources
-    |> Task.async_stream(
+    |> Laev.Scope.async_stream(
       fn {source, index} ->
         notify.({:result, index, source, probe_resolve(source, resolve_opts)})
       end,

@@ -10,18 +10,26 @@ defmodule Laev.Watchlist do
       %{"type", "tmdb_id", "title", "year", "poster", "added_at"}
   """
 
-  @table :watchlist
 
-  def init do
-    case :ets.whereis(@table) do
+  # One table per scope, not one per machine: a named table is shared by every
+  # process in the VM, which on a server is every user at once. The name is the
+  # scope's, so two people in two requests cannot land in each other's.
+  defp table do
+    name = :"watchlist_#{Laev.Scope.tag()}"
+
+    case :ets.whereis(name) do
       :undefined ->
-        :ets.new(@table, [:public, :named_table, :set, read_concurrency: true])
+        :ets.new(name, [:public, :named_table, :set, read_concurrency: true])
         load()
+        name
 
       _ref ->
-        @table
+        name
     end
   end
+
+  @doc "Make sure this scope's table exists. Asking for it is enough."
+  def init, do: table()
 
   @doc """
   Drop the cache and re-read watchlist.json — for when something other than
@@ -29,24 +37,24 @@ defmodule Laev.Watchlist do
   """
   def reload do
     init()
-    :ets.delete_all_objects(@table)
+    :ets.delete_all_objects(table())
     load()
     :ok
   end
 
   def key(type, tmdb_id), do: "#{type}:#{tmdb_id}"
 
-  def has?(type, tmdb_id), do: :ets.member(@table, key(type, tmdb_id))
+  def has?(type, tmdb_id), do: :ets.member(table(), key(type, tmdb_id))
 
   @doc "All watchlist entries, most recently added first."
   def all do
-    @table
+    table()
     |> :ets.tab2list()
     |> Enum.map(&elem(&1, 1))
     |> Enum.sort_by(& &1["added_at"], :desc)
   end
 
-  def count, do: :ets.info(@table, :size)
+  def count, do: :ets.info(table(), :size)
 
   @doc "Pin a title (from a TMDB title map: type/id/title/year/poster)."
   def add(title) do
@@ -59,13 +67,13 @@ defmodule Laev.Watchlist do
       "added_at" => System.os_time(:second)
     }
 
-    :ets.insert(@table, {key(title.type, title.id), entry})
+    :ets.insert(table(), {key(title.type, title.id), entry})
     persist()
     :ok
   end
 
   def remove(type, tmdb_id) do
-    :ets.delete(@table, key(type, tmdb_id))
+    :ets.delete(table(), key(type, tmdb_id))
     persist()
     :ok
   end
@@ -82,16 +90,18 @@ defmodule Laev.Watchlist do
   end
 
   defp load do
+    name = :"watchlist_#{Laev.Scope.tag()}"
+
     with {:ok, body} <- File.read(path()),
          {:ok, map} when is_map(map) <- Jason.decode(body) do
-      Enum.each(map, fn {k, v} -> :ets.insert(@table, {k, v}) end)
+      Enum.each(map, fn {k, v} -> :ets.insert(name, {k, v}) end)
     end
 
-    @table
+    name
   end
 
   defp persist do
-    data = @table |> :ets.tab2list() |> Map.new()
+    data = table() |> :ets.tab2list() |> Map.new()
     File.mkdir_p!(Path.dirname(path()))
     File.write(path(), Jason.encode!(data))
   rescue
@@ -99,14 +109,8 @@ defmodule Laev.Watchlist do
   end
 
   defp path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(home(), ".laev")
+    dir = Laev.Scope.dir()
     Path.join(dir, "watchlist.json")
   end
 
-  defp home do
-    case System.user_home() do
-      nil -> System.tmp_dir!()
-      dir -> dir
-    end
-  end
 end

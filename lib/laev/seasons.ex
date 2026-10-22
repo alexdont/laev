@@ -84,7 +84,7 @@ defmodule Laev.Seasons do
   defp write(map), do: File.write(path(), Jason.encode!(map))
 
   defp path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
     File.mkdir_p(dir)
     Path.join(dir, @filename)
   end

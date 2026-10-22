@@ -409,7 +409,7 @@ defmodule Laev.Skip do
 
   # Rewritten on every launch so it always matches this app version.
   defp script_path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
     File.mkdir_p!(dir)
     path = Path.join(dir, "skip.lua")
     File.write!(path, @script)

@@ -243,7 +243,7 @@ defmodule Laev.Ratings do
   end
 
   defp data_dir do
-    Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    Laev.Scope.dir()
   end
 
   @doc """

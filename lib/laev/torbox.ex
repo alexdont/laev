@@ -145,5 +145,5 @@ defmodule Laev.Torbox do
     )
   end
 
-  defp token, do: Application.get_env(:laev_app, :torbox_api_key)
+  defp token, do: Laev.Scope.get(:torbox_api_key)
 end

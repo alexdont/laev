@@ -79,7 +79,7 @@ defmodule Laev.Sync do
   # ── config ────────────────────────────────────────────────────────
 
   @doc "The configured base URL (for display), e.g. https://host/laev."
-  def url, do: blank_to_nil(Application.get_env(:laev_app, :sync_url))
+  def url, do: blank_to_nil(Laev.Scope.get(:sync_url))
   def enabled?, do: url() != nil
 
   @doc """
@@ -115,7 +115,7 @@ defmodule Laev.Sync do
   @doc "Whether the laev key also carries the API keys (`LAEV_SYNC_KEYS`)."
   def keys_enabled? do
     secret() != nil and
-      case Application.get_env(:laev_app, :sync_keys) do
+      case Laev.Scope.get(:sync_keys) do
         v when is_binary(v) -> String.downcase(String.trim(v)) in ["on", "true", "yes", "1"]
         _ -> false
       end
@@ -127,7 +127,7 @@ defmodule Laev.Sync do
   """
   def laev_key, do: raw_token()
 
-  defp raw_token, do: blank_to_nil(Application.get_env(:laev_app, :sync_token))
+  defp raw_token, do: blank_to_nil(Laev.Scope.get(:sync_token))
 
   @doc """
   Whether laev syncs automatically (on launch and after each episode).
@@ -135,7 +135,7 @@ defmodule Laev.Sync do
   the user runs `laev sync` or the "sync now" menu action. `LAEV_SYNC_AUTO`.
   """
   def auto? do
-    case Application.get_env(:laev_app, :sync_auto) do
+    case Laev.Scope.get(:sync_auto) do
       v when is_binary(v) -> String.downcase(String.trim(v)) in ["on", "true", "yes", "1"]
       _ -> false
     end
@@ -147,7 +147,7 @@ defmodule Laev.Sync do
   full sync. Off by default. `LAEV_SYNC_LIVE`.
   """
   def live? do
-    case Application.get_env(:laev_app, :sync_live) do
+    case Laev.Scope.get(:sync_live) do
       v when is_binary(v) -> String.downcase(String.trim(v)) in ["on", "true", "yes", "1"]
       _ -> false
     end
@@ -808,7 +808,7 @@ defmodule Laev.Sync do
   defp live_count(m), do: Enum.count(m, fn {_k, rec} -> rec["deleted"] != true end)
 
   defp data_dir do
-    Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    Laev.Scope.dir()
   end
 
   defp now, do: System.os_time(:second)

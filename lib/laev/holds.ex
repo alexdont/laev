@@ -74,7 +74,7 @@ defmodule Laev.Holds do
   defp path(key), do: Path.join(dir(), key)
 
   defp dir do
-    data = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    data = Laev.Scope.dir()
     dir = Path.join(data, @dir)
     File.mkdir_p!(dir)
     dir

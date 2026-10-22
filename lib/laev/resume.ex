@@ -12,18 +12,26 @@ defmodule Laev.Resume do
         "source" => %{"name", "magnet", "hash"}, "updated_at"}
   """
 
-  @table :resume
 
-  def init do
-    case :ets.whereis(@table) do
+  # One table per scope, not one per machine: a named table is shared by every
+  # process in the VM, which on a server is every user at once. The name is the
+  # scope's, so two people in two requests cannot land in each other's.
+  defp table do
+    name = :"resume_#{Laev.Scope.tag()}"
+
+    case :ets.whereis(name) do
       :undefined ->
-        :ets.new(@table, [:public, :named_table, :set, read_concurrency: true])
+        :ets.new(name, [:public, :named_table, :set, read_concurrency: true])
         load()
+        name
 
       _ref ->
-        @table
+        name
     end
   end
+
+  @doc "Make sure this scope's table exists. Asking for it is enough."
+  def init, do: table()
 
   @doc """
   Drop the cache and re-read resume.json — for when something other than
@@ -32,7 +40,7 @@ defmodule Laev.Resume do
   """
   def reload do
     init()
-    :ets.delete_all_objects(@table)
+    :ets.delete_all_objects(table())
     load()
     :ok
   end
@@ -41,7 +49,7 @@ defmodule Laev.Resume do
 
   @doc "The resume entry for a title, or nil."
   def get(type, tmdb_id) do
-    case :ets.lookup(@table, key(type, tmdb_id)) do
+    case :ets.lookup(table(), key(type, tmdb_id)) do
       [{_k, entry}] -> entry
       [] -> nil
     end
@@ -49,7 +57,7 @@ defmodule Laev.Resume do
 
   @doc "All resume entries, most recently updated first."
   def all do
-    @table
+    table()
     |> :ets.tab2list()
     |> Enum.map(&elem(&1, 1))
     |> Enum.sort_by(& &1["updated_at"], :desc)
@@ -57,7 +65,7 @@ defmodule Laev.Resume do
 
   @doc "Record (or update) where the user is in a title."
   def put(type, tmdb_id, entry) do
-    :ets.insert(@table, {key(type, tmdb_id), entry})
+    :ets.insert(table(), {key(type, tmdb_id), entry})
     persist()
     :ok
   end
@@ -68,22 +76,24 @@ defmodule Laev.Resume do
   undone by the first pull.
   """
   def delete(type, tmdb_id) do
-    :ets.delete(@table, key(type, tmdb_id))
+    :ets.delete(table(), key(type, tmdb_id))
     persist()
     :ok
   end
 
   defp load do
+    name = :"resume_#{Laev.Scope.tag()}"
+
     with {:ok, body} <- File.read(path()),
          {:ok, map} when is_map(map) <- Jason.decode(body) do
-      Enum.each(map, fn {k, v} -> :ets.insert(@table, {k, v}) end)
+      Enum.each(map, fn {k, v} -> :ets.insert(name, {k, v}) end)
     end
 
-    @table
+    name
   end
 
   defp persist do
-    data = @table |> :ets.tab2list() |> Map.new()
+    data = table() |> :ets.tab2list() |> Map.new()
     File.mkdir_p!(Path.dirname(path()))
     File.write(path(), Jason.encode!(data))
   rescue
@@ -92,14 +102,8 @@ defmodule Laev.Resume do
   end
 
   defp path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(home(), ".laev")
+    dir = Laev.Scope.dir()
     Path.join(dir, "resume.json")
   end
 
-  defp home do
-    case System.user_home() do
-      nil -> System.tmp_dir!()
-      dir -> dir
-    end
-  end
 end

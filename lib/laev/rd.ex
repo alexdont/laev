@@ -285,5 +285,5 @@ defmodule Laev.RD do
     )
   end
 
-  defp token, do: Application.get_env(:laev_app, :rd_token)
+  defp token, do: Laev.Scope.get(:rd_token)
 end

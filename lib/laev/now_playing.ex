@@ -112,7 +112,7 @@ defmodule Laev.NowPlaying do
   defp to_ctx(_), do: nil
 
   defp path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
     File.mkdir_p(dir)
     Path.join(dir, @filename)
   end

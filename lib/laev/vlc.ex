@@ -24,7 +24,7 @@ defmodule Laev.VLC do
 
   # The cadence is the mpv script's; tests drive it faster so a play can be
   # followed in a second rather than in half a minute.
-  defp poll_interval, do: Application.get_env(:laev_app, :vlc_poll_ms, @poll)
+  defp poll_interval, do: Laev.Scope.get(:vlc_poll_ms, @poll)
   # What five seconds of real playback can advance the playhead by. Anything
   # beyond it is a seek, which is re-watching or skipping, not watching.
   @budget 9.0
@@ -64,10 +64,10 @@ defmodule Laev.VLC do
   def track(nil, _tracking), do: :ok
 
   def track(ctx, %{port: port, password: password}) do
-    spawn(fn ->
+    Laev.Scope.spawn(fn ->
       # VLC's interface takes a moment to bind. Until it answers there is
       # nothing to ask it about.
-      Process.sleep(Application.get_env(:laev_app, :vlc_settle_ms, 3_000))
+      Process.sleep(Laev.Scope.get(:vlc_settle_ms, 3_000))
       {watched, _skipped} = totals = load_played(ctx)
       follow(ctx, port, password, nil, totals, watched, false, 0)
     end)

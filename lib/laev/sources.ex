@@ -126,7 +126,7 @@ defmodule Laev.Sources do
     # Torrentio by Kitsu id runs alongside the Nyaa/AnimeTosho search — it's
     # the only anime path that reaches the big public/Russian trackers.
     torrentio =
-      Task.async(fn ->
+      Laev.Scope.async(fn ->
         case torrentio_anime(Keyword.get(opts, :kitsu_id), episode) do
           {:ok, list} -> list
           _ -> []
@@ -429,7 +429,7 @@ defmodule Laev.Sources do
   # what left that show with no sources at all — the only other place laev looks
   # for a 2008 cartoon is a text search that finds one release.
   defp both_torrentios(path) do
-    plain = Task.async(fn -> fetch_torrentio(path, @torrentio) end)
+    plain = Laev.Scope.async(fn -> fetch_torrentio(path, @torrentio) end)
     debrid = fetch_torrentio(path, torrentio_base())
 
     merged =
@@ -473,7 +473,7 @@ defmodule Laev.Sources do
   # signal Stremio users see. Those sources are near-guaranteed instant plays,
   # so they get ranked to the top.
   defp torrentio_base do
-    case Application.get_env(:laev_app, :rd_token) do
+    case Laev.Scope.get(:rd_token) do
       token when is_binary(token) and token != "" -> "#{@torrentio}/realdebrid=#{token}"
       _ -> @torrentio
     end
@@ -1179,7 +1179,7 @@ defmodule Laev.Sources do
 
   defp to_int(_), do: 0
 
-  defp jackett_url, do: Application.get_env(:laev_app, :jackett_url)
-  defp jackett_key, do: Application.get_env(:laev_app, :jackett_api_key)
-  defp jackett_indexer, do: Application.get_env(:laev_app, :jackett_indexer) || "all"
+  defp jackett_url, do: Laev.Scope.get(:jackett_url)
+  defp jackett_key, do: Laev.Scope.get(:jackett_api_key)
+  defp jackett_indexer, do: Laev.Scope.get(:jackett_indexer) || "all"
 end

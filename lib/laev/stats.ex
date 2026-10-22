@@ -123,7 +123,7 @@ defmodule Laev.Stats do
 
       found =
         missing
-        |> Task.async_stream(&{{&1.type, &1.tmdb_id}, name_of(&1.type, &1.tmdb_id)},
+        |> Laev.Scope.async_stream(&{{&1.type, &1.tmdb_id}, name_of(&1.type, &1.tmdb_id)},
           max_concurrency: 8,
           timeout: 15_000,
           on_timeout: :kill_task
@@ -290,7 +290,7 @@ defmodule Laev.Stats do
 
     fetched =
       wanted
-      |> Task.async_stream(&{cache_key(&1), fetch_runtime(&1)},
+      |> Laev.Scope.async_stream(&{cache_key(&1), fetch_runtime(&1)},
         max_concurrency: 8,
         timeout: 20_000,
         on_timeout: :kill_task
@@ -496,6 +496,6 @@ defmodule Laev.Stats do
   end
 
   defp data_dir do
-    Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    Laev.Scope.dir()
   end
 end

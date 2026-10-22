@@ -48,7 +48,7 @@ defmodule Laev.Player do
 
       bin ->
         user_args =
-          case Application.get_env(:laev_app, :mpv_args) do
+          case Laev.Scope.get(:mpv_args) do
             args when is_binary(args) -> String.split(args, ~r/\s+/, trim: true)
             _ -> []
           end

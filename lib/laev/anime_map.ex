@@ -265,7 +265,7 @@ defmodule Laev.AnimeMap do
   end
 
   defp path do
-    dir = Application.get_env(:laev_app, :data_dir) || Path.join(System.user_home!(), ".laev")
+    dir = Laev.Scope.dir()
     File.mkdir_p!(dir)
     Path.join(dir, @cache)
   end
