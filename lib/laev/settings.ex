@@ -37,7 +37,12 @@ defmodule Laev.Settings do
     %{key: "TMDB_API_KEY", label: "TMDB key", group: :keys, type: :secret},
     %{key: "OPENSUBTITLES_API_KEY", label: "OpenSubtitles key", group: :keys, type: :secret},
     %{key: "JIMAKU_API_KEY", label: "Jimaku key", group: :keys, type: :secret},
-    %{key: "MAL_CLIENT_ID", label: "MyAnimeList client id", group: :keys, type: :secret}
+    %{key: "MAL_CLIENT_ID", label: "MyAnimeList client id", group: :keys, type: :secret},
+    # The one value a second device needs: everything else — the watchlist, the
+    # marks, the stats, and the API keys when they are carried — arrives with it.
+    %{key: "LAEV_SYNC_TOKEN", label: "laev key", group: :sync, type: :secret},
+    %{key: "LAEV_SYNC_URL", label: "Sync server", group: :sync, type: :text},
+    %{key: "LAEV_SYNC_KEYS", label: "Carry API keys in the laev key", group: :sync, type: {:one_of, ~w(off on)}}
   ]
 
   @doc """
@@ -104,6 +109,20 @@ defmodule Laev.Settings do
   def validate("TORBOX_API_KEY", value), do: Doctor.check_torbox(value)
   def validate("TMDB_API_KEY", value), do: Doctor.check_tmdb(value)
   def validate(_key, _value), do: {:ok, "not checked"}
+
+  @doc """
+  Connect this user to a laev key and say whether it worked, in one call.
+
+  The thing a "paste your key" box should do: nothing is saved unless the key
+  actually reaches the server and returns a document.
+  """
+  def connect_sync(key, url \\ nil), do: Laev.Sync.connect(key, url)
+
+  @doc """
+  What the sync is doing, for a settings page to show without asking anyone to
+  press anything: `{:ok, %{watchlist: 37, …}}`, or why not.
+  """
+  def sync_status, do: Laev.Sync.check()
 
   @doc "Which keys are missing for laev to be able to play anything at all."
   def missing_essentials do

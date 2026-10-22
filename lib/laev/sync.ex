@@ -80,7 +80,7 @@ defmodule Laev.Sync do
 
   @doc "The configured base URL (for display), e.g. https://host/laev."
   def url, do: blank_to_nil(Laev.Scope.get(:sync_url))
-  def enabled?, do: url() != nil
+  def enabled?, do: url() != nil and token() != nil
 
   @doc """
   The half of the laev key the server sees. A key is `laev_<token>.<secret>`;
@@ -109,6 +109,108 @@ defmodule Laev.Sync do
           [_, secret] -> blank_to_nil(secret)
           _ -> nil
         end
+    end
+  end
+
+  @doc """
+  Connect this user to a laev key, and prove it works before saying so.
+
+  Everything a second device needs is in that one string, so this is the whole
+  of setting one up: the key is saved, a sync is run, and what came back is
+  reported. A key that cannot be reached or refuses the document leaves nothing
+  configured, because a sync setting that silently does nothing is worse than
+  an error — the first anyone would know of it is a watchlist that stopped
+  following them.
+
+  `{:ok, summary}` with what arrived, or `{:error, reason}`.
+  """
+  def connect(key, url \\ nil) when is_binary(key) do
+    url = url || default_url()
+    previous = {Laev.Scope.get(:sync_url), Laev.Scope.get(:sync_token)}
+
+    with :ok <- validate_key(key),
+         :ok <- validate_url(url) do
+      Laev.Scope.set(:sync_url, url)
+      Laev.Scope.set(:sync_token, key)
+
+      case sync() do
+        {:ok, summary} ->
+          persist_sync(url, key)
+          {:ok, summary}
+
+        {:error, reason} ->
+          restore(previous)
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Is the key this user already has still good?
+
+  A read, never a write: it asks the server for the document and says what is
+  in it, so a settings page can show "connected, 37 saved titles" rather than
+  making somebody press sync to find out.
+  """
+  def check do
+    cond do
+      not enabled?() -> {:error, :not_configured}
+      token() == nil -> {:error, :no_key}
+      true -> fetch_summary()
+    end
+  end
+
+  @doc "The key, as it would be pasted into another device."
+  def key_for_sharing, do: raw_token()
+
+  @doc "The maintainer-hosted endpoint, used when no other is given."
+  def default_url, do: "https://sasha.don.ee/laev"
+
+  # A laev key is `laev_<token>` or `laev_<token>.<secret>`. Checked before
+  # anything is saved so a typo is an error here rather than a sync that
+  # quietly never works.
+  defp validate_key(key) do
+    cond do
+      not String.starts_with?(key, "laev_") -> {:error, {:bad_key, "a laev key starts with laev_"}}
+      String.length(key) < 16 -> {:error, {:bad_key, "that key is too short to be one"}}
+      true -> :ok
+    end
+  end
+
+  defp validate_url(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) -> :ok
+      _ -> {:error, {:bad_url, url}}
+    end
+  end
+
+  defp persist_sync(url, key) do
+    Laev.Config.write([{"LAEV_SYNC_URL", url}, {"LAEV_SYNC_TOKEN", key}])
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp restore({url, token}) do
+    Laev.Scope.set(:sync_url, url)
+    Laev.Scope.set(:sync_token, token)
+  end
+
+  defp fetch_summary do
+    case pull() do
+      {:ok, body, _etag} ->
+        # The same conversion the sync itself does: the server answers in
+        # strings, and counting the raw body by atom keys reports nothing held
+        # for an account holding thousands.
+        bundle = normalize(body)
+
+        {:ok,
+         for coll <- @collections, into: %{} do
+           {coll, bundle |> Map.get(coll, %{}) |> Enum.count(fn {_k, rec} -> not rec["deleted"] end)}
+         end}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

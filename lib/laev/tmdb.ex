@@ -378,8 +378,16 @@ defmodule Laev.Tmdb do
   end
 
   defp request(method, path, params, extra) do
-    key = key()
+    case key() do
+      key when is_binary(key) and key != "" -> request_with(key, method, path, params, extra)
+      # Said rather than raised: on a server this is a user who has not
+      # finished setting up, and a crashed request tells them nothing. It used
+      # to be a FunctionClauseError inside String.starts_with?.
+      _ -> {:error, :no_tmdb_key}
+    end
+  end
 
+  defp request_with(key, method, path, params, extra) do
     {auth, params} =
       if String.starts_with?(key, "eyJ") do
         {[auth: {:bearer, key}], params}

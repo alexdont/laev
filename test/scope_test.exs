@@ -111,6 +111,33 @@ defmodule Laev.ScopeTest do
     assert Scope.run(bob, fn -> Laev.SessionCache.get(:who, 60) end) == "bob"
   end
 
+  # Falling back to the server's own configuration is right for a key a server
+  # might share — one TMDB key for everybody is a normal thing to want — and
+  # wrong for the laev key, which names a person's document rather than
+  # granting access to a service. A user who had never connected one was
+  # reading the machine owner's watchlist, and a sync away from writing to it.
+  test "which account this is cannot be inherited", %{alice: alice} do
+    # Put back what was there, rather than deleting: wiping the real TMDB key
+    # for the rest of the run broke nine unrelated tests the first time.
+    previous = for k <- [:sync_token, :tmdb_key], do: {k, Application.get_env(:laev, k)}
+    Application.put_env(:laev, :sync_token, "laev_theoperatorskey.secret")
+    Application.put_env(:laev, :tmdb_key, "a-shared-server-key")
+
+    on_exit(fn ->
+      for {k, v} <- previous do
+        if v, do: Application.put_env(:laev, k, v), else: Application.delete_env(:laev, k)
+      end
+    end)
+
+    Scope.run(alice, fn ->
+      refute Scope.get(:sync_token), "a user who never connected has no key, not the server's"
+      assert Scope.get(:tmdb_key) == "a-shared-server-key", "a shared key is still shared"
+    end)
+
+    # Unscoped — the terminal — reads its own as it always has.
+    assert Scope.get(:sync_token) == "laev_theoperatorskey.secret"
+  end
+
   # And the CLI, which binds nothing, must behave exactly as it always did.
   test "no scope means the machine's own laev" do
     assert Scope.current() == nil

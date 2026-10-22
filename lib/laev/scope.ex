@@ -96,13 +96,26 @@ defmodule Laev.Scope do
       %__MODULE__{config: config} ->
         case Map.fetch(config, key) do
           {:ok, value} -> value
-          :error -> Application.get_env(:laev, key, default)
+          :error -> fallback(key, default)
         end
 
       _ ->
         Application.get_env(:laev, key, default)
     end
   end
+
+  # Which account this is cannot be inherited.
+  #
+  # Falling back to the application environment is right for a key a server
+  # might reasonably share — one TMDB key for everybody is a normal thing to
+  # want — and wrong for the laev key, which does not grant access to a
+  # service but names a *person's* document. A user who had never connected
+  # one was reading the machine owner's: their watchlist, their marks, and a
+  # sync away from writing to them.
+  @never_inherited [:sync_token]
+
+  defp fallback(key, default) when key in @never_inherited, do: default
+  defp fallback(key, default), do: Application.get_env(:laev, key, default)
 
   @doc """
   Change a setting for whoever this process belongs to.

@@ -13,7 +13,7 @@ defmodule Laev.SettingsTest do
   test "every setting describes itself well enough to render a form" do
     for option <- Settings.all() do
       assert is_binary(option.key) and is_binary(option.label)
-      assert option.group in [:playback, :language, :appearance, :files, :keys]
+      assert option.group in [:playback, :language, :appearance, :files, :keys, :sync]
       assert match?({:one_of, _}, option.type) or option.type in [:text, :secret]
       assert Map.has_key?(option, :set?)
     end
