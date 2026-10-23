@@ -10,6 +10,7 @@ defmodule Laev.Application do
     Laev.Log.install()
 
     migrate_from_old_names()
+    migrate_hosted_sync_url()
     Laev.Config.load()
     Laev.Blocklist.init()
     Laev.Dictionary.init()
@@ -46,6 +47,26 @@ defmodule Laev.Application do
     Code.ensure_loaded?(Burrito.Util) and
       function_exported?(Burrito.Util, :running_standalone?, 0) and
       Burrito.Util.running_standalone?()
+  end
+
+  # The hosted sync store moved from sasha.don.ee/laev to roki.ee/api/laev.
+  #
+  # The old address still forwards, so an install that saved it keeps working
+  # and nothing here is urgent — but a saved copy of it means depending on that
+  # forward forever, so exactly that one value is rewritten. Exactly: anything
+  # else is somebody's own server, and rewriting that would point them at a
+  # stranger's. Only touched when it is in the config file, never when it comes
+  # from the environment, which is not ours to edit.
+  @doc false
+  def migrate_hosted_sync_url do
+    if Laev.Config.file_value("LAEV_SYNC_URL") == Laev.Sync.legacy_url() do
+      Laev.Config.write([{"LAEV_SYNC_URL", Laev.Sync.default_url()}])
+      Laev.Scope.set(:sync_url, Laev.Sync.default_url())
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # One-time rename migration: adopt the old ~/.config/{kala,kino}/config and

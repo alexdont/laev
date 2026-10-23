@@ -4,7 +4,7 @@ defmodule Laev.MixProject do
   def project do
     [
       app: :laev,
-      version: "0.1.40",
+      version: "0.1.41",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Laev.CLI, path: "laev"],
@@ -76,14 +76,14 @@ defmodule Laev.MixProject do
         "GitHub" => "https://github.com/alexdont/laev",
         "Releases" => "https://github.com/alexdont/laev/releases"
       },
-      files: ~w(lib priv mix.exs README.md LICENSE .formatter.exs)
+      files: ~w(lib priv mix.exs README.md CHANGELOG.md LICENSE .formatter.exs)
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"],
+      extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
         "What you are watching": [Laev.Shelf, Laev.Stats, Laev.Position, Laev.Resume, Laev.Watchlist, Laev.Holds],
         "Finding and playing": [Laev.Sources, Laev.Providers, Laev.Playback, Laev.Player, Laev.Remux],

@@ -829,7 +829,9 @@ defmodule Laev.CLI do
 
   # The maintainer-hosted sync endpoint offered as the turnkey option. When
   # set, the "hosted" choice uses it and just asks the user for their token.
-  @hosted_sync_url "https://sasha.don.ee/laev"
+  # Asked of Laev.Sync rather than written down twice — the address has moved
+  # once already, and a second copy of it is a second place to forget.
+  defp hosted_sync_url, do: Laev.Sync.default_url()
 
   defp sync_menu do
     clear_screen()
@@ -875,7 +877,7 @@ defmodule Laev.CLI do
   end
 
   defp enable_hosted_sync do
-    case @hosted_sync_url do
+    case hosted_sync_url() do
       url when is_binary(url) and url != "" ->
         save_setting("LAEV_SYNC_URL", url)
         IO.puts(:stderr, "  Using the hosted server at #{url}.\n")
@@ -7522,12 +7524,12 @@ defmodule Laev.CLI do
       IO.puts(:stderr, IO.ANSI.format([:faint, "  nothing pasted — setting up from scratch instead.\n", :reset]))
       fresh_setup()
     else
-      typed = IO.gets("  endpoint [#{@hosted_sync_url}]: ") |> to_string()
+      typed = IO.gets("  endpoint [#{hosted_sync_url()}]: ") |> to_string()
       if cancelled?(typed), do: cancel_setup()
 
       url =
         case String.trim(typed) do
-          "" -> @hosted_sync_url
+          "" -> hosted_sync_url()
           entered -> entered
         end
 

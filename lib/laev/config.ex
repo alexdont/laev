@@ -349,6 +349,15 @@ defmodule Laev.Config do
     end
   end
 
+  @doc """
+  What the config file says for a key, ignoring the environment.
+
+  For the few things that want to know what is *written down* rather than what
+  is in force: a migration may rewrite a file it owns, and must not pretend to
+  rewrite an environment variable it doesn't.
+  """
+  def file_value(key) when is_binary(key), do: read_file(path())[key]
+
   defp read_file(path) do
     case File.read(path) do
       {:ok, contents} ->

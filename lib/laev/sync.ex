@@ -163,8 +163,19 @@ defmodule Laev.Sync do
   @doc "The key, as it would be pasted into another device."
   def key_for_sharing, do: raw_token()
 
-  @doc "The maintainer-hosted endpoint, used when no other is given."
-  def default_url, do: "https://sasha.don.ee/laev"
+  @doc """
+  The maintainer-hosted endpoint, used when no other is given.
+
+  Moved from sasha.don.ee/laev, which still forwards here and must keep doing
+  so: an install that saved the old address goes on working, and this is only
+  what a new one is offered.
+  """
+  def default_url, do: "https://roki.ee/api/laev"
+
+  @doc false
+  # The address this used to be. Kept so a saved copy of it can be recognised
+  # as the hosted server rather than as somebody's own, and nothing else.
+  def legacy_url, do: "https://sasha.don.ee/laev"
 
   # A laev key is `laev_<token>` or `laev_<token>.<secret>`. Checked before
   # anything is saved so a typo is an error here rather than a sync that
