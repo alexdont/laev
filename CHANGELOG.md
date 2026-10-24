@@ -3,6 +3,21 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.43
+
+- **ctrl-w marks a whole anime entry.** Anime has no season picker — a TMDB
+  season is not what MyAnimeList counts, so the "which season/entry?" list is
+  where a season is chosen, and it took every key except the one that marks a
+  season off. Finishing Cowboy Bebop's 26 episodes, watched years ago
+  elsewhere, meant opening it and ticking twenty-six rows. One press now marks
+  the entry through, a second clears it, and the progress goes up to
+  MyAnimeList so the site agrees with the terminal.
+- **A key that exists on a Mac.** "Mark everything through here" was alt-w, and
+  macOS terminals send Option as a composed character rather than as Meta
+  unless somebody has changed a setting — so it never reached fzf and the hint
+  named a key that did nothing. ctrl-g does the same thing; both are bound
+  everywhere, and the hint names whichever works on the platform it is read on.
+
 ## 0.1.42
 
 Fixes reported by a second application using laev as a library, so the

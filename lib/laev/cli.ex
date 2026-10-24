@@ -2635,15 +2635,92 @@ defmodule Laev.CLI do
         # its ONA/OVA/special/movie spin-offs (watch order, not clutter first).
         results = Enum.sort_by(results, &{&1.year || "9999", subtype_rank(&1.subtype), &1.title})
 
-        case pick(results, &describe_kitsu/1, "#{name} — which season/entry?", & &1.poster) do
-          nil -> back()
-          anime -> kitsu_selected(anime)
-        end
+        pick_anime_entry(name, results)
 
       _ ->
         %{anime: nil, episodes: [], anidb: nil, kitsu_id: nil}
     end
   end
+
+  # Which entry of an anime, and ctrl-w to mark a whole one off.
+  #
+  # Anime has no season picker: a TMDB season is not what MyAnimeList counts,
+  # so this list — the TV series, its later cours, the film, the specials — is
+  # where a season is chosen. It took every other key and not that one, so
+  # finishing a 26-episode series you had watched elsewhere meant opening it
+  # and ticking twenty-six rows, when the season picker next door has done it
+  # in one keypress for ages.
+  defp pick_anime_entry(name, results, initial \\ 0) do
+    hint = "#{name} — which season/entry? · ctrl-w marks one watched"
+
+    case pick(results, &describe_kitsu/1, hint, & &1.poster, initial, ["ctrl-w"]) do
+      nil ->
+        back()
+
+      {"ctrl-w", entry} ->
+        toggle_anime_entry_watched(entry)
+        pick_anime_entry(name, results, Enum.find_index(results, &(&1 == entry)) || 0)
+
+      anime ->
+        kitsu_selected(anime)
+    end
+  end
+
+  # A whole entry, the way ctrl-w takes a whole season: every episode of it
+  # marked, or — if it was already finished — every one unmarked. The count
+  # comes from MyAnimeList where it knows it and from Kitsu otherwise, and the
+  # progress goes up to MyAnimeList too, so the site agrees with the terminal.
+  @doc false
+  def toggle_anime_entry_watched(entry) do
+    selected = kitsu_selected(entry)
+    mal_id = selected.anime[:mal_id]
+    total = anime_entry_total(selected, mal_id)
+
+    cond do
+      total in [nil, 0] ->
+        IO.puts(:stderr, IO.ANSI.format([:faint, "  no episode count for that entry yet", :reset]))
+        :ok
+
+      true ->
+        watched = anime_entry_watched(mal_id, entry)
+        mark? = watched < total
+
+        Enum.each(1..total, fn number ->
+          Laev.Position.set_watched(anime_entry_ctx(entry, mal_id, number), mark?)
+        end)
+
+        if is_integer(mal_id) do
+          Laev.Position.set_watched(%{mal_id: mal_id}, mark?)
+          if mark?, do: Laev.MAL.set_progress(mal_id, total, total)
+        end
+
+        Laev.Sync.live_push()
+        :ok
+    end
+  end
+
+  defp anime_entry_total(selected, mal_id) do
+    cond do
+      is_integer(mal_id) and is_integer(Laev.Anime.episodes(mal_id)) -> Laev.Anime.episodes(mal_id)
+      selected.episodes != [] -> length(selected.episodes)
+      true -> selected.anime[:episode_count]
+    end
+  end
+
+  # Read from disk, not through the page cache: that one holds its answer for a
+  # couple of seconds, which is exactly long enough for a second press of
+  # ctrl-w to see the count from before the first and mark everything again
+  # instead of clearing it.
+  defp anime_entry_watched(mal_id, _entry) when is_integer(mal_id),
+    do: Map.get(Laev.Position.anime_marks(), mal_id, 0)
+
+  defp anime_entry_watched(_mal_id, _entry), do: 0
+
+  defp anime_entry_ctx(entry, mal_id, number) when is_integer(mal_id),
+    do: %{type: "tv", tmdb_id: entry[:tmdb_id], season: nil, episode: number, mal_id: mal_id}
+
+  defp anime_entry_ctx(entry, _mal_id, number),
+    do: %{type: "tv", tmdb_id: entry[:tmdb_id], season: 1, episode: number}
 
   # Non-interactive variant for resume/next-episode flows: the stored
   # search_title re-matches its own entry first, so no picker needed.
@@ -3670,6 +3747,20 @@ defmodule Laev.CLI do
     {season_number, episode["episode_number"]}
   end
 
+  # Which key the hint should name for "mark through here".
+  #
+  # Both are bound everywhere; only the advice changes. macOS terminals send
+  # Option as a composed character rather than as Meta unless somebody has gone
+  # into the settings and said otherwise, so alt-w never reaches fzf there and
+  # the hint was telling Mac users to press a key that does nothing.
+  @doc false
+  def through_key do
+    case :os.type() do
+      {:unix, :darwin} -> "ctrl-g"
+      _ -> "alt-w"
+    end
+  end
+
   # TMDB/AniList give episode runtime in minutes; nil when unknown (then
   # only a "done" marker counts as watched).
   defp runtime_seconds(min) when is_integer(min) and min > 0, do: min * 60
@@ -3677,16 +3768,16 @@ defmodule Laev.CLI do
 
   # Episode picker with two watched-state shortcuts (for fixing marks and
   # bulk catch-up):
-  #   ctrl-w  toggle the highlighted episode watched/unwatched
-  #   alt-w   mark the highlighted episode AND every earlier one watched —
-  #           "I've seen everything up to here" in one press
+  #   ctrl-w          toggle the highlighted episode watched/unwatched
+  #   alt-w / ctrl-g  mark the highlighted episode AND every earlier one —
+  #                   "I've seen everything up to here" in one press
   # `ctx_of` maps an episode to its position ctx, `rt_of` to runtime seconds.
   # Reopens at the same row after a change. (ctrl-shift-w is indistinguishable
-  # from ctrl-w in a terminal, so alt-w carries the bulk action.)
+  # from ctrl-w in a terminal, so a second key carries the bulk action.)
   defp pick_episodes(items, describe, header, ctx_of, rt_of, initial) do
-    hint = header <> " · ctrl-w toggles · alt-w marks through here"
+    hint = header <> " · ctrl-w toggles · #{through_key()} marks through here"
 
-    case pick(items, describe, hint, nil, initial, ["ctrl-w", "alt-w"]) do
+    case pick(items, describe, hint, nil, initial, ["ctrl-w", "alt-w", "ctrl-g"]) do
       nil ->
         nil
 
@@ -3696,7 +3787,7 @@ defmodule Laev.CLI do
         Laev.Sync.live_push()
         reopen_episodes(items, describe, header, ctx_of, rt_of, ep)
 
-      {"alt-w", ep} ->
+      {key, ep} when key in ["alt-w", "ctrl-g"] ->
         index = Enum.find_index(items, &(&1 == ep)) || 0
 
         for e <- Enum.take(items, index + 1),
