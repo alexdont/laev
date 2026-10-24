@@ -12,6 +12,16 @@ Earlier releases are described in full at
   elsewhere, meant opening it and ticking twenty-six rows. One press now marks
   the entry through, a second clears it, and the progress goes up to
   MyAnimeList so the site agrees with the terminal.
+- **Ticking episodes tells MyAnimeList.** It didn't: a series ticked through in
+  the terminal sat on the site saying "watching, 3 of 26". The marks now go up
+  with the episode total beside them, so the last one completes the entry
+  rather than leaving it watching forever — and where laev doesn't know the
+  total it asks, since without one the last episode looks like any other.
+- **ctrl-o opens the entry under the cursor.** It only worked on the row
+  outside the entry list, which resolves to a single entry for the whole show,
+  so from a list naming season one and season two there was no way to open
+  season two. Cyberpunk: Edgerunners and Edgerunners 2 are different pages and
+  now open as such.
 - **A key that exists on a Mac.** "Mark everything through here" was alt-w, and
   macOS terminals send Option as a composed character rather than as Meta
   unless somebody has changed a setting — so it never reached fzf and the hint

@@ -65,6 +65,55 @@ defmodule Laev.AnimeEntryMarkTest do
     end)
   end
 
+  describe "what reaches MyAnimeList" do
+    # A series ticked through in the terminal sat on the site saying
+    # "watching, 3 of 26": ticking episodes here never told MyAnimeList
+    # anything at all.
+    test "the last episode completes the entry rather than leaving it watching" do
+      assert Laev.MAL.progress_fields(26, 26) == %{
+               status: "completed",
+               finish_date: Date.to_iso8601(Date.utc_today()),
+               num_watched_episodes: 26
+             }
+
+      assert %{status: "watching", num_watched_episodes: 25} = Laev.MAL.progress_fields(25, 26)
+    end
+
+    test "marking a whole entry sends the count that completes it", %{scope: scope} do
+      Scope.run(scope, fn ->
+        CLI.toggle_anime_entry_watched(entry())
+
+        # 26 of 26 locally is what the push then sends, and 26 of 26 completes.
+        assert Map.get(Position.anime_marks(), 1) == 26
+        assert Laev.MAL.progress_fields(26, 26).status == "completed"
+      end)
+    end
+
+    test "pushing nothing is not an update", %{scope: scope} do
+      Scope.run(scope, fn ->
+        assert CLI.push_anime_progress(%{mal_id: 1}) == :ok
+        assert CLI.push_anime_progress(%{type: "tv", tmdb_id: 1}) == :ok, "no entry, nothing sent"
+      end)
+    end
+  end
+
+  describe "opening the entry under the cursor" do
+    # ctrl-o only worked on the row outside the entry list, which resolves to
+    # one entry for the whole show — so from a list naming season one and
+    # season two there was no way to open season two.
+    test "each entry links to its own MyAnimeList page" do
+      assert CLI.entry_page_url(%{mal_id: 42_310, title: "Cyberpunk: Edgerunners"}) ==
+               "https://myanimelist.net/anime/42310"
+
+      assert CLI.entry_page_url(%{mal_id: 61_990, title: "Cyberpunk: Edgerunners 2"}) ==
+               "https://myanimelist.net/anime/61990"
+    end
+
+    test "an entry with no id falls back to a search rather than the wrong page" do
+      assert CLI.entry_page_url(%{mal_id: nil, title: "Some Show"}) =~ "anime.php?q=Some+Show"
+    end
+  end
+
   # macOS terminals send Option as a composed character rather than as Meta
   # unless somebody has changed a setting, so alt-w never reaches fzf there and
   # the hint named a key that does nothing.

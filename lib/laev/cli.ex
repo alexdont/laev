@@ -2651,9 +2651,9 @@ defmodule Laev.CLI do
   # and ticking twenty-six rows, when the season picker next door has done it
   # in one keypress for ages.
   defp pick_anime_entry(name, results, initial \\ 0) do
-    hint = "#{name} — which season/entry? · ctrl-w marks one watched"
+    hint = "#{name} — which season/entry? · ctrl-w marks one watched · ctrl-o opens it"
 
-    case pick(results, &describe_kitsu/1, hint, & &1.poster, initial, ["ctrl-w"]) do
+    case pick(results, &describe_kitsu/1, hint, & &1.poster, initial, ["ctrl-w", "ctrl-o"]) do
       nil ->
         back()
 
@@ -2661,8 +2661,24 @@ defmodule Laev.CLI do
         toggle_anime_entry_watched(entry)
         pick_anime_entry(name, results, Enum.find_index(results, &(&1 == entry)) || 0)
 
+      # The entry under the cursor, not the show's first season. ctrl-o only
+      # worked on the row outside this list, which resolves to one entry for
+      # the whole show — so from a list naming season one and season two there
+      # was no way to open season two.
+      {"ctrl-o", entry} ->
+        browse(entry_page_url(entry))
+        pick_anime_entry(name, results, Enum.find_index(results, &(&1 == entry)) || 0)
+
       anime ->
         kitsu_selected(anime)
+    end
+  end
+
+  @doc false
+  def entry_page_url(entry) do
+    case entry[:mal_id] do
+      mal_id when is_integer(mal_id) -> "https://myanimelist.net/anime/#{mal_id}"
+      _ -> mal_url(entry[:title])
     end
   end
 
@@ -3784,6 +3800,7 @@ defmodule Laev.CLI do
       {"ctrl-w", ep} ->
         ctx = ctx_of.(ep)
         Laev.Position.set_watched(ctx, not Laev.Position.watched?(ctx, rt_of.(ep)))
+        push_anime_progress(ctx)
         Laev.Sync.live_push()
         reopen_episodes(items, describe, header, ctx_of, rt_of, ep)
 
@@ -3792,6 +3809,8 @@ defmodule Laev.CLI do
 
         for e <- Enum.take(items, index + 1),
             do: Laev.Position.set_watched(ctx_of.(e), true)
+
+        push_anime_progress(ctx_of.(ep))
 
         Laev.Sync.live_push()
         reopen_episodes(items, describe, header, ctx_of, rt_of, ep)
@@ -3940,6 +3959,43 @@ defmodule Laev.CLI do
   end
 
   defp push_anime_mark(_title, _watched?), do: :ok
+
+  defp learned_total(mal_id) do
+    case Laev.Anime.learn(mal_id) do
+      %{} = fields -> fields[:episodes]
+      _ -> nil
+    end
+  end
+
+  @doc false
+  # Ticking episodes here is the same act as watching them, so it goes up to
+  # MyAnimeList the same way — and it did not, which is why a series ticked
+  # through in the terminal sat on the site saying "watching, 3 of 26". The
+  # count is whatever is marked now, with the total alongside it, so the last
+  # episode flips the entry to completed rather than leaving it watching
+  # forever.
+  def push_anime_progress(ctx) do
+    mal_id = ctx[:mal_id]
+
+    if is_integer(mal_id) and Laev.MAL.authenticated?() and Config.mal_scrobble?() do
+      count = Laev.Position.anime_marks() |> Map.get(mal_id, 0)
+      # Asked for where it isn't already known: without a total, the last
+      # episode of a series looks like any other and the entry stays "watching"
+      # forever — which is the whole complaint.
+      total = Laev.Anime.episodes(mal_id) || learned_total(mal_id)
+
+      if count > 0 do
+        Laev.Scope.spawn(fn ->
+          case Laev.MAL.set_progress(mal_id, count, total) do
+            {:ok, fields} -> adopt_list_status(mal_id, fields)
+            _ -> :ok
+          end
+        end)
+      end
+    end
+
+    :ok
+  end
 
 
 
