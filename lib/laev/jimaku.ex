@@ -132,4 +132,77 @@ defmodule Laev.Jimaku do
   end
 
   defp key, do: Laev.Scope.get(:jimaku_api_key)
+
+  @doc """
+  The Japanese subtitle files Jimaku has for an episode, most likely first.
+
+  Jimaku holds several per episode — the broadcast, Netflix's and Amazon's cuts,
+  fansub groups' — and they are not all timed alike, so the first one found is
+  often a streaming cut running half a minute off a rip. `subtitle_file/3` takes
+  that first one; this offers the plausible ones in order, so a player can put
+  them in a menu and the viewer can switch when the timing is wrong.
+
+  `release_name` is what is being played: a file from the same group comes
+  first, since it was timed against that very rip.
+
+  `{:ok, [%{name:, url:, group:}]}` or `{:error, reason}`.
+  """
+  def candidates(query, episode, release_name \\ nil, limit \\ 5) do
+    with {:ok, [_ | _] = entries} <- search(query),
+         entry = best_entry(entries, query),
+         {:ok, files} <- files(entry["id"], episode) do
+      ranked =
+        files
+        |> Enum.filter(&japanese_named?/1)
+        |> Enum.sort_by(&{rank(&1["name"], release_name), &1["name"]})
+        |> Enum.uniq_by(&base_name/1)
+        |> Enum.take(limit)
+        |> Enum.map(&%{name: &1["name"], url: &1["url"], group: group_of(&1["name"])})
+
+      if ranked == [], do: {:error, :no_file}, else: {:ok, ranked}
+    else
+      {:ok, []} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Jimaku lists a show's seasons as separate entries and puts the first season
+  # first, whichever was searched for — so an exact name match wins.
+  defp best_entry(entries, query) do
+    wanted = String.downcase(query || "")
+    Enum.find(entries, &(String.downcase(&1["name"] || "") == wanted)) || hd(entries)
+  end
+
+  defp base_name(%{"name" => name}),
+    do: name |> Path.rootname() |> String.replace(~r/\.(jpn|ja)$/i, "")
+
+  defp base_name(_file), do: ""
+
+  # The release's own group first — its timing was made against that rip; then
+  # the broadcast and the big fansub groups, whose timings follow the rips;
+  # streaming cuts and caption tracks last. SubRip before ASS, being simpler to
+  # render and less likely to carry styling a browser ignores.
+  defp rank(name, release_name) do
+    name = String.downcase(name || "")
+    group = group_of(release_name)
+
+    base =
+      cond do
+        is_binary(group) and group != "" and String.contains?(name, group) -> 0
+        String.contains?(name, ["nanako", "tbs", "subsplease", "erai", "judas"]) -> 1
+        String.contains?(name, ["netflix", "amazon", "[cc]", "[sdh]", "crunchyroll"]) -> 3
+        true -> 2
+      end
+
+    base * 2 + if String.ends_with?(name, ".srt"), do: 0, else: 1
+  end
+
+  defp group_of(name) when is_binary(name) do
+    case Regex.run(~r/^\[([^\]]+)\]/, name) do
+      [_, group] -> String.downcase(group)
+      _ -> nil
+    end
+  end
+
+  defp group_of(_name), do: nil
 end

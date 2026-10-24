@@ -43,6 +43,13 @@ defmodule Laev.Playback do
   # to — the same floor the players use.
   @floor_seconds 30
 
+  # A 4K re-encode on software never keeps up with playing and takes every core
+  # trying, so above this it is refused rather than attempted.
+  @max_encode_height 1080
+
+  # And this many at once, because the host has other people on it.
+  @max_encoders 2
+
   @doc "Where playback should go for whoever is asking: `:browser`, `:mpv` or `:vlc`."
   def target do
     case Config.player() do
@@ -131,8 +138,75 @@ defmodule Laev.Playback do
   @doc """
   Wait until there is enough on disk to start playing — `:fast` for the first
   few segments, `:complete` for the whole thing.
+
+  A wait that times out stops the conversion. It used to be left running for its
+  full two hours: nobody was going to watch it, and on a re-encode that is a
+  core burning for an audience of none.
   """
-  def ready(remux_id, mode \\ :fast, timeout \\ 180_000), do: Remux.await_ready(remux_id, mode, timeout)
+  def ready(remux_id, mode \\ :fast, timeout \\ 180_000) do
+    case Remux.await_ready(remux_id, mode, timeout) do
+      :ok ->
+        :ok
+
+      other ->
+        Remux.stop(remux_id)
+        other
+    end
+  end
+
+  @doc """
+  Would playing this release mean re-encoding it here?
+
+  True when the video is not h264, which a browser cannot read — that is the
+  expensive path, and the one worth refusing before it starts rather than
+  discovering at a load average of 150.
+  """
+  def heavy?({source, _stream}), do: heavy?(source)
+  def heavy?(%{codec: codec}) when is_binary(codec), do: String.downcase(codec) not in ["h264", "avc", "x264"]
+  def heavy?(%{}), do: false
+  def heavy?(_source), do: false
+
+  @doc """
+  Whether this release may be re-encoded now, or why not.
+
+  `:ok`, `{:error, :too_heavy}` for a source above the height worth
+  re-encoding on this machine, or `{:error, :busy}` when enough encodes are
+  already running. A caller that would rather try than refuse can raise the cap
+  or skip the check; the point is that it exists, because the alternative is
+  taking the host down for one viewer.
+
+  Options: `max_height` (default #{@max_encode_height}), `max_encoders`
+  (default #{@max_encoders}).
+  """
+  def allowed?(source, opts \\ []) do
+    cond do
+      not heavy?(source) ->
+        :ok
+
+      above_height?(source, Keyword.get(opts, :max_height, @max_encode_height)) ->
+        {:error, :too_heavy}
+
+      encoders_running() >= Keyword.get(opts, :max_encoders, @max_encoders) ->
+        {:error, :busy}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc "How many conversions are running right now."
+  def encoders_running, do: length(Remux.running())
+
+  defp above_height?({source, _stream}, max), do: above_height?(source, max)
+
+  defp above_height?(%{resolution: resolution}, max) when is_binary(resolution) do
+    case Regex.run(~r/(\d{3,4})p/, resolution) do
+      [_, height] -> String.to_integer(height) > max
+      _ -> String.downcase(resolution) in ["4k", "2160p", "uhd"] and max < 2160
+    end
+  end
+
+  defp above_height?(_source, _max), do: false
 
   @doc """
   Any subtitle tracks pulled out of the release, as WebVTT next to the

@@ -23,7 +23,8 @@ defmodule Laev.Application do
 
     children = [
       {Registry, keys: :unique, name: Laev.Remux.Registry},
-      {DynamicSupervisor, strategy: :one_for_one, name: Laev.Remux.Supervisor}
+      {DynamicSupervisor, strategy: :one_for_one, name: Laev.Remux.Supervisor},
+      Laev.Remux.Reaper
     ]
 
     result = Supervisor.start_link(children, strategy: :one_for_one, name: Laev.Supervisor)

@@ -9,10 +9,23 @@ defmodule Laev.FilePick do
 
   @doc """
   Pick the file to play: the only video, the requested episode from a
-  batch/season pack, or the largest video. `{:ok, file}` or
-  `{:error, :no_video_files}`.
+  batch/season pack, or — where no episode was asked for — the largest video.
+
+  `{:ok, file}`, `{:error, :no_video_files}`, or `{:error, :no_file_for_episode}`
+  when an episode was asked for and no file in the pack names it.
+
+  That last answer used to be the largest file instead, which is how a pack
+  named "(13-25)" answered a request for episode 2 with episode 13 and called
+  it playable. Nothing in a pack is the episode you asked for merely by being
+  the biggest thing in it. A caller that genuinely wants the old behaviour —
+  "play me something from this" — asks for it with `fallback: :largest`.
+
+  With no episode (a film), the largest video is still the answer: the rest of
+  the pack is samples, extras and featurettes.
   """
-  def choose(files, episode, season) when is_list(files) do
+  def choose(files, episode, season, opts \\ [])
+
+  def choose(files, episode, season, opts) when is_list(files) do
     videos = Enum.filter(files, fn f -> Path.extname(String.downcase(f["path"] || "")) in @video_exts end)
 
     case videos do
@@ -23,17 +36,24 @@ defmodule Laev.FilePick do
         {:ok, only}
 
       many ->
-        # Batch/season pack: pick the file for the requested episode; otherwise
-        # (single-episode releases, or no match) fall back to the largest file.
-        chosen =
-          (episode && pick_episode_file(many, episode, season)) ||
-            Enum.max_by(many, &(&1["bytes"] || 0))
+        case episode && pick_episode_file(many, episode, season) do
+          nil when is_integer(episode) ->
+            if Keyword.get(opts, :fallback) == :largest,
+              do: {:ok, largest(many)},
+              else: {:error, :no_file_for_episode}
 
-        {:ok, chosen}
+          nil ->
+            {:ok, largest(many)}
+
+          found ->
+            {:ok, found}
+        end
     end
   end
 
-  def choose(_files, _episode, _season), do: {:error, :no_video_files}
+  def choose(_files, _episode, _season, _opts), do: {:error, :no_video_files}
+
+  defp largest(files), do: Enum.max_by(files, &(&1["bytes"] || 0))
 
   # Choose the file for a given episode. When the season is known (live-action
   # TV), require an exact SxxExx match first so a multi-season pack can't grab
@@ -48,6 +68,11 @@ defmodule Laev.FilePick do
   it will happily play episode 1 again and call it 13.
   """
   def names_episode?(path, season, episode) when is_binary(path) and is_integer(episode) do
+    # "- 13v2" is the second cut of episode 13, not episode 2: the version
+    # marker is not an episode number, and reading it as one is how a pack of
+    # 13..25 answered for episode 2.
+    path = Regex.replace(~r/(\d)v\d\b/i, path, "\\1")
+
     cond do
       is_integer(season) and sxxexx_file?(path, season, episode) ->
         true
@@ -67,9 +92,12 @@ defmodule Laev.FilePick do
   def names_episode?(_path, _season, _episode), do: false
 
   defp pick_episode_file(files, episode, season) do
-    (season && Enum.find(files, &sxxexx_file?(&1["path"], season, episode))) ||
-      Enum.find(files, &episode_file?(&1["path"], episode))
+    (season && Enum.find(files, &sxxexx_file?(unversioned(&1["path"]), season, episode))) ||
+      Enum.find(files, &episode_file?(unversioned(&1["path"]), episode))
   end
+
+  defp unversioned(path) when is_binary(path), do: Regex.replace(~r/(\d)v\d\b/i, path, "\\1")
+  defp unversioned(path), do: path
 
   # Exact SxxExx (season + episode), e.g. "Lupin.S01E01." — the (?![0-9]) stops
   # E1 from matching E11/E1x.

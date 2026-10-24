@@ -958,11 +958,7 @@ defmodule Laev.CLI do
   # well-formed laev_-prefixed token and only ever sees that first half; the
   # part after the dot stays on this machine and encrypts the API keys, so the
   # key is one string to paste but two secrets in effect.
-  defp gen_sync_token do
-    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
-    secret = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
-    "laev_#{token}.#{secret}"
-  end
+  defp gen_sync_token, do: Laev.Setup.generate_key()
 
   # Sync is on — manage it.
   defp sync_active_menu do
@@ -5026,34 +5022,7 @@ defmodule Laev.CLI do
   # watched in it. So ask the marks instead: the season you have watched most of
   # is the one the row is about, and the cross-id list names its MAL entry
   # exactly. Only when nothing is known does it fall back to searching.
-  defp mal_page(type, tmdb_id, title) do
-    case most_watched_entry(type, tmdb_id) do
-      mal_id when is_integer(mal_id) -> "https://myanimelist.net/anime/#{mal_id}"
-      _ -> mal_url(title)
-    end
-  end
-
-  # Which of a TMDB row's MAL entries the row is really about: the one you have
-  # watched most of. Lupin III is seven anime on MAL, and a row reading a hundred
-  # hours should open Part II — the one those hours are — not the 1971 original
-  # sitting in plan-to-watch, which is what searching by name gives you.
-  defp most_watched_entry(type, tmdb_id) do
-    marks = anime_marks()
-
-    case Laev.AnimeMap.mal_ids(type, tmdb_id) do
-      [] ->
-        nil
-
-      [only] ->
-        only
-
-      ids ->
-        Enum.max_by(ids, fn mal ->
-          finished = if Laev.Position.mark_state(%{mal_id: mal}) == :watched, do: 1, else: 0
-          {Map.get(marks, mal, 0), finished}
-        end)
-    end
-  end
+  defp mal_page(type, tmdb_id, title), do: Laev.Anime.page_url(type, tmdb_id, title)
 
   defp mal_url(title) do
     case mal_id_for(%{title: title}) do
@@ -5302,6 +5271,8 @@ defmodule Laev.CLI do
   defp unplayable_reason(:infringing), do: "infringing — taken down"
   defp unplayable_reason({:rd, 451, _}), do: "infringing — taken down"
   defp unplayable_reason(:no_video_files), do: "no video file in the torrent"
+  defp unplayable_reason(:no_file_for_episode), do: "that pack has no file for this episode"
+  defp unplayable_reason(:another_episode), do: "that release is a different episode"
   defp unplayable_reason(:magnet_error), do: "bad magnet link"
   defp unplayable_reason(:no_seeders), do: "dead torrent — no seeders"
 

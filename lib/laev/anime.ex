@@ -128,4 +128,55 @@ defmodule Laev.Anime do
     File.mkdir_p!(dir)
     Path.join(dir, @cache)
   end
+
+  @doc """
+  The MyAnimeList page for a title — the entry it is really about, or a search
+  when there is no id to go on.
+
+  `season` picks the entry of that TMDB season (anime a site shows season by
+  season wants the season's own entry); without it, the entry you have watched
+  most of. Lupin III is seven anime on MyAnimeList, and a row reading a hundred
+  hours should open Part II — the one those hours are — not the 1971 original
+  sitting in plan-to-watch, which is what searching by name gives you.
+  """
+  def page_url(type, tmdb_id, title, season \\ nil) do
+    case entry_for(type, tmdb_id, season) do
+      mal_id when is_integer(mal_id) -> "https://myanimelist.net/anime/#{mal_id}"
+      _ -> "https://myanimelist.net/anime.php?q=#{URI.encode_www_form(title || "")}"
+    end
+  end
+
+  @doc """
+  Which MyAnimeList entry a TMDB row is about: the season's own when a season is
+  given, else the one most watched.
+  """
+  def entry_for(type, tmdb_id, season \\ nil)
+
+  def entry_for("tv", tmdb_id, season) when is_integer(season) do
+    case Laev.Anime.Parts.parts(tmdb_id, season) do
+      [{mal, _count} | _] -> mal
+      [] -> most_watched_entry("tv", tmdb_id)
+    end
+  end
+
+  def entry_for(type, tmdb_id, _season), do: most_watched_entry(type, tmdb_id)
+
+  @doc "The entry of a title you have watched the most of."
+  def most_watched_entry(type, tmdb_id) do
+    marks = Laev.Position.anime_marks()
+
+    case Laev.AnimeMap.mal_ids(type, tmdb_id) do
+      [] ->
+        nil
+
+      [only] ->
+        only
+
+      ids ->
+        Enum.max_by(ids, fn mal ->
+          finished = if Laev.Position.mark_state(%{mal_id: mal}) == :watched, do: 1, else: 0
+          {Map.get(marks, mal, 0), finished}
+        end)
+    end
+  end
 end

@@ -202,10 +202,12 @@ defmodule Laev.AnimeMap do
   # ── the cached map, read once per run ─────────────────────────────
 
   defp load do
-    case :persistent_term.get({__MODULE__, :map}, nil) do
+    key = cache_key()
+
+    case :persistent_term.get(key, nil) do
       nil ->
         built = build()
-        :persistent_term.put({__MODULE__, :map}, built)
+        :persistent_term.put(key, built)
         built
 
       built ->
@@ -213,8 +215,17 @@ defmodule Laev.AnimeMap do
     end
   end
 
+  # Keyed by the directory it was read from, not by this module alone.
+  #
+  # The list itself is public — the same cross-id file for everybody — but where
+  # it is read from is a user's own, and one cache for all of them meant a
+  # scope with no list of its own silently answering out of another's. On a
+  # server that is the wrong answer; in a test suite it is an answer that
+  # depends on which test ran first.
+  defp cache_key, do: {__MODULE__, :map, Laev.Scope.dir()}
+
   @doc "Drop the in-memory copy, so the next lookup reads the file again."
-  def forget, do: :persistent_term.erase({__MODULE__, :map})
+  def forget, do: :persistent_term.erase(cache_key())
 
   defp build do
     forward = read()

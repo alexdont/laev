@@ -129,4 +129,90 @@ defmodule Laev.OpenSubtitles do
   defp username, do: Laev.Scope.get(:opensubtitles_username)
   defp password, do: Laev.Scope.get(:opensubtitles_password)
   defp user_agent, do: Laev.Scope.get(:opensubtitles_user_agent) || "laev v1.0"
+
+  @doc """
+  Ask OpenSubtitles whether a username and password work, and say what it
+  answered in words somebody can act on.
+
+  Searching needs only the API key; downloading a file is done as a logged-in
+  user, so these are a second thing to get right and the service's own answers
+  are cryptic. A 400 means an email address was given where a username was
+  wanted — far and away the most common mistake, and nothing in the raw reply
+  says so.
+
+  `:ok` or `{:error, message}`.
+  """
+  def verify_login(username, password) do
+    username = String.trim(username || "")
+    password = String.trim(password || "")
+
+    cond do
+      username == "" or password == "" ->
+        {:error, "enter both the username and the password"}
+
+      not configured?() ->
+        {:error, "add the OpenSubtitles API key first"}
+
+      String.contains?(username, "@") ->
+        {:error, "OpenSubtitles wants your username, not your email address"}
+
+      true ->
+        post_login(username, password)
+    end
+  end
+
+  defp post_login(username, password) do
+    headers = [
+      {"api-key", Laev.Scope.get(:opensubtitles_api_key)},
+      {"user-agent", user_agent()},
+      {"accept", "application/json"}
+    ]
+
+    case Req.post("https://api.opensubtitles.com/api/v1/login",
+           headers: headers,
+           json: %{username: username, password: password},
+           retry: false,
+           receive_timeout: 15_000
+         ) do
+      {:ok, %{status: 200}} ->
+        :ok
+
+      {:ok, %{status: 400}} ->
+        {:error, "OpenSubtitles wants your username, not your email address"}
+
+      # One login per second per address, which a settings form can hit just by
+      # being used twice.
+      {:ok, %{status: 429}} ->
+        {:error, "OpenSubtitles says too many login attempts — wait a minute and try again"}
+
+      {:ok, %{status: status}} when status in [401, 403] ->
+        {:error, "OpenSubtitles did not accept that username and password"}
+
+      {:ok, %{status: status, body: %{"message" => message}}} when is_binary(message) ->
+        {:error, "OpenSubtitles answered #{status}: #{String.trim(message)}"}
+
+      {:ok, %{status: status}} ->
+        {:error, "OpenSubtitles answered #{status}"}
+
+      {:error, _reason} ->
+        {:error, "could not reach OpenSubtitles"}
+    end
+  rescue
+    _ -> {:error, "could not reach OpenSubtitles"}
+  end
+
+  @doc """
+  What this account can do: `:off` (no API key), `:search` (a key, so the
+  choices can be listed, but downloading needs the login too) or `:full`.
+
+  Worth asking before offering a subtitle menu, so it can say which of the two
+  things is missing instead of coming back empty.
+  """
+  def state do
+    cond do
+      can_download?() -> :full
+      configured?() -> :search
+      true -> :off
+    end
+  end
 end

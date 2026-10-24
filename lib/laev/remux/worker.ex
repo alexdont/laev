@@ -11,6 +11,10 @@ defmodule Laev.Remux.Worker do
   # Hard lifetime cap so orphaned remuxes can't accumulate.
   @ttl_ms 2 * 60 * 60 * 1000
 
+  # Nothing is re-encoded above this height. A browser on a laptop is not
+  # watching 4K, and the encode is what makes it unwatchable.
+  @max_height 1080
+
   def start_link(opts) do
     id = Keyword.fetch!(opts, :id)
     GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {Laev.Remux.Registry, id}})
@@ -95,7 +99,7 @@ defmodule Laev.Remux.Worker do
     video =
       if video_codec == "h264",
         do: ["-c:v", "copy"],
-        else: ["-c:v", h264_encoder(), "-b:v", "6M"]
+        else: encode_args(h264_encoder())
 
     hls =
       if length(audios) > 1,
@@ -110,6 +114,41 @@ defmodule Laev.Remux.Worker do
 
     ["-nostdin", "-loglevel", "error", "-i", url] ++ hls ++ sub_outputs
   end
+
+  # Re-encoding, at a speed that keeps up with watching.
+  #
+  # This was `-b:v 6M` and nothing else: no speed preset, so libx264 ran at its
+  # default, and no scaling, so a 4K source was encoded at 4K. A French Lupin
+  # H.265 2160p release never reached real time and took every core trying;
+  # four of them put the host at a load average near 150. A film nobody can
+  # watch is not worth any amount of CPU.
+  #
+  # So: the fastest preset each encoder offers, and the output capped at 1080p
+  # (`-2` keeps the aspect and an even width, which h264 requires). 10-bit and
+  # HDR sources are brought to 8-bit 4:2:0, which is what a browser can read
+  # anyway.
+  defp encode_args(encoder) do
+    ["-c:v", encoder] ++
+      preset_for(encoder) ++
+      [
+        "-b:v",
+        "6M",
+        "-vf",
+        "scale=-2:'min(#{@max_height},ih)'",
+        "-pix_fmt",
+        "yuv420p"
+      ]
+  end
+
+  # Every encoder spells "fast" differently, and an unknown one gets nothing
+  # rather than a flag it would refuse.
+  defp preset_for("libx264"), do: ["-preset", "veryfast"]
+  defp preset_for("h264_nvenc"), do: ["-preset", "p1", "-tune", "ll"]
+  defp preset_for("h264_qsv"), do: ["-preset", "veryfast"]
+  defp preset_for("h264_vaapi"), do: ["-compression_level", "7"]
+  defp preset_for("h264_amf"), do: ["-quality", "speed"]
+  defp preset_for("h264_videotoolbox"), do: ["-realtime", "1"]
+  defp preset_for(_encoder), do: []
 
   # Which h264 encoder this machine has, best first.
   #

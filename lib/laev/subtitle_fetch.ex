@@ -186,4 +186,116 @@ defmodule Laev.SubtitleFetch do
         :ok
     end
   end
+
+  @doc """
+  The subtitles on offer for this episode, rather than the one laev would pick.
+
+  `fetch/2` answers with a single best file, which is the right answer for a
+  player that just needs subtitles on — and no use to anything that wants to
+  show a menu, because the pick is often wrong in a way only the viewer can
+  see: a streaming cut timed half a minute off the rip, or a release in the
+  wrong dialect. This lists what there is.
+
+  `{:ok, [%{provider:, id:, label:, release:, downloads:}]}`, or
+  `{:error, :no_provider}` when nothing is configured. Searching OpenSubtitles
+  needs only the API key — the login is for downloading — so the list is
+  available even when `fetch/2` would say it needs one.
+  """
+  def candidates(ctx, lang, limit \\ 25) do
+    query = ctx[:search_title] || ctx[:title]
+
+    cond do
+      OpenSubtitles.configured?() -> os_candidates(ctx, query, lang, limit)
+      Laev.Jimaku.configured?() and lang in ["ja", "jpn", "japanese"] -> jimaku_candidates(ctx, query)
+      true -> {:error, :no_provider}
+    end
+  end
+
+  defp os_candidates(ctx, query, lang, limit) do
+    opts =
+      case ctx[:type] do
+        "tv" -> [languages: lang, query: query, season_number: ctx[:season], episode_number: ctx[:episode]]
+        _ -> [languages: lang, query: query, tmdb_id: ctx[:tmdb_id]]
+      end
+
+    case OpenSubtitles.search(opts) do
+      {:ok, subs} ->
+        {:ok,
+         subs
+         |> Enum.uniq_by(& &1.file_id)
+         |> Enum.take(limit)
+         |> Enum.map(
+           &%{
+             provider: :opensubtitles,
+             id: &1.file_id,
+             label: &1.release,
+             release: &1.release,
+             downloads: &1[:downloads]
+           }
+         )}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp jimaku_candidates(ctx, query) do
+    case Laev.Jimaku.candidates(query, ctx[:episode], ctx[:release_name]) do
+      {:ok, files} ->
+        {:ok,
+         Enum.map(files, &%{provider: :jimaku, id: &1.url, label: &1.name, release: &1.name, downloads: nil})}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  One chosen subtitle, as a file on disk: `{:ok, path}` or `{:error, reason}`.
+
+  Kept for good once fetched, keyed by the provider's own file id. A free
+  OpenSubtitles account has a small daily download quota — the service answers
+  406 when it is used up — so paying for the same file twice is a real cost,
+  not a tidiness matter. The cache is read before the service is asked at all.
+  """
+  def download(%{provider: :opensubtitles, id: id} = candidate) do
+    path = cache_path("os-#{id}", "#{candidate[:release] || id}.srt")
+
+    if File.exists?(path) do
+      {:ok, path}
+    else
+      case OpenSubtitles.download_srt(id) do
+        {:ok, body} ->
+          File.mkdir_p!(Path.dirname(path))
+          File.write!(path, body)
+          {:ok, path}
+
+        {:error, {:opensubtitles_download, 406, _body}} ->
+          {:error, :quota_used_up}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  def download(%{provider: :jimaku, id: url, label: name}) do
+    path = cache_path("jimaku-#{:erlang.phash2(url)}", name || "subs.srt")
+
+    if File.exists?(path) do
+      {:ok, path}
+    else
+      case Req.get(url, retry: :transient, max_retries: 1, receive_timeout: 20_000) do
+        {:ok, %{status: 200, body: body}} when is_binary(body) ->
+          File.mkdir_p!(Path.dirname(path))
+          File.write!(path, body)
+          {:ok, path}
+
+        _ ->
+          {:error, :download_failed}
+      end
+    end
+  end
+
+  def download(_candidate), do: {:error, :unknown_provider}
 end

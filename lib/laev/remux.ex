@@ -20,6 +20,31 @@ defmodule Laev.Remux do
   # the same title) reuses them instead of re-running ffmpeg from the start.
   @cache_ttl_s 24 * 60 * 60
 
+  @doc """
+  The conversions running right now.
+  """
+  def running do
+    Registry.select(@registry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+  rescue
+    _ -> []
+  end
+
+  @doc """
+  Say that a conversion is still being watched, so the reaper leaves it alone.
+
+  Whatever serves the segments calls this as it serves them; ten minutes of
+  nobody asking is taken for nobody watching.
+  """
+  def touch(id) when is_binary(id) do
+    Laev.Remux.Reaper.touch(id)
+    touch_cache(id)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  def touch(_id), do: :ok
+
   @doc "Whether ffmpeg is available to remux at all."
   def available?, do: System.find_executable("ffmpeg") != nil
 
@@ -45,7 +70,7 @@ defmodule Laev.Remux do
 
       # A finished, fresh remux is cached on disk. Reuse it (no ffmpeg at all).
       complete?(id) ->
-        touch(id)
+        touch_cache(id)
         {:ok, id}
 
       true ->
@@ -86,7 +111,7 @@ defmodule Laev.Remux do
   end
 
   # Bump the dir's mtime so reusing a cache keeps it alive another TTL.
-  defp touch(id) do
+  defp touch_cache(id) do
     now = System.os_time(:second)
     _ = File.touch(media_playlist_path(id), now)
     _ = File.touch(Path.join(dir(id), entry_playlist(id)), now)

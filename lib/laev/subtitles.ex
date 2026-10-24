@@ -15,10 +15,41 @@ defmodule Laev.Subtitles do
 
   @doc "Convert by file extension; falls back to SRT handling."
   def to_vtt(filename, content) do
-    if String.ends_with?(String.downcase(filename), ".ass") do
-      ass_to_vtt(content)
-    else
-      srt_to_vtt(content)
+    text = to_utf8(content)
+    name = String.downcase(filename || "")
+
+    cond do
+      String.starts_with?(text, "WEBVTT") -> text
+      String.ends_with?(name, [".ass", ".ssa"]) -> ass_to_vtt(text)
+      true -> srt_to_vtt(text)
+    end
+  end
+
+  @doc """
+  A subtitle file's text, whatever it was encoded in.
+
+  Subtitle files in the wild are UTF-8, UTF-8 with a byte-order mark, UTF-16,
+  or Latin-1 — which is most French and other Western European releases, and
+  which arrives as mojibake or nothing at all if read as UTF-8. Anything that
+  is not valid UTF-8 is read as Latin-1: right for those, wrong for Shift-JIS
+  Japanese, which would need a real encoding detector to tell apart.
+  """
+  def to_utf8(<<0xFF, 0xFE, rest::binary>>), do: utf16(rest, :little)
+  def to_utf8(<<0xFE, 0xFF, rest::binary>>), do: utf16(rest, :big)
+  def to_utf8(<<0xEF, 0xBB, 0xBF, rest::binary>>), do: to_utf8(rest)
+
+  def to_utf8(content) when is_binary(content) do
+    if String.valid?(content),
+      do: content,
+      else: :unicode.characters_to_binary(content, :latin1, :utf8)
+  end
+
+  def to_utf8(content), do: content
+
+  defp utf16(bytes, endianness) do
+    case :unicode.characters_to_binary(bytes, {:utf16, endianness}, :utf8) do
+      text when is_binary(text) -> text
+      _ -> ""
     end
   end
 

@@ -36,6 +36,12 @@ defmodule Laev.Settings do
     %{key: "TORBOX_API_KEY", label: "TorBox key", group: :keys, type: :secret},
     %{key: "TMDB_API_KEY", label: "TMDB key", group: :keys, type: :secret},
     %{key: "OPENSUBTITLES_API_KEY", label: "OpenSubtitles key", group: :keys, type: :secret},
+    # Searching needs only the key above; downloading a file is done as a
+    # logged-in user. These existed in the config all along and were not
+    # settings, so nothing with a form could manage them — and nothing told
+    # anyone why their downloads came back empty.
+    %{key: "OPENSUBTITLES_USERNAME", label: "OpenSubtitles username", group: :keys, type: :text},
+    %{key: "OPENSUBTITLES_PASSWORD", label: "OpenSubtitles password", group: :keys, type: :secret},
     %{key: "JIMAKU_API_KEY", label: "Jimaku key", group: :keys, type: :secret},
     %{key: "MAL_CLIENT_ID", label: "MyAnimeList client id", group: :keys, type: :secret},
     # The one value a second device needs: everything else — the watchlist, the
@@ -106,6 +112,14 @@ defmodule Laev.Settings do
   and the days left on it — which is the useful half of the answer.
   """
   def validate("RD_TOKEN", value), do: Doctor.check_rd(value)
+
+  # The password is checked with the username beside it, since neither is worth
+  # anything alone and OpenSubtitles only answers about the pair.
+  def validate("OPENSUBTITLES_USERNAME", value),
+    do: check_os_login(value, Scope.get(:opensubtitles_password))
+
+  def validate("OPENSUBTITLES_PASSWORD", value),
+    do: check_os_login(Scope.get(:opensubtitles_username), value)
   def validate("TORBOX_API_KEY", value), do: Doctor.check_torbox(value)
   def validate("TMDB_API_KEY", value), do: Doctor.check_tmdb(value)
   def validate(_key, _value), do: {:ok, "not checked"}
@@ -123,6 +137,21 @@ defmodule Laev.Settings do
   press anything: `{:ok, %{watchlist: 37, …}}`, or why not.
   """
   def sync_status, do: Laev.Sync.check()
+
+  # A pair that is only half given is not an error yet — somebody is filling in
+  # a form — so it is accepted and simply cannot download until both are there.
+  defp check_os_login(username, password) do
+    if blank?(username) or blank?(password) do
+      {:ok, "saved — downloads need both the username and the password"}
+    else
+      case Laev.OpenSubtitles.verify_login(username, password) do
+        :ok -> {:ok, "accepted"}
+        {:error, why} -> {:error, why}
+      end
+    end
+  end
+
+  defp blank?(value), do: value in [nil, ""] or (is_binary(value) and String.trim(value) == "")
 
   @doc "Which keys are missing for laev to be able to play anything at all."
   def missing_essentials do

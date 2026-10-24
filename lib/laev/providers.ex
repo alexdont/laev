@@ -19,7 +19,9 @@ defmodule Laev.Providers do
   # long a given torrent takes to resolve on the provider, and that varies by
   # an order of magnitude between sources, so the setting barely shows through
   # the noise. Configurable so that can be re-measured rather than re-argued.
-  @probe_concurrency 2
+  # Four at a time rather than two: a page of releases is checked in half the
+  # waves, and the work is almost all waiting on somebody else's server.
+  @probe_concurrency 4
 
   @doc """
   Resolve on the first provider that can play the magnet. RD's error is
@@ -127,8 +129,47 @@ defmodule Laev.Providers do
   Concurrently resolve a batch of `{source, index}` tuples across all
   providers, reporting each outcome through `opts[:notify]` as
   `{:result, index, source, {:ok, stream} | {:error, reason}}`.
+
+  Pass `ctx:` — a map with `:episode` and optionally `:tmdb_episode`, `:season`
+  and `:anime` — and two things happen that cannot happen without it: each
+  release is asked for the episode number *it* uses, so a pack numbered 13..25
+  is asked for 15 rather than 3; and what comes back is checked against what was
+  wanted, so a file that merely plays is not mistaken for the right one.
   """
   def probe_sources(indexed_sources, opts \\ []) do
+    case Keyword.get(opts, :ctx) do
+      %{} = ctx -> probe_by_numbering(indexed_sources, ctx, opts)
+      _ -> probe_batch(indexed_sources, opts)
+    end
+  end
+
+  # Releases are not all numbered alike, so they are probed in groups by the
+  # number each of them uses.
+  defp probe_by_numbering(indexed_sources, ctx, opts) do
+    notify = Keyword.get(opts, :notify, fn _ -> :ok end)
+
+    confirming = fn
+      {:result, index, source, result} ->
+        notify.({:result, index, source, Laev.Episodes.confirm(result, source, ctx)})
+
+      other ->
+        notify.(other)
+    end
+
+    for {episode, group} <- Laev.Episodes.group_by_numbering(indexed_sources, ctx) do
+      group
+      |> probe_batch(
+        opts
+        |> Keyword.drop([:ctx])
+        |> Keyword.put(:episode, episode)
+        |> Keyword.put(:notify, confirming)
+      )
+    end
+
+    :ok
+  end
+
+  defp probe_batch(indexed_sources, opts) do
     notify = Keyword.get(opts, :notify, fn _ -> :ok end)
     resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
 
