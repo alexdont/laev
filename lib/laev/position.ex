@@ -408,6 +408,64 @@ defmodule Laev.Position do
   end
 
   @doc """
+  Everything finished, with when it was finished: a list of
+  `%{type: "movie" | "tv" | "mal", id: integer, at: posix}`, newest first.
+
+  Read from the marks rather than from the play history, because the history
+  only holds what laev itself played — a list of what somebody has seen that
+  left out three hundred anime imported from MyAnimeList, and everything ever
+  ticked off by hand, would be answering a different question.
+
+  `at` is when the mark was written, which for an import is the import and for
+  everything else is when it was watched. A caller with something better — what
+  MyAnimeList says about an entry, say — should prefer that.
+  """
+  def finished_titles do
+    dir = Path.join(data_dir(), "positions")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        names
+        |> Enum.flat_map(&finished_title(&1, dir))
+        |> Enum.sort_by(& &1.at, :desc)
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp finished_title(name, dir) do
+    with %{} = title <- whole_title_key(name),
+         true <- marked?(dir, name) do
+      [Map.put(title, :at, mark_time(dir, name))]
+    else
+      _ -> []
+    end
+  end
+
+  # Only the whole-title marks: an episode mark says an episode was watched,
+  # not that the show was finished.
+  defp whole_title_key(name) do
+    cond do
+      match = Regex.run(~r/^movie-(\d+)$/, name) -> %{type: "movie", id: elem_int(match)}
+      match = Regex.run(~r/^tv-(\d+)$/, name) -> %{type: "tv", id: elem_int(match)}
+      match = Regex.run(~r/^mal-(\d+)$/, name) -> %{type: "mal", id: elem_int(match)}
+      true -> nil
+    end
+  end
+
+  defp elem_int([_, id]), do: String.to_integer(id)
+
+  defp mark_time(dir, name) do
+    case File.stat(Path.join(dir, name), time: :posix) do
+      {:ok, %{mtime: mtime}} -> mtime
+      _ -> 0
+    end
+  end
+
+  @doc """
   Watched anime episodes, as `%{mal_id => count}`.
 
   Kept apart from the show marks above rather than mixed in with them: anime is

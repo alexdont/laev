@@ -660,4 +660,83 @@ defmodule Laev.Shelf do
     do: %{type: type, tmdb_id: id, season: nil, episode: nil}
 
   defp title_ctx(_title), do: %{type: nil, tmdb_id: nil, season: nil, episode: nil}
+
+  @doc """
+  Everything watched, newest first — the record of what somebody has seen.
+
+  Built from the marks, so it holds what laev played, what was imported from
+  MyAnimeList and what was ticked off by hand; the Watchlist answers what you
+  are in the middle of, and this answers what you are done with.
+
+  The order is the interesting part, and the mark's own timestamp is the worst
+  of the three available: a sync rewrites those files, so after one every title
+  looks watched today. What laev's own history says about a title is better, and
+  what MyAnimeList says about an entry is better still for anime, since it
+  survives every reinstall. Each row carries `at` and `dated?`, so a caller can
+  say "around then" rather than stating a date it does not have.
+  """
+  def completed do
+    entries = Laev.Resume.all()
+    history = Map.new(entries, &{{&1["type"], &1["tmdb_id"]}, &1["updated_at"]})
+    anime = anime_list()
+
+    # The history knows the names of everything laev played, and the name cache
+    # knows the ones the stats page has looked up. Neither covers the other:
+    # the cache had two thousand names and not Meet the Parents, which is in
+    # the history with its title sitting right there.
+    names =
+      entries
+      |> Map.new(&{"#{&1["type"]}-#{&1["tmdb_id"]}", &1["title"]})
+      |> Map.reject(fn {_key, title} -> title in [nil, ""] end)
+      |> Map.merge(Laev.Titles.all())
+
+    Laev.Position.finished_titles()
+    |> Enum.map(&dress(&1, history, anime, names))
+    # Dated first, newest to oldest; then the ones with no date at all, which
+    # must not lead — a sync stamps every mark with today, so sorting on that
+    # alone put a film imported this morning above one actually watched last
+    # week, and buried everything the history remembers.
+    |> Enum.sort_by(&{if(&1.dated?, do: 0, else: 1), -&1.at})
+  end
+
+  defp dress(%{type: "mal", id: mal_id, at: marked}, _history, anime, _names) do
+    entry = Map.get(anime, mal_id)
+    at = (entry && entry[:updated]) || marked
+
+    %{
+      type: "mal",
+      id: mal_id,
+      mal_id: mal_id,
+      title: (entry && entry[:title]) || "MyAnimeList ##{mal_id}",
+      at: at,
+      dated?: is_integer(entry && entry[:updated]),
+      kind: :anime
+    }
+  end
+
+  defp dress(%{type: type, id: id, at: marked}, history, _anime, names) do
+    played = Map.get(history, {type, id})
+
+    %{
+      type: type,
+      id: id,
+      mal_id: nil,
+      title: Map.get(names, "#{type}-#{id}") || "#{String.upcase(type)} ##{id}",
+      at: played || marked,
+      dated?: is_integer(played),
+      kind: if(type == "movie", do: :film, else: :series
+      )
+    }
+  end
+
+  @doc """
+  How many titles are finished — for the home row, which should not build the
+  whole list to print one number.
+  """
+  def completed_count do
+    # Cached for the run: a quarter of a second of reading the marks directory
+    # is fine once and not fine every time somebody presses escape back to the
+    # home screen, which redraws it.
+    SessionCache.fetch(:completed_count, 60, fn -> length(Laev.Position.finished_titles()) end) || 0
+  end
 end

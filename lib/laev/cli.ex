@@ -522,6 +522,7 @@ defmodule Laev.CLI do
         {:saved, saved_row()},
         {:calendar, calendar_row()},
         {:search, "⌕ Search — find something by name"},
+        completed_row(),
         {:stats, "⧗ Stats — how much you've watched"},
         {:settings, "⚙ Settings — toggles & preferences"}
       ])
@@ -538,6 +539,7 @@ defmodule Laev.CLI do
       {:saved, _} -> saved_menu()
       {:calendar, _} -> calendar()
       {:search, _} -> menu_search()
+      {:completed, _} -> completed_menu()
       {:stats, _} ->
         stats()
         main_menu()
@@ -1862,6 +1864,120 @@ defmodule Laev.CLI do
   end
 
   # In-progress first (most recent), then fresh pins, watched movies last.
+  # A hundred rows a page.
+  #
+  # The whole record is seventeen hundred titles and still growing; a list that
+  # long is not a list, it is a wall, and most visits only want the top of it.
+  @completed_page 100
+
+  defp completed_row do
+    case Laev.Shelf.completed_count() do
+      0 -> []
+      n -> {:completed, "✓ Completed — #{n} you've finished"}
+    end
+  end
+
+  # Everything watched, newest first: what the Watchlist is the other half of.
+  #
+  # Ordered by when it was watched rather than by name, because the question
+  # this page answers is "what was I watching around then" — you scroll back
+  # through a run of films and recognise the week. A sync stamps every mark
+  # with today, so the dates come from laev's own history and from MyAnimeList
+  # where it knows better; the rest sit after them, undated rather than
+  # pretending.
+  defp completed_menu(shown \\ @completed_page, initial \\ 0) do
+    clear_screen()
+    rows = Laev.Shelf.completed()
+
+    if rows == [] do
+      IO.puts(:stderr, "\n  nothing finished yet — this fills up as you watch")
+      main_menu()
+    else
+      page = Enum.take(rows, shown)
+      items = if length(rows) > shown, do: page ++ [:more], else: page
+
+      header =
+        "✓ completed · #{length(page)} of #{length(rows)} · newest first · " <>
+          "enter watches again · ctrl-o info · esc"
+
+      case pick(items, &completed_label/1, header, &completed_poster/1, initial, ["ctrl-o"]) do
+        nil ->
+          main_menu()
+
+        # Land on the first row that was not there a moment ago.
+        {nil, :more} ->
+          completed_menu(shown + @completed_page, shown)
+
+        :more ->
+          completed_menu(shown + @completed_page, shown)
+
+        {"ctrl-o", :more} ->
+          completed_menu(shown, initial)
+
+        {"ctrl-o", row} ->
+          open_completed(row)
+          completed_menu(shown, Enum.find_index(items, &(&1 == row)) || 0)
+
+        row ->
+          watch_again(row)
+      end
+    end
+  end
+
+  defp completed_label(:more), do: "⋯ show #{@completed_page} more"
+
+  defp completed_label(row) do
+    "#{completed_mark(row.kind)} #{row.title}#{faint(completed_when(row))}"
+  end
+
+  defp completed_mark(:film), do: "🎬"
+  defp completed_mark(:series), do: "📺"
+  defp completed_mark(:anime), do: "🌸"
+
+  # The date where one is known, and nothing where it isn't — a mark whose only
+  # timestamp is the last sync is not a date anybody watched anything on.
+  defp completed_when(%{dated?: true, at: at}) do
+    case DateTime.from_unix(at) do
+      {:ok, moment} -> " · #{DateTime.to_date(moment)}"
+      _ -> ""
+    end
+  end
+
+  defp completed_when(_row), do: ""
+
+  defp completed_poster(:more), do: nil
+
+  defp completed_poster(%{type: "mal"}), do: nil
+
+  defp completed_poster(%{type: type, id: id}) do
+    case Laev.Cards.get(type, id) do
+      %{} = card -> entry_preview(%{"title" => card[:title]}, card[:poster])
+      _ -> nil
+    end
+  end
+
+  defp open_completed(%{kind: :anime, mal_id: mal_id, title: title}),
+    do: browse(entry_page_url(%{mal_id: mal_id, title: title}))
+
+  defp open_completed(%{type: type, id: id, title: title}), do: open_media_page(type, id, title)
+
+  # Anime is marked by MyAnimeList entry, and playing needs the TMDB show the
+  # entry belongs to; without one there is nothing here to play, so it opens
+  # the page instead of failing.
+  defp watch_again(%{kind: :anime, mal_id: mal_id, title: title} = row) do
+    case Laev.AnimeMap.tmdb(mal_id) do
+      {"tv", tmdb_id, _season} when is_integer(tmdb_id) ->
+        play_title(%{type: "tv", id: tmdb_id, title: title})
+
+      _ ->
+        open_completed(row)
+        completed_menu()
+    end
+  end
+
+  defp watch_again(%{type: type, id: id, title: title}),
+    do: play_title(%{type: type, id: id, title: title})
+
   defp saved_menu(initial \\ 0) do
     clear_screen()
     entries = Laev.Watchlist.all() |> Enum.sort_by(&watchlist_rank/1)

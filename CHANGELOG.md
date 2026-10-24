@@ -3,6 +3,23 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.44
+
+- **A Completed page**, beside Search: everything you have finished, newest
+  first, a hundred rows at a time. Enter watches something again, ctrl-o opens
+  its page. The Watchlist says what you are in the middle of and this says what
+  you are done with — films, series and anime together, including the ones
+  imported from MyAnimeList and the ones ticked off by hand, which the play
+  history alone does not know about.
+- The order is when, not what, because the question it answers is "what was I
+  watching around then". A sync rewrites every mark file, so their timestamps
+  all read as today; the dates come from laev's own history, and from
+  MyAnimeList for anime, which survives a reinstall. What has no real date sits
+  after what does rather than leading, and says nothing rather than today.
+- Names come from the history as well as the name cache, which had two thousand
+  titles in it and not Meet the Parents — whose name was sitting in the history
+  all along.
+
 ## 0.1.43
 
 - **ctrl-w marks a whole anime entry.** Anime has no season picker — a TMDB
