@@ -71,10 +71,17 @@ defmodule Laev.Franchises do
   # Marvel one — and the smaller list is the more useful answer: someone looking
   # up Logan wants the fourteen X-Men films, not all 169 Marvel titles. Iron Man
   # is in no smaller list, so it still opens Marvel.
+  # Each list once per title, not once per entry of it: a series is listed a
+  # season at a time, so a show with seven seasons put its franchise in here
+  # seven times and `all_for_title` answered "Star Wars, Star Wars, Star Wars,
+  # Star Wars, Star Wars, Star Wars, Star Wars". Harmless to `for_title`, which
+  # takes the first, and wrong for anything showing which lists a title is in.
   @index @franchises
          |> Enum.flat_map(fn f -> Enum.map(f.entries, &{{&1.type, &1.tmdb_id}, f}) end)
          |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-         |> Map.new(fn {key, franchises} -> {key, Enum.sort_by(franchises, &length(&1.entries))} end)
+         |> Map.new(fn {key, franchises} ->
+           {key, franchises |> Enum.uniq_by(& &1.name) |> Enum.sort_by(&length(&1.entries))}
+         end)
 
   # {type, tmdb_id} => %{imdb_id, season}, for the entries that carry one.
   @imdb_overrides @franchises
