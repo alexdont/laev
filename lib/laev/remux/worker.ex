@@ -41,10 +41,14 @@ defmodule Laev.Remux.Worker do
 
   @impl true
   def handle_continue(:launch, state) do
-    subs = probe_subs(state.url)
+    # One ffprobe, not four. Each of them re-opened the same remote URL, which
+    # cost about seven seconds before the first segment existed — the single
+    # biggest part of the wait after pressing play. One call is about two.
+    streams = probe_streams(state.url)
+    subs = subtitle_tracks(streams)
     # Persist the track list so a reused cache (no worker) can still expose subs.
     write_subs_manifest(state.dir, subs)
-    args = ffmpeg_args(state.url, state.dir, subs)
+    args = ffmpeg_args(state.url, state.dir, subs, streams)
     ffmpeg = System.find_executable("ffmpeg")
     port = Port.open({:spawn_executable, ffmpeg}, [:binary, :exit_status, :stderr_to_stdout, args: args])
 
@@ -90,9 +94,10 @@ defmodule Laev.Remux.Worker do
 
   # ── ffmpeg command ────────────────────────────────────────────────
 
-  defp ffmpeg_args(url, dir, subs) do
-    {video_codec, audio_codec} = probe(url)
-    audios = probe_audios(url)
+  defp ffmpeg_args(url, dir, subs, streams) do
+    video_codec = video_codec(streams)
+    audio_codec = audio_codec(streams)
+    audios = audio_tracks(streams)
 
     # Copy h264 video (lossless, fast); otherwise encode to h264 so the browser
     # can play it, on whatever this machine can encode with.
@@ -284,61 +289,81 @@ defmodule Laev.Remux.Worker do
   # List audio streams in order, with their language tag (for naming/switching).
   # Include `index` so a track *without* a language tag still yields a (non-empty)
   # line — otherwise it'd be dropped and multi-audio miscounted as single.
-  defp probe_audios(url) do
+  # ── probing, once ─────────────────────────────────────────────────
+
+  @doc """
+  Every stream of a file in one call: `[%{index, kind, codec, lang}]`.
+
+  This was four ffprobe runs — the subtitle list, the video codec, the first
+  audio codec, and the audio track list — each re-opening the same remote URL
+  and paying for the connection again: about 5.7 seconds before the first
+  segment existed, against 1.4 for one call. It was the largest part of the
+  wait after pressing play.
+
+  `[]` when the probe fails, which leaves every caller on the fallbacks it
+  always had.
+  """
+  def probe_streams(url) do
     args = [
-      "-v", "error", "-select_streams", "a",
-      "-show_entries", "stream=index:stream_tags=language",
-      "-of", "csv=p=0", url
+      "-v",
+      "error",
+      "-show_entries",
+      "stream=index,codec_type,codec_name:stream_tags=language",
+      "-of",
+      "json",
+      url
     ]
 
-    case System.cmd("ffprobe", args, stderr_to_stdout: true) do
-      {out, 0} ->
-        out
-        |> String.split("\n", trim: true)
-        |> Enum.map(fn line ->
-          parts = String.split(line, ",")
-          %{lang: parts |> Enum.at(1, "") |> to_string() |> String.trim()}
-        end)
-
-      _ ->
-        []
+    with {out, 0} <- System.cmd("ffprobe", args, stderr_to_stdout: true),
+         {:ok, %{"streams" => streams}} when is_list(streams) <- Jason.decode(out) do
+      Enum.map(streams, fn stream ->
+        %{
+          index: stream["index"],
+          kind: stream["codec_type"],
+          codec: stream["codec_name"] || "",
+          lang: get_in(stream, ["tags", "language"]) || ""
+        }
+      end)
+    else
+      # A probe that fails leaves every caller on the fallbacks it always had:
+      # no codec known is "", no tracks is [].
+      _ -> []
     end
+  rescue
+    _ -> []
   end
 
-  defp probe(url), do: {ffprobe(url, "v:0"), ffprobe(url, "a:0")}
+  defp of_kind(streams, kind), do: Enum.filter(streams, &(&1.kind == kind))
 
-  defp ffprobe(url, stream) do
-    args = ["-v", "error", "-select_streams", stream, "-show_entries", "stream=codec_name", "-of", "csv=p=0", url]
-
-    case System.cmd("ffprobe", args, stderr_to_stdout: true) do
-      {out, 0} -> out |> String.trim() |> last_line()
+  defp video_codec(streams) do
+    case of_kind(streams, "video") do
+      [%{codec: codec} | _] -> codec
       _ -> ""
     end
   end
 
-  # List embedded subtitle streams as %{index, lang, file}. `file` is the served
-  # basename (sub0, sub1, …). Skips image-based subs (PGS/VobSub) which can't be VTT.
-  defp probe_subs(url) do
-    args = [
-      "-v", "error", "-select_streams", "s",
-      "-show_entries", "stream=index,codec_name:stream_tags=language",
-      "-of", "csv=p=0", url
-    ]
-
-    case System.cmd("ffprobe", args, stderr_to_stdout: true) do
-      {out, 0} ->
-        out
-        |> String.split("\n", trim: true)
-        |> Enum.map(&String.split(&1, ","))
-        |> Enum.reject(fn parts -> Enum.at(parts, 1) in ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle"] end)
-        |> Enum.with_index()
-        |> Enum.map(fn {[index | rest], n} ->
-          %{index: String.to_integer(index), lang: Enum.at(rest, 1, "") || "", file: "sub#{n}"}
-        end)
-
-      _ ->
-        []
+  defp audio_codec(streams) do
+    case of_kind(streams, "audio") do
+      [%{codec: codec} | _] -> codec
+      _ -> ""
     end
+  end
+
+  # In order, with the language tag — a track without one still counts, or
+  # multi-audio would be miscounted as single.
+  defp audio_tracks(streams), do: Enum.map(of_kind(streams, "audio"), &%{lang: String.trim(&1.lang)})
+
+  # Embedded subtitles as %{index, lang, file}, where `file` is the served
+  # basename. Image-based subs (PGS, VobSub, DVB) are skipped: they are
+  # pictures, and nothing turns a picture into WebVTT.
+  @image_subs ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle"]
+
+  defp subtitle_tracks(streams) do
+    streams
+    |> of_kind("subtitle")
+    |> Enum.reject(&(&1.codec in @image_subs))
+    |> Enum.with_index()
+    |> Enum.map(fn {stream, n} -> %{index: stream.index, lang: stream.lang, file: "sub#{n}"} end)
   end
 
   defp last_line(""), do: ""

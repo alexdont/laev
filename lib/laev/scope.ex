@@ -82,6 +82,41 @@ defmodule Laev.Scope do
   @doc "Unbind."
   def clear, do: Process.delete(@key)
 
+  @overrides {__MODULE__, :overrides}
+
+  @doc """
+  Run `fun` with some settings replaced, without changing what anyone has saved.
+
+  For one title in languages chosen for it — a film watched in French by
+  somebody learning French, whose own settings still say English. The overrides
+  sit on top of the scope's own values and come off afterwards, so nothing
+  leaks into the next thing that process does.
+
+  Carried into `async/1`, `async_stream/3` and `spawn/1` the way the scope
+  itself is, which is the point: the work that fetches sources and starts a
+  player happens in other processes, and an override that did not follow it
+  would apply to the page and not to the playback.
+  """
+  def with_overrides(overrides, fun) when is_map(overrides) and is_function(fun, 0) do
+    previous = Process.get(@overrides)
+    Process.put(@overrides, Map.merge(previous || %{}, overrides))
+
+    try do
+      fun.()
+    after
+      if previous, do: Process.put(@overrides, previous), else: Process.delete(@overrides)
+    end
+  end
+
+  @doc "The settings currently overridden for this process."
+  def overrides, do: Process.get(@overrides) || %{}
+
+  @doc "Bind overrides for good — for a LiveView that stays in one mode."
+  def put_overrides(overrides) when is_map(overrides), do: Process.put(@overrides, overrides)
+
+  @doc "Drop any overrides."
+  def clear_overrides, do: Process.delete(@overrides)
+
   # ── what every module asks ────────────────────────────────────────
 
   @doc """
@@ -92,6 +127,13 @@ defmodule Laev.Scope do
   does not know this module exists.
   """
   def get(key, default \\ nil) do
+    case Map.fetch(overrides(), key) do
+      {:ok, value} -> value
+      :error -> from_scope(key, default)
+    end
+  end
+
+  defp from_scope(key, default) do
     case current() do
       %__MODULE__{config: config} ->
         case Map.fetch(config, key) do
@@ -159,21 +201,30 @@ defmodule Laev.Scope do
   @doc "Task.async_stream, with this process's scope bound inside each task."
   def async_stream(enumerable, fun, opts \\ []) do
     scope = current()
-    Task.async_stream(enumerable, fn item -> with_scope(scope, fn -> fun.(item) end) end, opts)
+    overrides = overrides()
+    Task.async_stream(enumerable, fn item -> with_scope(scope, overrides, fn -> fun.(item) end) end, opts)
   end
 
   @doc "Task.async, with the scope carried across."
   def async(fun) do
     scope = current()
-    Task.async(fn -> with_scope(scope, fun) end)
+    overrides = overrides()
+    Task.async(fn -> with_scope(scope, overrides, fun) end)
   end
 
   @doc "spawn, with the scope carried across."
   def spawn(fun) do
     scope = current()
-    Kernel.spawn(fn -> with_scope(scope, fun) end)
+    overrides = overrides()
+    Kernel.spawn(fn -> with_scope(scope, overrides, fun) end)
   end
 
-  defp with_scope(nil, fun), do: fun.()
-  defp with_scope(scope, fun), do: run(scope, fun)
+  defp with_scope(scope, overrides, fun) do
+    bound = if overrides == %{}, do: fun, else: fn -> with_overrides(overrides, fun) end
+
+    case scope do
+      nil -> bound.()
+      %__MODULE__{} -> run(scope, bound)
+    end
+  end
 end

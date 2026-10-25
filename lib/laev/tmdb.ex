@@ -61,6 +61,58 @@ defmodule Laev.Tmdb do
   end
 
   @doc """
+  What else somebody who watched this would watch: `{:ok, [card]}`, in the same
+  shape as `trending/2`.
+
+  TMDB answers two ways and neither alone is enough. `/recommendations` is
+  people's actual behaviour and is the better list, but it is thin or empty for
+  anything obscure; `/similar` is built from genres and keywords, so it always
+  answers and sometimes answers loosely. Recommendations come first and
+  similars top up what is missing.
+
+  Results with no poster are dropped — a row of grey rectangles is not a
+  recommendation — and the title itself is dropped, which TMDB does
+  occasionally include in its own similars.
+  """
+  def recommendations(type, id, limit \\ 12) when type in ~w(movie tv) do
+    with {:ok, recommended} <- related(type, id, "recommendations") do
+      topped_up =
+        if length(recommended) >= limit do
+          recommended
+        else
+          case related(type, id, "similar") do
+            {:ok, similar} -> recommended ++ similar
+            _ -> recommended
+          end
+        end
+
+      {:ok, topped_up |> Enum.uniq_by(& &1.id) |> Enum.reject(&(&1.id == id)) |> Enum.take(limit)}
+    end
+  end
+
+  @doc """
+  TMDB's own "similar" list for a title: `{:ok, [card]}`.
+
+  Genres and keywords rather than what anybody watched, so it always answers
+  and is the weaker of the two — `recommendations/3` prefers behaviour and
+  falls back to this.
+  """
+  def similar(type, id, limit \\ 12) when type in ~w(movie tv) do
+    with {:ok, cards} <- related(type, id, "similar") do
+      {:ok, cards |> Enum.reject(&(&1.id == id)) |> Enum.take(limit)}
+    end
+  end
+
+  defp related(type, id, path) do
+    with {:ok, %{"results" => results}} when is_list(results) <- get("/#{type}/#{id}/#{path}") do
+      {:ok,
+       results
+       |> Enum.map(&normalize(Map.put(&1, "media_type", type)))
+       |> Enum.filter(& &1.poster)}
+    end
+  end
+
+  @doc """
   Post-credit stinger flags for a movie, from TMDB's community keywords:
   `{during_credits?, after_credits?}`. `{false, false}` on any failure —
   absence of a tag means "probably none", not certainty.

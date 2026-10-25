@@ -7228,18 +7228,8 @@ defmodule Laev.CLI do
   # Scores with words next to them, highest first — a 7 means nothing on its own
   # and "good" does. Typing a number into a prompt is also the one moment in the
   # whole app where the arrow keys stop working, which is reason enough.
-  @scores [
-    {10, "masterpiece"},
-    {9, "banger"},
-    {8, "really good"},
-    {7, "pretty decent"},
-    {6, "it's alright"},
-    {5, "passable"},
-    {4, "not good"},
-    {3, "truly bad"},
-    {2, "garbage"},
-    {1, "absolute trash"}
-  ]
+  # One list, on Laev.Ratings, because a second interface needs the same words.
+  @scores Laev.Ratings.score_words()
 
   defp prompt_rating(what, current, submit, clear, opts \\ []) do
     service = opts[:service] || "TMDB"

@@ -14,6 +14,21 @@ defmodule Laev.Ratings do
   belongs.
   """
 
+  # 10 down to 1, which is the order a rating list is read in.
+  @score_words [
+    {10, "masterpiece"},
+    {9, "banger"},
+    {8, "really good"},
+    {7, "pretty decent"},
+    {6, "it's alright"},
+    {5, "passable"},
+    {4, "not good"},
+    {3, "truly bad"},
+    {2, "garbage"},
+    {1, "absolute trash"}
+  ]
+
+
   alias Laev.{Anime, AnimeMap, MAL, Position, Sync, Tmdb}
 
   @no_marks %{marked: 0, already: 0, partial: 0, failed: 0}
@@ -337,4 +352,29 @@ defmodule Laev.Ratings do
        do: %{type: "tv", tmdb_id: show, season: season, episode: episode}
 
   defp ctx_for_episode(_rated), do: nil
+
+  @doc """
+  The ten words laev rates with, highest first: `[{10, "masterpiece"}, …]`.
+
+  Public because a second interface needs the same words, and the alternative
+  is the same list written twice in two languages, drifting apart the first
+  time one of them is edited.
+  """
+  def score_words, do: @score_words
+
+  @doc """
+  The word for a score: `score_word(8)` → `"really good"`.
+
+  Takes integers and floats alike — a slider sends 7.5 and a stored rating
+  sends 7, and calling Float.round on the integer is a crash, which is how
+  this was found. Rounds to the nearest whole score and clamps to 1..10, so
+  there is always a word.
+  """
+  def score_word(score) when is_number(score) do
+    whole = score |> round() |> max(1) |> min(10)
+    {_score, word} = Enum.find(@score_words, fn {n, _word} -> n == whole end)
+    word
+  end
+
+  def score_word(_score), do: nil
 end

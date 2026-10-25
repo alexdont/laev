@@ -48,6 +48,22 @@ defmodule Laev.Kitsu do
   def kitsu_id_from_mal(_), do: {:error, :no_mapping}
 
   @doc """
+  How many episodes Kitsu says an anime has, by Kitsu id — one request against
+  the anime record, not the episode list, which is paginated and far more than
+  a count is worth.
+  """
+  def episode_count(kitsu_id) when is_binary(kitsu_id) or is_integer(kitsu_id) do
+    case get("/anime/#{kitsu_id}", []) do
+      {:ok, %{"data" => %{"attributes" => %{"episodeCount" => count}}}} when is_integer(count) -> count
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  def episode_count(_kitsu_id), do: nil
+
+  @doc """
   Search anime by text. Returns `{:ok, [anime]}` best-match first.
 
   AniList is the primary (sub-second, reliable, per-season entries with

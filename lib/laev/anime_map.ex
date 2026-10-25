@@ -83,6 +83,37 @@ defmodule Laev.AnimeMap do
   def mal_ids(_type, _tmdb_id), do: []
 
   @doc """
+  Whether a TMDB show's MAL entries agree about which show they belong to.
+
+  `:ok`, or `{:suspect, detail}` when the cross-id list has given one show
+  entries that point somewhere else. Worth asking before laying a season out by
+  entry, because the layout is only as good as the list: an entry filed under
+  the wrong show would put a season's episodes under the wrong anime, and
+  nothing about the result would look wrong.
+
+  Checked rather than assumed — the Bleach case that prompted this turned out
+  to be the list being *right* (the Thousand-Year Blood War cours really are
+  seasons of Bleach on TMDB) and the id it was compared against being a
+  different anime altogether.
+  """
+  def consistent?("tv", tmdb_id) when is_integer(tmdb_id) do
+    strays =
+      for mal <- mal_ids("tv", tmdb_id),
+          {kind, id, _season} <- [tmdb(mal)],
+          kind != "tv" or id != tmdb_id,
+          do: {mal, tmdb(mal)}
+
+    if strays == [] do
+      :ok
+    else
+      {:suspect, "tv #{tmdb_id}: #{length(strays)} MAL entries point elsewhere: #{inspect(strays)}"}
+    end
+  end
+
+  def consistent?(_type, _tmdb_id), do: :ok
+
+
+  @doc """
   The AniDB id for a MAL entry, or nil.
 
   What AnimeTosho is organized by — with it, an episode search gets the show's

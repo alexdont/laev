@@ -41,7 +41,7 @@ defmodule Laev.Sources do
     # big coverage boost for movies/TV — added when `opts[:torrentio]` is given.
     indexers = indexers ++ torznab_indexer(query) ++ torrentio_indexer(opts)
 
-    merge_search(indexers)
+    merge_search(indexers, Keyword.take(opts, [:backend_timeout]))
   end
 
   @doc "True when a Jackett/Prowlarr Torznab endpoint is configured."
@@ -65,24 +65,65 @@ defmodule Laev.Sources do
   # copy. As long as one indexer answers we return its (possibly empty) results;
   # only error if every indexer failed. More distinct hashes = better odds one
   # is cached & un-DMCA'd on Real-Debrid.
-  defp merge_search(indexers) do
-    {oks, errors} =
-      indexers
-      |> Enum.map(&Task.async/1)
-      |> Task.await_many(25_000)
-      |> Enum.split_with(&match?({:ok, _}, &1))
+  defp merge_search(indexers, opts) do
+    {oks, errors, late} = gather(indexers, Keyword.get(opts, :backend_timeout))
 
     case oks do
       [] ->
         Enum.at(errors, 0, {:error, :no_sources})
 
       _ ->
-        oks
-        |> Enum.flat_map(fn {:ok, list} -> list end)
-        |> Enum.sort_by(&score/1, :desc)
-        |> Enum.uniq_by(& &1.hash)
-        |> then(&{:ok, &1})
+        merged =
+          oks
+          |> Enum.flat_map(fn {:ok, list} -> list end)
+          |> Enum.sort_by(&score/1, :desc)
+          |> Enum.uniq_by(& &1.hash)
+
+        if late > 0, do: {:ok, merged, late: late}, else: {:ok, merged}
     end
+  end
+
+  # Everything the sites gave, and how many were still thinking.
+  #
+  # Without a deadline this waits for the slowest: an anime search sits on Nyaa
+  # for about sixteen seconds while four other sites answered in two, and
+  # nothing could be shown until it finished. With one, what arrived is
+  # returned and the stragglers are counted, so a caller can show results now
+  # and ask again rather than holding the page.
+  #
+  # The default is no deadline, because the terminal would rather wait than
+  # offer a short list — only a caller that has somewhere to put "still
+  # checking" should pass one.
+  defp gather(indexers, nil) do
+    {oks, errors} =
+      indexers
+      |> Enum.map(&Task.async/1)
+      |> Task.await_many(25_000)
+      |> Enum.split_with(&match?({:ok, _}, &1))
+
+    {oks, errors, 0}
+  end
+
+  defp gather(indexers, deadline) when is_integer(deadline) do
+    tasks = Enum.map(indexers, &Task.async/1)
+    answers = Task.yield_many(tasks, deadline)
+
+    # A task still running is left running rather than killed: its request is
+    # already in flight, and the next search will find its answer cached.
+    {done, late} =
+      Enum.split_with(answers, fn
+        {_task, {:ok, _result}} -> true
+        _ -> false
+      end)
+
+    for {task, nil} <- late, do: Task.shutdown(task, :brutal_kill)
+
+    {oks, errors} =
+      done
+      |> Enum.map(fn {_task, {:ok, result}} -> result end)
+      |> Enum.split_with(&match?({:ok, _}, &1))
+
+    {oks, errors, length(late)}
   end
 
   # ── query builders ────────────────────────────────────────────────
@@ -1030,7 +1071,70 @@ defmodule Laev.Sources do
   end
 
   @doc false
-  def rank(sources), do: Enum.sort_by(sources, &score/1, :desc)
+  def rank(sources), do: rank(sources, [])
+
+  @doc """
+  Rank releases, best first, with the filtering a caller wants done *before*
+  anything is checked rather than after.
+
+    * `max_resolution:` — drop anything above it. A browser on a laptop cannot
+      play a 4K re-encode in real time, and probing forty releases to then
+      discard the big ones wastes the probing.
+    * `strict_audio:` — keep only releases whose *audio* carries that language.
+      Subtitles do not count: somebody learning French needs French speech, and
+      a French subtitle track on a Japanese dub is not that.
+
+  A release whose tracks have not been read yet is kept — see `audio_in?/2`,
+  which distinguishes "not read" from "read, and not this language", because
+  throwing away everything unexamined would leave nothing to examine.
+  """
+  def rank(sources, opts) when is_list(opts) do
+    sources
+    |> filter_resolution(Keyword.get(opts, :max_resolution))
+    |> filter_audio(Keyword.get(opts, :strict_audio))
+    |> Enum.sort_by(&score/1, :desc)
+  end
+
+  defp filter_resolution(sources, nil), do: sources
+  defp filter_resolution(sources, cap), do: at_most(sources, cap)
+
+  defp filter_audio(sources, nil), do: sources
+  defp filter_audio(sources, lang), do: Enum.filter(sources, &(audio_in?(&1, lang) != false))
+
+  @doc """
+  Does this release's audio carry `lang`?
+
+  `true`, `false`, or `nil` when nothing is known about its tracks yet — and
+  that third answer is the point. A release laev has not opened has no track
+  list, and treating that as "no" would reject everything before anything could
+  be examined; treating it as "yes" would promise a language nobody has
+  checked. The caller decides which risk it wants.
+  """
+  def audio_in?(source, lang) when is_binary(lang) do
+    wanted = Laev.Config.normalise_lang(lang)
+
+    case audio_langs(source) do
+      [] -> nil
+      langs -> Enum.any?(langs, &(&1 == wanted))
+    end
+  end
+
+  def audio_in?(_source, _lang), do: nil
+
+  # The languages of a release's audio, normalised. `tracks` is what a probe of
+  # the file itself found; `langs` is what the indexer claimed, which is about
+  # the release and not only about its audio — so it is only consulted when
+  # nothing better exists.
+  defp audio_langs(%{tracks: %{audio: audio}}) when is_list(audio) and audio != [] do
+    audio
+    |> Enum.map(&Laev.Config.normalise_lang(&1[:lang] || &1["lang"] || ""))
+    |> Enum.reject(&(&1 in [nil, ""]))
+  end
+
+  defp audio_langs(%{langs: langs}) when is_list(langs) and langs != [],
+    do: langs |> Enum.map(&Laev.Config.normalise_lang/1) |> Enum.reject(&(&1 in [nil, ""]))
+
+  defp audio_langs(_source), do: []
 
   @doc false
   def rank_playable(pairs), do: Enum.sort_by(pairs, fn {source, _stream} -> score(source) end, :desc)

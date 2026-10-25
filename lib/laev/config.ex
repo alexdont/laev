@@ -168,7 +168,79 @@ defmodule Laev.Config do
   end
 
   @doc "Preferred audio language for source ranking (LAEV_LANG), default \"en\"."
-  def lang, do: Laev.Scope.get(:lang) || "en"
+  def lang, do: normalise_lang(Laev.Scope.get(:lang)) || "en"
+
+  @doc """
+  One language code out of whatever somebody typed.
+
+  "fr", "FR", "fre", "fra" and "French" are the same language, and a setting
+  edited by hand in a terminal has to mean what a dropdown means. Before this,
+  a value laev did not recognise simply ranked nothing first and said nothing
+  about why.
+
+  Returns a two-letter code, or the trimmed input when it is not a language
+  laev knows — which is better than nil, since an unknown code still ranks
+  releases that happen to carry it.
+  """
+  def normalise_lang(nil), do: nil
+
+  def normalise_lang(value) when is_binary(value) do
+    key = value |> String.trim() |> String.downcase()
+
+    cond do
+      key in ["", "off", "no", "none"] -> nil
+      code = Map.get(language_codes(), key) -> code
+      true -> key
+    end
+  end
+
+  def normalise_lang(_value), do: nil
+
+  # Built from the same alias table the player uses, so there is one list of
+  # what a language is called rather than two that can disagree.
+  defp language_codes do
+    case :persistent_term.get({__MODULE__, :lang_codes}, nil) do
+      nil ->
+        built = build_language_codes()
+        :persistent_term.put({__MODULE__, :lang_codes}, built)
+        built
+
+      built ->
+        built
+    end
+  end
+
+  @language_names %{
+    "en" => ~w(english eng en),
+    "ru" => ~w(russian rus ru),
+    "ja" => ~w(japanese jpn jap jp ja),
+    "es" => ~w(spanish spa esp es castellano),
+    "fr" => ~w(french fre fra fr francais français),
+    "de" => ~w(german ger deu de deutsch),
+    "it" => ~w(italian ita it italiano),
+    "pt" => ~w(portuguese por pt português),
+    "uk" => ~w(ukrainian ukr uk),
+    "zh" => ~w(chinese chi zho zh mandarin),
+    "ko" => ~w(korean kor ko),
+    "hi" => ~w(hindi hin hi),
+    "ar" => ~w(arabic ara ar),
+    "pl" => ~w(polish pol pl),
+    "tr" => ~w(turkish tur tr),
+    "nl" => ~w(dutch nld dut nl),
+    "sv" => ~w(swedish swe sv),
+    "da" => ~w(danish dan da),
+    "fi" => ~w(finnish fin fi),
+    "no" => ~w(norwegian nor nb no),
+    "cs" => ~w(czech cze ces cs),
+    "he" => ~w(hebrew heb he),
+    "th" => ~w(thai tha th),
+    "vi" => ~w(vietnamese vie vi),
+    "id" => ~w(indonesian ind id)
+  }
+
+  defp build_language_codes do
+    for {code, names} <- @language_names, name <- [code | names], into: %{}, do: {name, code}
+  end
 
   @doc """
   Subtitle language (LAEV_SUBS): the normalized language code, or `nil` when
@@ -178,14 +250,8 @@ defmodule Laev.Config do
   """
   def subs_lang do
     case Laev.Scope.get(:subs_lang) do
-      nil ->
-        "en"
-
-      value ->
-        case value |> String.trim() |> String.downcase() do
-          off when off in ["off", "none", ""] -> nil
-          lang -> lang
-        end
+      nil -> "en"
+      value -> normalise_lang(value)
     end
   end
 
