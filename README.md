@@ -277,6 +277,20 @@ including ratings you imported into TMDB from IMDb, which is the easiest way to
 carry years of viewing across. Nobody rates a film they haven't seen, so a
 rating is the one unambiguous record of having watched it.
 
+What it cannot bring is *when*: TMDB's rated endpoints carry no rating date, so
+an imported catalogue arrives with no history at all. The dates live in IMDb's
+own export, so download your ratings from
+[imdb.com/list/ratings](https://www.imdb.com/list/ratings) (Export) and run
+
+```
+laev tmdb import-imdb ~/Downloads/ratings.csv
+```
+
+which marks the same titles and dates each one by the day you rated it — a
+decade of ratings then sits across the ten years it happened over rather than
+all landing today. Episode rows are left to the shows they belong to. Nothing
+already known from a real play is overwritten.
+
 It writes marks and nothing else: titles grey out in search, Featured and the
 Saved, and the stats count them in the **off laev** bucket, where an assumed
 runtime belongs. Positions you are partway through are left alone — a rating is

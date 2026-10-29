@@ -303,8 +303,25 @@ defmodule Laev.Shelf do
     cond do
       at = session_at(items) -> at
       measured(items) >= @played_floor -> resume_stamp(type, id)
+      # Somebody else's record of the day — an IMDb export, say. It proves
+      # nothing on its own, which is why it comes last, and it is still a date
+      # where the alternative is none.
+      at = claimed_at(items) -> at
       true -> 0
     end
+  end
+
+  defp claimed_at(items) do
+    dates = claimed_dates()
+
+    items
+    |> Enum.map(&Map.get(dates, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> nil end)
+  end
+
+  defp claimed_dates do
+    SessionCache.fetch(:claimed_dates, 30, fn -> Laev.Position.claimed_dates() end) || %{}
   end
 
   defp resume_stamp(type, id) do
@@ -742,6 +759,8 @@ defmodule Laev.Shelf do
     entries = Laev.Resume.all()
     history = Map.new(entries, &{{&1["type"], &1["tmdb_id"]}, &1["updated_at"]})
     anime = anime_list()
+    claimed = Laev.Position.claimed_dates()
+    sessions = watch_dates()
 
     # The history knows the names of everything laev played, and the name cache
     # knows the ones the stats page has looked up. Neither covers the other:
@@ -754,7 +773,7 @@ defmodule Laev.Shelf do
       |> Map.merge(Laev.Titles.all())
 
     Laev.Position.finished_titles()
-    |> Enum.map(&dress(&1, history, anime, names))
+    |> Enum.map(&dress(&1, history, anime, names, claimed, sessions))
     # Dated first, newest to oldest; then the ones with no date at all, which
     # must not lead — a sync stamps every mark with today, so sorting on that
     # alone put a film imported this morning above one actually watched last
@@ -762,35 +781,41 @@ defmodule Laev.Shelf do
     |> Enum.sort_by(&{if(&1.dated?, do: 0, else: 1), -&1.at})
   end
 
-  defp dress(%{type: "mal", id: mal_id, at: marked}, _history, anime, _names) do
+  defp dress(%{type: "mal", id: mal_id, at: marked}, _history, anime, _names, claimed, sessions) do
     entry = Map.get(anime, mal_id)
-    at = (entry && entry[:updated]) || marked
+    best = first_date([Map.get(sessions, "mal-#{mal_id}"), entry && entry[:updated], Map.get(claimed, "mal-#{mal_id}")])
 
     %{
       type: "mal",
       id: mal_id,
       mal_id: mal_id,
       title: (entry && entry[:title]) || "MyAnimeList ##{mal_id}",
-      at: at,
-      dated?: is_integer(entry && entry[:updated]),
+      at: best || marked,
+      dated?: not is_nil(best),
       kind: :anime
     }
   end
 
-  defp dress(%{type: type, id: id, at: marked}, history, _anime, names) do
-    played = Map.get(history, {type, id})
+  defp dress(%{type: type, id: id, at: marked}, history, _anime, names, claimed, sessions) do
+    item = "#{type}-#{id}"
+
+    # A session is observed, the history is laev's own play, and a claimed date
+    # is somebody else's record — in that order, and any of them beats the
+    # mark's own timestamp, which a sync rewrites to today.
+    best = first_date([Map.get(sessions, item), Map.get(history, {type, id}), Map.get(claimed, item)])
 
     %{
       type: type,
       id: id,
       mal_id: nil,
-      title: Map.get(names, "#{type}-#{id}") || "#{String.upcase(type)} ##{id}",
-      at: played || marked,
-      dated?: is_integer(played),
-      kind: if(type == "movie", do: :film, else: :series
-      )
+      title: Map.get(names, item) || "#{String.upcase(type)} ##{id}",
+      at: best || marked,
+      dated?: not is_nil(best),
+      kind: if(type == "movie", do: :film, else: :series)
     }
   end
+
+  defp first_date(candidates), do: Enum.find(candidates, &(is_integer(&1) and &1 > 0))
 
   @doc """
   How many titles are finished — for the home row, which should not build the

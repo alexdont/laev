@@ -3,6 +3,40 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.48
+
+**`laev tmdb import-imdb <ratings.csv>`** — a watch history with its dates.
+
+TMDB's rated endpoints carry no rating date, so `import_from_tmdb/1` can say
+only that something was watched. An account with a decade of IMDb ratings
+copied into TMDB therefore imported five hundred titles with no history at all.
+The dates live in IMDb's own export, and `Laev.Ratings.import_imdb_csv/2` reads
+it: resolve each `Const` through `Laev.Tmdb.find_imdb/1`, mark the title
+watched, and date it by the day it was rated. Episode rows are left to the shows
+they belong to and counted as skipped rather than quietly dropped.
+
+A claimed date is kept deliberately apart from one laev measured. The other two
+sources prove themselves — a tick-log session was observed, a long measurement
+was measured — and this is somebody else's record, so it is written as exactly
+that, under `dated/<key>`, and never as a forged measurement or a tick claiming
+time nobody counted. Stats still treats such a title as time *assumed*, which
+is what it is, and now knows which day to put it on. `Laev.Position`:
+`set_watched_on/2`, `watched_on/1`, `claimed_dates/0`. Synced as its own
+collection.
+
+Read in that order wherever a date is wanted — a session, then laev's own play
+history, then a claimed date — on the shelf, on the Completed page and in the
+stats windows, which previously left an imported catalogue in "all time" and in
+none of the others.
+
+**`Laev.Csv`**: enough RFC 4180 to read an export — quoted fields with commas,
+doubled quotes, a byte-order mark. Not a dependency, because a terminal
+application should not grow one for twenty lines.
+
+Worth knowing for anyone who imported before this: an undated mark has read as
+undated rather than as today since 0.1.47, so the symptom is already gone; this
+is what puts the real dates back.
+
 ## 0.1.47
 
 **A resume stamp is no longer read as a watch date.** `Laev.Shelf`'s

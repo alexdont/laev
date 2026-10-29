@@ -1257,6 +1257,7 @@ defmodule Laev.CLI do
       played: "watch time",
       watched: "day log",
       ticks: "sessions",
+      dated: "watch dates",
       holds: "on hold",
       anime: "anime list",
       seasons: "season counts"
@@ -5694,7 +5695,22 @@ defmodule Laev.CLI do
     SessionCache.fetch(:last_seen, 30, fn ->
       history = Map.new(Laev.Resume.all(), &{{&1["type"], &1["tmdb_id"]}, &1["updated_at"]})
       anime = Map.new(anime_list(), fn {mal_id, entry} -> {{"mal", mal_id}, entry[:updated]} end)
-      Map.merge(history, anime)
+
+      # A catalogue imported from somewhere that kept the dates — an IMDb
+      # export — belongs in the windows on the day it was watched. Without
+      # this a decade of ratings is in "all time" and in none of the others,
+      # which is not wrong exactly, and is not what anybody wants to see.
+      claimed =
+        Laev.Position.claimed_dates()
+        |> Enum.flat_map(fn {item, at} ->
+          case String.split(item, "-", parts: 2) do
+            [type, id] -> with {id, ""} <- Integer.parse(id), do: [{{type, id}, at}], else: (_ -> [])
+            _ -> []
+          end
+        end)
+        |> Map.new()
+
+      claimed |> Map.merge(history) |> Map.merge(anime)
     end)
   end
 
@@ -7062,6 +7078,8 @@ defmodule Laev.CLI do
 
   defp tmdb_account(["import" | _]), do: or_die(run_tmdb_import())
 
+  defp tmdb_account(["import-imdb" | rest]), do: or_die(run_imdb_import(rest))
+
   defp tmdb_account(["logout" | _]) do
     save_setting("TMDB_SESSION_ID", "")
     IO.puts(:stderr, "unlinked from your TMDB account — metadata still works, ratings won't send.")
@@ -7079,6 +7097,65 @@ defmodule Laev.CLI do
     else
       IO.puts(:stderr, "")
       finish_tmdb_import(Laev.Ratings.import_from_tmdb(&IO.puts(:stderr, "  #{&1}")))
+    end
+  end
+
+  # An IMDb ratings export, which is the only place the dates live.
+  #
+  # TMDB's own rated endpoints carry no rating date at all, so a catalogue
+  # copied there from IMDb — a decade of it, for the account this was found on —
+  # imports as a thousand titles with nothing to say when any of it happened.
+  # The export has a day per title, and that is what this is for.
+  defp run_imdb_import([]) do
+    IO.puts(:stderr, IO.ANSI.format([:faint, "\n  Download your ratings from imdb.com/list/ratings (Export), then:\n", :reset]))
+    IO.puts(:stderr, "    laev tmdb import-imdb ~/Downloads/ratings.csv\n")
+    {:error, "no file given"}
+  end
+
+  defp run_imdb_import([path | _]) do
+    path = Path.expand(path)
+
+    if File.regular?(path) do
+      IO.puts(:stderr, "")
+
+      case Laev.Ratings.import_imdb_csv(path, &IO.puts(:stderr, "  #{&1}")) do
+        %{} = counts -> finish_imdb_import(counts)
+        {:error, :not_an_imdb_export} -> {:error, "that file doesn't look like an IMDb ratings export"}
+        other -> {:error, "couldn't read that export: #{inspect(other)}"}
+      end
+    else
+      {:error, "no such file: #{path}"}
+    end
+  end
+
+  defp finish_imdb_import(counts) do
+    IO.puts(
+      :stderr,
+      IO.ANSI.format([
+        :green,
+        "\n  ✓ dated #{counts.dated} titles by when you rated them",
+        :reset,
+        :faint,
+        describe_imdb_rest(counts),
+        :reset
+      ])
+    )
+
+    :ok
+  end
+
+  defp describe_imdb_rest(counts) do
+    [
+      counts.marked > 0 && "#{counts.marked} newly marked watched",
+      counts.already > 0 && "#{counts.already} already were",
+      counts.partial > 0 && "#{counts.partial} left alone (you're partway through them here)",
+      counts.skipped > 0 && "#{counts.skipped} episode rows left to their shows",
+      counts.unresolved > 0 && "#{counts.unresolved} not found on TMDB"
+    ]
+    |> Enum.filter(& &1)
+    |> case do
+      [] -> ""
+      parts -> "\n  " <> Enum.join(parts, " · ")
     end
   end
 

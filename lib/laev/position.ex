@@ -408,6 +408,82 @@ defmodule Laev.Position do
   end
 
   @doc """
+  Say that something was watched on a given day, according to a record kept
+  somewhere else — an IMDb ratings export, say.
+
+  A claimed date, and deliberately its own thing. The other two sources of a
+  date each prove themselves: a tick-log session was observed, and a long
+  measurement was measured. This is neither; it is somebody's word for it, and
+  the one honest place for it is a file that says exactly that rather than a
+  forged measurement or a tick claiming time nobody counted. Stats keeps
+  treating such a title as time assumed rather than measured — which it is —
+  and now knows which day to put it on.
+
+  Written as a unix timestamp per position key, under `dated/`, and synced like
+  the marks themselves.
+  """
+  def set_watched_on(ctx, at) when is_integer(at) and at > 0 do
+    with key when is_binary(key) <- key(ctx) do
+      path = dated_file(key)
+      File.mkdir_p!(Path.dirname(path))
+      File.write(path, Integer.to_string(at))
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  def set_watched_on(_ctx, _at), do: :ok
+
+  @doc "The claimed date for one title, or nil."
+  def watched_on(ctx) do
+    with key when is_binary(key) <- key(ctx),
+         {:ok, body} <- File.read(dated_file(key)),
+         {at, _rest} <- Integer.parse(String.trim(body)) do
+      at
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Every claimed date, by the title it belongs to: `%{"movie-603" => 1793000000}`.
+
+  Grouped the way the tick log groups, so a show's episodes answer for the show,
+  and read once by callers that would otherwise ask per row.
+  """
+  def claimed_dates do
+    dir = Path.join(data_dir(), "dated")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        Enum.reduce(names, %{}, fn name, acc ->
+          case claimed_in(dir, name) do
+            at when is_integer(at) -> Map.update(acc, Laev.Stints.item(name), at, &max(&1, at))
+            _ -> acc
+          end
+        end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp claimed_in(dir, name) do
+    with {:ok, body} <- File.read(Path.join(dir, name)),
+         {at, _rest} <- Integer.parse(String.trim(body)) do
+      at
+    else
+      _ -> nil
+    end
+  end
+
+  defp dated_file(key), do: Path.join([data_dir(), "dated", key])
+
+  @doc """
   How many seconds were measured for each title: `%{"movie-603" => 5400, …}`.
 
   Summed per title rather than per key, so a show's episodes add up to the show

@@ -2,6 +2,12 @@ defmodule Laev.Ratings do
   @moduledoc """
   Your TMDB ratings, read back as "I have watched this".
 
+  Two imports, because TMDB knows *what* and IMDb knows *when*: TMDB's rated
+  endpoints carry no rating date, so `import_from_tmdb/1` can only say that
+  something was watched, while an IMDb ratings export has a day per title and
+  `import_imdb_csv/2` uses it. A date claimed that way is kept apart from one
+  laev measured itself — see `Laev.Position.set_watched_on/2`.
+
   A rating is the one unambiguous record of having seen something — nobody
   scores a film they haven't watched — and a TMDB account can hold years of them,
   imported from IMDb. Reading them in is what makes the rest of laev tell the
@@ -31,7 +37,7 @@ defmodule Laev.Ratings do
 
   alias Laev.{Anime, AnimeMap, MAL, Position, Sync, Tmdb}
 
-  @no_marks %{marked: 0, already: 0, partial: 0, failed: 0}
+  @no_marks %{marked: 0, already: 0, partial: 0, failed: 0, dated: 0, unresolved: 0, skipped: 0}
 
   @doc """
   Mark everything you have rated on TMDB as watched.
@@ -308,6 +314,122 @@ defmodule Laev.Ratings do
   def decide(:none), do: :mark
   def decide(:watched), do: :already
   def decide({:partial, _seconds}), do: :partial
+
+  @doc """
+  Import an IMDb ratings export, dating each title by the day it was rated.
+
+  Give it the CSV or a path to it. Everything rated on IMDb is marked watched —
+  the same reading as the TMDB import, since nobody scores a film they have not
+  seen — but with the date the export carries rather than the moment of the
+  import. A decade of ratings then sits on the ten years it happened over
+  instead of all landing today.
+
+  What it does not do: episode rows. An IMDb export lists rated *episodes* by
+  their own ids, and resolving two hundred of those to a season and number is a
+  separate job with its own failure modes; the show they belong to is marked and
+  dated instead, which is the answer to "when did I watch this" at the
+  resolution the export is useful for. They are counted as `skipped` so the
+  number is visible rather than quietly missing.
+
+  Nothing already known from a real play is overwritten, and a part-watched
+  title is left alone exactly as the TMDB import leaves it.
+
+  Returns `%{marked:, already:, partial:, failed:, dated:, skipped:,
+  unresolved:}`.
+  """
+  def import_imdb_csv(csv_or_path, report \\ fn _line -> :ok end) do
+    with {:ok, text} <- read_export(csv_or_path) do
+      rows = eligible(Laev.Csv.maps(text))
+      report.("#{length(rows)} rated titles in the export…")
+
+      resolved =
+        rows
+        |> Laev.Scope.async_stream(&resolve_row/1, max_concurrency: 8, timeout: 30_000, on_timeout: :kill_task)
+        |> Enum.map(fn
+          {:ok, result} -> result
+          _ -> {:error, :timeout}
+        end)
+
+      found = for {:ok, ctx, at, title} <- resolved, do: {ctx, at, title}
+      report.("#{length(found)} matched on TMDB, #{length(resolved) - length(found)} not found…")
+
+      counts = Enum.reduce(found, %{@no_marks | dated: 0, unresolved: 0}, &mark_dated/2)
+      counts = %{counts | unresolved: length(resolved) - length(found), skipped: skipped_episodes(text)}
+
+      if counts.marked > 0 or counts.dated > 0, do: Sync.live_push()
+      counts
+    end
+  end
+
+  defp read_export(text) when is_binary(text) do
+    cond do
+      String.contains?(text, "Date Rated") -> {:ok, text}
+      File.regular?(text) -> File.read(text)
+      true -> {:error, :not_an_imdb_export}
+    end
+  end
+
+  defp read_export(_other), do: {:error, :not_an_imdb_export}
+
+  # Rated titles with a date. Episode rows are left for the show they belong to.
+  defp eligible(rows) do
+    rows
+    |> Enum.filter(fn row ->
+      String.starts_with?(row["Const"] || "", "tt") and
+        match?({:ok, _}, Date.from_iso8601(row["Date Rated"] || "")) and
+        row["Title Type"] != "TV Episode"
+    end)
+    |> Enum.uniq_by(& &1["Const"])
+  end
+
+  defp skipped_episodes(text) do
+    Laev.Csv.maps(text) |> Enum.count(&(&1["Title Type"] == "TV Episode"))
+  end
+
+  defp resolve_row(row) do
+    with {:ok, date} <- Date.from_iso8601(row["Date Rated"]),
+         {:ok, found} <- Tmdb.find_imdb(row["Const"]),
+         ctx when is_map(ctx) <- ctx_for_found(found) do
+      {:ok, ctx, noon(date), found[:title] || row["Title"]}
+    else
+      _ -> {:error, row["Const"]}
+    end
+  end
+
+  defp ctx_for_found(%{type: "movie", id: id}) when is_integer(id),
+    do: %{type: "movie", tmdb_id: id, season: nil, episode: nil}
+
+  defp ctx_for_found(%{type: "tv", id: id}) when is_integer(id),
+    do: %{type: "tv", tmdb_id: id, season: nil, episode: nil}
+
+  defp ctx_for_found(_found), do: nil
+
+  # Midday rather than midnight: the export gives a day and nothing finer, and
+  # midday is the hour least likely to fall on the wrong side of a timezone
+  # when somebody reads it back.
+  defp noon(%Date{} = date) do
+    {:ok, moment} = DateTime.new(date, ~T[12:00:00], "Etc/UTC")
+    DateTime.to_unix(moment)
+  end
+
+  defp mark_dated({ctx, at, title}, counts) do
+    counts = mark(ctx, counts)
+
+    # The date is written whether or not this run was the one that marked it:
+    # a title the TMDB import already marked is exactly what wants a date.
+    if Position.mark_state(ctx) == :watched and is_nil(Position.watched_on(ctx)) do
+      Position.set_watched_on(ctx, at)
+      remember_name(ctx, title)
+      %{counts | dated: counts.dated + 1}
+    else
+      counts
+    end
+  end
+
+  defp remember_name(%{type: type, tmdb_id: id}, title) when is_binary(title) and title != "",
+    do: Laev.Titles.put(%{{type, id} => title})
+
+  defp remember_name(_ctx, _title), do: :ok
 
   defp mark(ctx, counts) do
     case decide(Position.mark_state(ctx)) do
