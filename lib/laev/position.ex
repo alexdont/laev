@@ -613,6 +613,11 @@ defmodule Laev.Position do
     with key when is_binary(key) <- key(ctx) do
       File.write(played_file(key), played_line(watched, skipped, sample[:reported]))
       log_seconds(sample[:log_seconds])
+      # The same seconds, with a timestamp and the key on them: the day log
+      # says how much a day held and this says what filled it. Every player
+      # funnels through here, so the mpv script, the VLC poller and a browser
+      # all write the same record.
+      Laev.Stints.tick(key, sample[:log_seconds] || 0)
 
       cond do
         sample[:finished] ->

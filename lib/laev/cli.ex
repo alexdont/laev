@@ -1256,6 +1256,7 @@ defmodule Laev.CLI do
       tracks: "track prefs",
       played: "watch time",
       watched: "day log",
+      ticks: "sessions",
       holds: "on hold",
       anime: "anime list",
       seasons: "season counts"

@@ -427,6 +427,25 @@ defmodule Laev.Stats do
     runtime = Map.get(runtimes, cache_key(runtime_key(type, id, kind)))
 
     case {Map.get(played, name), seconds_for(progress, runtime)} do
+      # Watched through, and barely measured. A browser that played a film to
+      # the end wrote a position of "done" and a handful of seconds, because
+      # nothing was measuring — so Endgame read as four minutes and the account
+      # was short by a day between twelve titles.
+      #
+      # Where the mark says finished and the measurement is under half the
+      # runtime, the runtime is the better answer and the difference is assumed
+      # rather than measured — which is the bucket a mark made by hand already
+      # lands in, because that is exactly what this is. Nothing is invented: a
+      # title with no known runtime is left alone, and a play that really was
+      # measured keeps its own figure.
+      {%{watched: watched, skipped: past}, _}
+      when progress in [:done, :seen] and is_integer(runtime) and runtime > 0 ->
+        if watched < div(runtime, 2) do
+          {bump(acc, key, names, runtime, runtime - watched, progress), unknown, skipped + past, measured}
+        else
+          {bump(acc, key, names, watched, 0, progress), unknown, skipped + past, measured + 1}
+        end
+
       # Measured: the seconds really played here, and what was seeked past.
       {%{watched: watched, skipped: past}, _} ->
         {bump(acc, key, names, watched, 0, progress), unknown, skipped + past, measured + 1}

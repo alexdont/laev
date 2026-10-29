@@ -3,6 +3,42 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.46
+
+**A tick log, and the sessions it folds into.** `ticks/<device>.log`, synced as
+its own collection, one line per sample:
+
+    1793000120 movie-27324 5
+
+Unix seconds, the key the position files already use, and the seconds that
+sample measured. `Laev.Stints.ticks/0` reads every device's; `sessions/1` folds
+them into bounded periods of activity, so "what was I watching on Tuesday
+evening" has an answer. Session ends are inferred from the silence rather than
+reported, because players are killed and laptops close and nothing can be
+relied on to say stop. Written from `Laev.Position.record/2`, which every
+player funnels through, so the mpv script, the VLC poller and a browser all
+land in the same record.
+
+The log folds as it is written: a tick that carries straight on from the line
+at the end of the file replaces it rather than appending. A two-hour film is
+one line instead of fourteen hundred — which matters because a directory syncs
+as one record holding the whole file, and a year of unfolded ticks would pass
+the sync document's five megabyte ceiling on its own. Only where the watching
+is continuous, though: merging a tick that came after a pause would move the
+session's start forward by the length of the pause, since a start is read back
+as `at - seconds`. A pause writes a second line.
+
+**A finished mark is no longer undercut by a sliver of measurement.**
+`Laev.Stats` preferred the `played/` figure whenever one existed, which is
+right for a play the mpv script followed and wrong for the ordinary browser
+case: a position of `done` beside four minutes of measurement. Avengers:
+Endgame read as 254 seconds. Where the mark says finished and the measurement
+is under half the runtime, the runtime is counted and the difference is
+*assumed* rather than measured — the bucket a mark made by hand already lands
+in, because that is what it is. A title with no known runtime is left alone and
+a real measurement keeps its own figure. On the account this was found on: 34
+entries and **28h 15m** recovered.
+
 ## 0.1.45
 
 **Fifty-nine anime franchises.** TMDB files a franchise's parts as unrelated

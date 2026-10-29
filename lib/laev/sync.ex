@@ -70,7 +70,7 @@ defmodule Laev.Sync do
   # Both are facts about your account rather than this computer — what
   # MyAnimeList says about each anime, how many seasons of a show have aired —
   # so they belong with everything else that follows you around.
-  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched, :holds, :anime, :seasons]
+  @collections [:watchlist, :resume, :positions, :tracks, :played, :watched, :ticks, :holds, :anime, :seasons]
 
   # The whole bundle lives in one document per token. The server treats the
   # last path segment as a free-form doc name — `<base>/<token>/<doc>`.
@@ -482,6 +482,7 @@ defmodule Laev.Sync do
       tracks: read_dir(Path.join(data_dir(), "tracks")),
       played: read_dir(Path.join(data_dir(), "played")),
       watched: read_dir(Path.join(data_dir(), "watched")),
+      ticks: read_dir(Path.join(data_dir(), "ticks")),
       holds: read_dir(Path.join(data_dir(), "holds")),
       anime: read_json_map(Path.join(data_dir(), "anime.json")),
       seasons: read_json_map(Path.join(data_dir(), "seasons.json"))
@@ -665,6 +666,7 @@ defmodule Laev.Sync do
     apply_dir(Path.join(data_dir(), "tracks"), merged[:tracks] || %{})
     apply_dir(Path.join(data_dir(), "played"), merged[:played] || %{})
     apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{})
+    apply_dir(Path.join(data_dir(), "ticks"), merged[:ticks] || %{})
     apply_dir(Path.join(data_dir(), "holds"), merged[:holds] || %{})
     write_json_map(Path.join(data_dir(), "anime.json"), live(merged, :anime))
     write_json_map(Path.join(data_dir(), "seasons.json"), live(merged, :seasons))
