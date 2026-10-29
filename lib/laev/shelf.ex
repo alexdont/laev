@@ -272,11 +272,74 @@ defmodule Laev.Shelf do
     end
   end
 
-  defp last_watched_at(type, id) do
+  # Seconds of measurement below which a play was somebody opening a player and
+  # closing it, rather than watching anything.
+  @played_floor 120
+
+  # When this was last *watched*, which is not when its player was last opened.
+  #
+  # A resume entry's `updated_at` is stamped the moment a source resolves,
+  # before a frame plays — it is what orders "continue watching", and it has to
+  # keep being stamped there. Read as a watch date it says that pressing play
+  # and closing the window five seconds later was a viewing: Witch Hat Atelier,
+  # watched on MyAnimeList years before laev existed, had six measured seconds
+  # from a browser test, and its eight imported marks — three hours of them —
+  # moved into the last seven days.
+  #
+  # So the question is answered by what was measured, in order of how much each
+  # source actually knows:
+  #
+  #   1. a session in the tick log, which exists precisely to say when;
+  #   2. before that log existed, a measurement long enough to be a viewing;
+  #   3. otherwise undated, because the stamp knows only that a player opened.
+  #
+  # `mal_id` is given for anime, whose ticks are filed under the MyAnimeList
+  # entry rather than the TMDB show — and whose callers already prefer MAL's
+  # own timestamp, which becomes the answer here instead of a stamp, as it
+  # should always have been.
+  defp last_watched_at(type, id, mal_id \\ nil) do
+    items = Enum.reject([mal_id && "mal-#{mal_id}", "#{type}-#{id}"], &is_nil/1)
+
+    cond do
+      at = session_at(items) -> at
+      measured(items) >= @played_floor -> resume_stamp(type, id)
+      true -> 0
+    end
+  end
+
+  defp resume_stamp(type, id) do
     case Laev.Resume.get(type, id) do
       %{"updated_at" => at} when is_integer(at) -> at
       _ -> 0
     end
+  end
+
+  defp session_at(items) do
+    seen = watch_dates()
+
+    items
+    |> Enum.map(&Map.get(seen, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> nil end)
+  end
+
+  defp measured(items) do
+    totals = measured_by_item()
+    items |> Enum.map(&Map.get(totals, &1, 0)) |> Enum.max(fn -> 0 end)
+  end
+
+  # Both read once per run rather than per row: a shelf of eighty titles should
+  # not read the tick log eighty times.
+  defp watch_dates do
+    SessionCache.fetch(:watch_dates, 30, fn ->
+      Laev.Stints.sessions()
+      |> Enum.group_by(& &1.item, & &1.ended_at)
+      |> Map.new(fn {item, ends} -> {item, Enum.max(ends)} end)
+    end) || %{}
+  end
+
+  defp measured_by_item do
+    SessionCache.fetch(:measured_by_item, 30, fn -> Laev.Position.measured_by_item() end) || %{}
   end
 
   # "Probably obviously done": nothing has aired for five years. A newer show
@@ -425,7 +488,7 @@ defmodule Laev.Shelf do
       held: anime.status == "on_hold",
       # MAL's own timestamp, or laev's if it played this here more recently —
       # either way, when you last watched it.
-      watched_at: max(anime[:updated] || 0, last_watched_at(type, tmdb_id)),
+      watched_at: max(anime[:updated] || 0, last_watched_at(type, tmdb_id, mal_id)),
       order: order
     })
   end

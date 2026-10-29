@@ -408,6 +408,45 @@ defmodule Laev.Position do
   end
 
   @doc """
+  How many seconds were measured for each title: `%{"movie-603" => 5400, …}`.
+
+  Summed per title rather than per key, so a show's episodes add up to the show
+  — the same grouping the tick log uses. One directory read, for callers that
+  would otherwise ask per row.
+  """
+  def measured_by_item do
+    dir = Path.join(data_dir(), "played")
+
+    case File.ls(dir) do
+      {:ok, names} ->
+        Enum.reduce(names, %{}, fn name, acc ->
+          case measured_in(dir, name) do
+            seconds when is_integer(seconds) and seconds > 0 ->
+              Map.update(acc, Laev.Stints.item(name), seconds, &(&1 + seconds))
+
+            _ ->
+              acc
+          end
+        end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp measured_in(dir, name) do
+    with {:ok, body} <- File.read(Path.join(dir, name)),
+         [watched | _rest] <- String.split(String.trim(body), " "),
+         {seconds, _} <- Integer.parse(watched) do
+      seconds
+    else
+      _ -> 0
+    end
+  end
+
+  @doc """
   Everything finished, with when it was finished: a list of
   `%{type: "movie" | "tv" | "mal", id: integer, at: posix}`, newest first.
 

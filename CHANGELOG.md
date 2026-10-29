@@ -3,6 +3,34 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.47
+
+**A resume stamp is no longer read as a watch date.** `Laev.Shelf`'s
+`last_watched_at` read a resume entry's `updated_at`, which is stamped the
+moment a source resolves, before a frame plays — so pressing play and closing
+the player five seconds later told every screen you had watched that title
+today. Witch Hat Atelier, watched on MyAnimeList years before laev existed,
+had six measured seconds from a browser test, and its eight imported marks —
+three hours of them — sat in the last seven days.
+
+The question is answered by what was measured, in order of how much each source
+knows: a session in the tick log, which exists precisely to say when; failing
+that, a measurement of at least two minutes, which vouches for the stamp for
+anything recorded before the log existed; otherwise undated, because the stamp
+knows only that a player was opened. Anime is dated by MyAnimeList's own
+timestamp, which is what it should always have been.
+
+`updated_at` keeps its meaning and keeps being stamped at resolution — it is
+what orders "continue watching", and that is the reason one field could not
+serve both.
+
+On the account this was found on, five titles lost a date and all five had
+earned it: 0, 0, 0, 1 and 7 seconds of measurement between them.
+
+**Elixir 1.19 is enough.** The requirement said `~> 1.20` because that was the
+version to hand, not because anything needed it — the whole suite passes on
+1.19.6. Relaxed, so a 1.19 toolchain stops warning on every compile.
+
 ## 0.1.46
 
 **A tick log, and the sessions it folds into.** `ticks/<device>.log`, synced as
