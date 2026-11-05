@@ -3,6 +3,46 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.49
+
+**Pressing play checks one source, not eight.**
+
+Auto-pick probed a page of eight releases and then played the best of them.
+But the pick is `hd(usable)` — the highest-ranked source that resolved, within
+the resolution ceiling, not a cam rip — so probing in rank order and stopping
+at the first answer chooses the same release. The other seven probes could
+never change what played.
+
+What they cost, measured rather than guessed. Each resolve is six Real-Debrid
+requests, so a page was around forty-eight; and because the page was only as
+quick as its slowest member, it was *slower* as well as dearer. Two trending
+films, the same sources, both paths:
+
+    Primetime                 30143ms  55 requests  →   470ms   5 requests
+    Apocalypse Z: New World   16509ms  55 requests  →  1729ms   3 requests
+
+Same pick in both cases. Across nine titles, eight resolved on the first
+attempt, between 516ms and 2444ms.
+
+It is not simply sequential, because failures stack: one title's first two
+sources failed in 1.5s and 1.3s and its third hung for 11.8s, which served one
+at a time is fifteen seconds of nothing. So if the best source has not answered
+within 2.5 seconds a second is started *beside* it, up to three at once, and
+the best-ranked of whatever answers wins. That case went from 31868ms and 30
+requests to 13794ms and 18.
+
+Where this can pick differently: only when the leader is slow enough to be
+hedged and a lower-ranked release answers first. That is the trade on purpose —
+a good source now against a marginally better one later — and it cannot happen
+at all on a play where the first source answers in time, which is most of them.
+
+Asking for another source still gets the whole list, probed at that point
+rather than on the chance that somebody might ask. The quality-diverse page of
+eight is what the picker is still made of.
+
+`Laev.Providers.resolve_best/2` takes `hedge_after:` (default 2500ms),
+`max_in_flight:` (3) and `resolver:` for testing.
+
 ## 0.1.48
 
 **`laev tmdb import-imdb <ratings.csv>`** — a watch history with its dates.

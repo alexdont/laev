@@ -23,6 +23,26 @@ defmodule Laev.Providers do
   # waves, and the work is almost all waiting on somebody else's server.
   @probe_concurrency 4
 
+  # How long the best source gets to answer before a second is started beside
+  # it.
+  #
+  # Measured across nine titles: eight resolved on the first attempt, between
+  # 516ms and 2444ms. So the common play never hedges at all and costs one
+  # resolve — six Real-Debrid requests against the forty-eight a page of eight
+  # costs, and about three times faster, because a page is only as quick as its
+  # slowest member.
+  #
+  # The tenth title is why this is not simply sequential: its first two sources
+  # failed in 1.5s and 1.3s and its third hung for 11.8s, which serially is
+  # fifteen seconds of nothing. Hedging starts the second attempt at 2.5s
+  # instead of waiting for that.
+  @hedge_after 2_500
+
+  # And never more than this many at once, which is the whole point: a page of
+  # eight leaves up to eight torrents in somebody's debrid account for one film
+  # watched.
+  @max_in_flight 3
+
   @doc """
   Resolve on the first provider that can play the magnet. RD's error is
   returned when everything fails (it's the primary; its reasons are the
@@ -196,24 +216,101 @@ defmodule Laev.Providers do
   """
   def resolve_best(sources, opts \\ []) do
     notify = Keyword.get(opts, :notify, fn _ -> :ok end)
+    hedge = Keyword.get(opts, :hedge_after, @hedge_after)
+    in_flight = Keyword.get(opts, :max_in_flight, @max_in_flight)
     resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
-    do_resolve_best(sources, notify, resolve_opts, [])
+    # The prober is an argument so the racing above it can be tested without a
+    # debrid account and without waiting on anybody's network.
+    resolver = Keyword.get(opts, :resolver, &probe_resolve/2)
+
+    sources
+    |> Enum.with_index()
+    |> race([], notify, {resolver, resolve_opts}, hedge, in_flight, [])
   end
 
-  defp do_resolve_best([], _notify, _resolve_opts, skipped),
+  # Nothing left to try and nothing still trying.
+  defp race([], [], _notify, _probe, _hedge, _in_flight, skipped),
     do: {:error, {:all_failed, Enum.reverse(skipped)}}
 
-  defp do_resolve_best([source | rest], notify, resolve_opts, skipped) do
-    notify.({:trying, source.name})
+  defp race(queue, flight, notify, probe, hedge, in_flight, skipped) do
+    # Always something in the air: the best source not yet tried goes first.
+    {queue, flight} = launch(queue, flight, notify, probe, in_flight)
 
-    case probe_resolve(source, resolve_opts) do
-      {:ok, stream} ->
-        {:ok, stream, source, Enum.reverse(skipped)}
+    case Task.yield_many(Enum.map(flight, &elem(&1, 2)), hedge) do
+      answers when is_list(answers) ->
+        {done, waiting} = Enum.split_with(answers, fn {_task, answer} -> answer != nil end)
 
-      {:error, reason} ->
-        reason = if match?({:rd, 451, _}, reason), do: :infringing, else: reason
-        notify.({:skipped, source.name, reason})
-        do_resolve_best(rest, notify, resolve_opts, [{source.name, reason} | skipped])
+        finished =
+          for {task, answer} <- done,
+              {index, source, ^task} <- flight,
+              do: {index, source, unwrap(answer)}
+
+        still = for {task, nil} <- waiting, {index, source, ^task} <- flight, do: {index, source, task}
+
+        case winner(finished) do
+          {index, source, stream} ->
+            # The losers are abandoned rather than waited for. A probe already
+            # in flight will finish on Real-Debrid's side whatever we do, so
+            # there is nothing to gain by watching it.
+            for {_i, _s, task} <- still, do: Task.shutdown(task, :brutal_kill)
+            _ = index
+            {:ok, stream, source, Enum.reverse(skipped)}
+
+          nil ->
+            skipped = Enum.reduce(failures(finished), skipped, fn {name, reason}, acc ->
+              notify.({:skipped, name, reason})
+              [{name, reason} | acc]
+            end)
+
+            # Nobody has answered inside the window, so a second source is
+            # started beside the first rather than behind it — see @hedge_after.
+            race(queue, still, notify, probe, hedge, in_flight, skipped)
+        end
+    end
+  end
+
+  defp launch(queue, flight, notify, probe, in_flight) do
+    cond do
+      queue != [] and flight == [] ->
+        [{source, index} | rest] = queue
+        notify.({:trying, source.name})
+        {rest, [start(index, source, probe)]}
+
+      # One more alongside what is already running, while the cap allows.
+      queue != [] and length(flight) < in_flight ->
+        [{source, index} | rest] = queue
+        notify.({:hedging, source.name})
+        {rest, flight ++ [start(index, source, probe)]}
+
+      true ->
+        {queue, flight}
+    end
+  end
+
+  defp start(index, source, {resolver, resolve_opts}),
+    do: {index, source, Laev.Scope.async(fn -> resolver.(source, resolve_opts) end)}
+
+  defp unwrap({:ok, result}), do: result
+  defp unwrap({:exit, reason}), do: {:error, {:probe_crashed, reason}}
+
+  # The best-ranked of whatever has actually answered. While nothing is hedged —
+  # which is every play where the first source answers in time — that is the
+  # first source, and the pick is exactly what probing the whole page would have
+  # chosen. Once hedging starts it can be a lower-ranked release: the leader was
+  # slow, and a good source now beats a marginally better one later.
+  defp winner(finished) do
+    finished
+    |> Enum.filter(fn {_index, _source, result} -> match?({:ok, _}, result) end)
+    |> Enum.min_by(fn {index, _source, _result} -> index end, fn -> nil end)
+    |> case do
+      {index, source, {:ok, stream}} -> {index, source, stream}
+      _ -> nil
+    end
+  end
+
+  defp failures(finished) do
+    for {_index, source, {:error, reason}} <- finished do
+      {source.name, if(match?({:rd, 451, _}, reason), do: :infringing, else: reason)}
     end
   end
 end

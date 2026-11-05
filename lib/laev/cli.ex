@@ -4324,7 +4324,17 @@ defmodule Laev.CLI do
     check_subscription()
     sources = within_ceiling(sources)
 
-    if Process.get(:laev_auto) do
+    # Auto-pick does not need a page.
+    #
+    # The pick is the best-ranked source that resolved, within the ceiling —
+    # so probing eight and taking the head of them and probing them in order
+    # until one answers choose the same release. The page cost about
+    # forty-eight Real-Debrid requests and the wall time of its slowest
+    # member, to decide something the first answer already decided.
+    #
+    # The page is still what the picker is made of, so asking for the list
+    # comes back here with manual_pick? set and gets one.
+    if auto_pick?(ctx, playable_so_far) do
       auto_play(sources, rd_opts, ctx)
     else
       do_probe_and_pick(sources, rd_opts, ctx, playable_so_far, sub_task)
@@ -4376,13 +4386,26 @@ defmodule Laev.CLI do
   # --auto: no source picker — walk the ranked list and play the first
   # source that actually resolves (RD.resolve_best stops at the first hit,
   # so nothing beyond it is probed).
+  # Auto unless somebody has asked to choose — `--auto` forces it, the setting
+  # is on by default, and anything already probed means we are partway through a
+  # picker rather than starting a play.
+  defp auto_pick?(ctx, playable_so_far) do
+    playable_so_far == [] and
+      (Process.get(:laev_auto) || (Config.auto_source?() and not manual_pick?(ctx)))
+  end
+
   defp auto_play(sources, rd_opts, ctx) do
     sub_task = if Process.get(:laev_mode, :play) == :play, do: start_subtitle_task(ctx)
-    IO.puts(:stderr, "auto — trying sources best-first…")
+    IO.puts(:stderr, "auto — best source first…")
 
     notify = fn
       {:trying, name} ->
         IO.puts(:stderr, "  → #{String.slice(name, 0, 70)}")
+
+      # Said rather than silent: two things are now being checked at once, and
+      # the reason is that the first one is taking its time.
+      {:hedging, name} ->
+        IO.puts(:stderr, IO.ANSI.format([:faint, "  → also trying #{String.slice(name, 0, 56)}", :reset]))
 
       {:skipped, name, reason} ->
         IO.puts(:stderr, "  ✗ #{String.slice(name, 0, 55)} — #{unplayable_reason(reason)}")
@@ -4390,6 +4413,10 @@ defmodule Laev.CLI do
 
     case Providers.resolve_best(sources, Keyword.put(rd_opts, :notify, notify)) do
       {:ok, stream, source, _skipped} ->
+        # What was not tried is remembered, so "try another source" opens a
+        # picker and checks a page then — rather than a page being checked
+        # every time on the chance that somebody might ask.
+        save_probe_state(ctx, [{source, stream}], Enum.reject(sources, &(&1.hash == source.hash)), rd_opts)
         finish_play(ctx, source, stream, sub_task)
 
       {:error, {:all_failed, _skipped}} ->
@@ -4476,7 +4503,14 @@ defmodule Laev.CLI do
         offer_picker(playable, rest, rd_opts, ctx, sub_task)
 
       _ ->
-        offer_picker(playable, rest, rd_opts, ctx, sub_task)
+        # Asking for the list after auto played means asking for a list, and
+        # the auto path only checked the one it played — so the page is checked
+        # now rather than offering a list of one and a button to get the rest.
+        if length(playable) <= 1 and rest != [] do
+          do_probe_and_pick(rest, rd_opts, ctx, playable, sub_task)
+        else
+          offer_picker(playable, rest, rd_opts, ctx, sub_task)
+        end
     end
   end
 
