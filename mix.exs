@@ -18,6 +18,21 @@ defmodule Laev.MixProject do
     ]
   end
 
+  # Burrito bundles whatever ERTS the build machine happens to run, and the CDN
+  # it fetches from does not carry every patch release: building on OTP 29.1.1
+  # fails with a 404 for both targets. So the bundled runtime is pinned to the
+  # newest one the CDN actually has, rather than to this machine's `pacman -Syu`.
+  #
+  # Bump it when the CDN catches up, and keep it at or below the OTP that
+  # compiles the release — the bundle runs the .beam files built here.
+  @erts "29.1"
+  @beam_machine "https://beam-machine-universal.b-cdn.net"
+  # The CDN asks for this, and burrito sends it on every fetch of its own.
+  @be_kind "?please-respect-my-bandwidth-costs=thank-you"
+
+  @erts_linux "#{@beam_machine}/OTP-#{@erts}/linux/x86_64/any/otp_#{@erts}_linux_any_x86_64.tar.gz#{@be_kind}"
+  @erts_macos "#{@beam_machine}/OTP-#{@erts}/macos/universal/otp_#{@erts}_macos_universal.tar.gz#{@be_kind}"
+
   # `MIX_ENV=prod mix release laev` → burrito_out/laev_linux_x86_64:
   # a single self-contained binary (BEAM bundled, no Erlang needed on the
   # user's machine) — the artifact package managers ship.
@@ -27,8 +42,8 @@ defmodule Laev.MixProject do
         steps: [:assemble, &clean_stale_erts/1, &Burrito.wrap/1, &clean_stale_erts/1],
         burrito: [
           targets: [
-            linux_x86_64: [os: :linux, cpu: :x86_64],
-            macos_aarch64: [os: :darwin, cpu: :aarch64]
+            linux_x86_64: [os: :linux, cpu: :x86_64, custom_erts: @erts_linux],
+            macos_aarch64: [os: :darwin, cpu: :aarch64, custom_erts: @erts_macos]
           ]
         ]
       ]

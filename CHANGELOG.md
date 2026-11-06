@@ -89,6 +89,12 @@ requests instead of ten. An honest trade rather than a free win: fewer looks
 means a coarser answer later in the window, and the five-second window the
 probes use costs what it always did.
 
+### Building
+
+The runtime the standalone binaries bundle is pinned to the newest OTP the BEAM
+Machine CDN actually carries (29.1), rather than to whatever the build machine
+was last updated to: building on 29.1.1 fetched a 404 for both targets.
+
 ## 0.1.49
 
 **Pressing play checks one source, not eight.**
