@@ -3,6 +3,75 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.54
+
+**Why the tick log had days of nothing in it, and why the day log had too much.**
+
+A second report from the same library user: the tick log was missing five
+consecutive days that the day log beside it had, and a 30-minute film left no
+trace at all. Four separate things, and the one the report was surest about was
+not the one causing the hole.
+
+### Every mpv play was missing from the tick log
+
+The two logs are written from different places, and only one of them survives
+laev closing. The mpv script writes the position, the played file and the day
+log *itself* — deliberately, so that a film survives laev exiting, mpv being
+killed or the machine losing power. The tick log was written only by laev's own
+side, from `Position.record/2`, which an mpv play never reaches: laev launches
+the player and goes.
+
+So the days with plays and no ticks are mpv days, and the plays with ticks were
+the browser and VLC paths all along. The script now writes ticks too, a minute
+at a time (a tick is a stretch of watching, not a five-second sample), flushed
+when playback ends — `laev-ticks` and `laev-key` passed beside the day log. The
+Lua tests run the real script under an interpreter and check that the ticks add
+up to what the day log says.
+
+### Resuming a film logged its earlier sessions again, onto today
+
+`load_played` assigned `logged` before the `local logged` was declared, which
+in Lua writes a *global* of that name while the functions that read it see the
+local. It therefore stayed 0 for every resume, with `watched` already loaded
+from the played file, so the first save wrote **the whole of a film's earlier
+sessions to today**. Forty minutes watched last night, resumed tonight, counted
+again tonight. Both counters are now declared above everything that assigns
+them and reset from what was loaded.
+
+### Extending a line in an unterminated file glued two of them
+
+`open_tail/1` computed the last line's offset as `size - byte_size(last) - 1`,
+where the `- 1` is the newline after it. That is only right for a file that
+ends in one. For a file that doesn't — what sync wrote back before 0.1.53, or
+what a process killed mid-write leaves — it pointed one byte early, at the
+newline ending the *previous* line, and the truncate-and-rewrite then merged
+the two:
+
+    1793960473 tv-289517-s1e8 3511793960669 movie-1657630 4
+
+This is where laev made those lines itself, rather than inheriting them from
+sync. The start of the last line is now found rather than computed, and the
+rewrite leaves the file terminated. The mpv script also writes the newline a
+damaged log is missing before appending to it.
+
+### And three smaller things from the same report
+
+* **Two writers no longer race.** Extending means read-the-tail, truncate,
+  write; two callers doing that at once (two progress posts, a poller and a
+  page) could have the second overwrite the first. It is serialized per file,
+  and a lock nobody can take falls through to appending, which is always safe.
+* **A lost tick says so.** The write ended in `rescue _ -> :ok`, and a silence
+  is indistinguishable from not having watched anything. Failures are logged.
+* **A pull cannot shorten this device's own log.** Only this machine appends to
+  `ticks/<device>.log`, so a pulled copy can be behind it but never ahead, and
+  writing it back would discard whatever has been watched since the last push.
+  It is applied when there is nothing here (a restored machine wants its
+  history) or when it genuinely extends what is here, and a tombstone for it
+  from a device that hasn't got the file no longer deletes it.
+
+Ticks that were never written cannot be recovered; the day log keeps those
+days, as it always did.
+
 ## 0.1.53
 
 **Sync was breaking the logs it carried, and the day totals were fiction.**

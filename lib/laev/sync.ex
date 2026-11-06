@@ -681,6 +681,7 @@ defmodule Laev.Sync do
     apply_dir(Path.join(data_dir(), "played"), merged[:played] || %{})
     apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{}, :log)
     apply_dir(Path.join(data_dir(), "ticks"), merged[:ticks] || %{}, :log)
+    # Nothing above may have shortened this machine's own logs; see `mine?/2`.
     apply_dir(Path.join(data_dir(), "dated"), merged[:dated] || %{})
     apply_dir(Path.join(data_dir(), "holds"), merged[:holds] || %{})
     write_json_map(Path.join(data_dir(), "anime.json"), live(merged, :anime))
@@ -735,14 +736,42 @@ defmodule Laev.Sync do
     for {key, rec} <- recs do
       path = Path.join(dir, key)
 
-      if rec["deleted"],
-        do: File.rm(path),
-        else: File.write(path, terminate(to_string(rec["data"]), shape))
+      cond do
+        # A tombstone for this machine's own log is another device saying it
+        # hasn't got a file only this one writes. That is not a deletion.
+        rec["deleted"] -> unless mine?(key, shape), do: File.rm(path)
+        keep_local?(path, key, rec, shape) -> :ok
+        true -> File.write(path, terminate(to_string(rec["data"]), shape))
+      end
     end
 
     :ok
   rescue
     _ -> :ok
+  end
+
+  # This device's own log in a log collection — `ticks/<device>.log` and
+  # `watched/<device>.log` are written by this machine and read by the others.
+  defp mine?(key, :log), do: key == "#{Laev.Position.device_id()}.log"
+  defp mine?(_key, _shape), do: false
+
+  # A log only ever grows, and only its own device appends to it. So a pulled
+  # copy of *this* machine's log can be behind but never ahead, and writing it
+  # back would throw away whatever has been watched since it was pushed — the
+  # remote copy is for the other devices to read, not for this one to be told
+  # what it did.
+  #
+  # It is still applied when there is nothing here (a restored machine wants
+  # its history back) or when the remote copy genuinely extends the local one,
+  # which is the one case where it knows something this device does not.
+  defp keep_local?(path, key, rec, shape) do
+    with true <- mine?(key, shape),
+         {:ok, local} <- File.read(path),
+         false <- String.trim(local) == "" do
+      not String.starts_with?(String.trim(to_string(rec["data"])), String.trim(local))
+    else
+      _ -> false
+    end
   end
 
   @doc false

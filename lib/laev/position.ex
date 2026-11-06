@@ -19,7 +19,7 @@ defmodule Laev.Position do
   -- and remembers the selected subtitle/audio tracks per source.
   -- Written by laev on every launch; do not edit.
   local options = require "mp.options"
-  local opts = { file = "", tracks = "", played = "", log = "" }
+  local opts = { file = "", tracks = "", played = "", log = "", ticks = "", key = "" }
   options.read_options(opts, "laev")
 
   -- Time actually watched, as opposed to time the playhead covered. The
@@ -31,6 +31,15 @@ defmodule Laev.Position do
   local watched = 0
   local skipped = 0
   local last_pos = nil
+
+  -- How much of `watched` each log has been told about. Declared here, above
+  -- everything that assigns them: `load_played` used to set `logged` before
+  -- the `local` existed, which in Lua writes a *global* of that name while
+  -- the functions below read the local. It stayed 0 for every resume, so the
+  -- first save re-logged the whole of a film's earlier sessions onto today —
+  -- a 40-minute resume added 40 minutes to the wrong day, every time.
+  local logged = 0
+  local ticked = 0
 
   local function write_played()
     if opts.played == "" then return end
@@ -52,7 +61,9 @@ defmodule Laev.Position do
       if w then watched = tonumber(w) skipped = tonumber(s) end
     end
 
+    -- Everything loaded was logged on the day it happened.
     logged = watched
+    ticked = watched
   end
 
   -- A day-by-day record of what was actually watched, appended as it happens:
@@ -61,17 +72,56 @@ defmodule Laev.Position do
   -- losing power mid-film — none of which the escript would live through to
   -- record. Dates are local, because a heatmap of your evenings should agree
   -- with the calendar on your wall.
-  local logged = 0
+  -- A log that does not end in a newline would have the next line appended
+  -- onto the end of the last one, and two entries in one line parse as
+  -- neither. Older laevs wrote such files (sync trimmed them); this is how
+  -- they stop being a problem rather than a growing one.
+  local function terminated(path)
+    local f = io.open(path, "rb")
+    if not f then return true end
+    local size = f:seek("end")
+    if size == 0 then f:close() return true end
+    f:seek("set", size - 1)
+    local last = f:read(1)
+    f:close()
+    return last == "\\n"
+  end
+
+  local function append(path, text)
+    local f = io.open(path, "a")
+    if not f then return false end
+    if not terminated(path) then f:write("\\n") end
+    f:write(text)
+    f:close()
+    return true
+  end
 
   local function log_watched()
     if opts.log == "" then return end
     local delta = math.floor(watched - logged)
     if delta < 1 then return end
-    local f = io.open(opts.log, "a")
-    if f then
-      f:write(os.date("%Y-%m-%d") .. " " .. delta .. "\\n")
-      f:close()
+    if append(opts.log, os.date("%Y-%m-%d") .. " " .. delta .. "\\n") then
       logged = logged + delta
+    end
+  end
+
+  -- The same seconds with a timestamp and the key on them: the day log says
+  -- how much a day held, this says what filled it. Written here for the same
+  -- reason the day log is — laev itself is usually gone long before a film
+  -- ends, and until now that meant **every mpv play was missing from the tick
+  -- log entirely**, while the day log had it. Days of watching with no trace
+  -- of what was watched.
+  --
+  -- A minute at a time, rather than every save: a tick is a stretch of
+  -- watching, not a sample, and a crash can cost at most the last minute.
+  -- `force` flushes what is left when playback ends.
+  local function log_tick(force)
+    if opts.ticks == "" or opts.key == "" then return end
+    local delta = math.floor(watched - ticked)
+    if delta < 1 then return end
+    if not force and delta < 60 then return end
+    if append(opts.ticks, os.time() .. " " .. opts.key .. " " .. delta .. "\\n") then
+      ticked = ticked + delta
     end
   end
 
@@ -156,6 +206,7 @@ defmodule Laev.Position do
     if not pos then return end
     write_played()
     log_watched()
+    log_tick(false)
     local dur = mp.get_property_number("duration")
 
     if dur and dur > 0 and pos < dur * 0.5 then saw_early = true end
@@ -171,10 +222,16 @@ defmodule Laev.Position do
 
   mp.add_periodic_timer(1, accumulate)
   mp.add_periodic_timer(5, save)
-  mp.register_event("shutdown", save)
-  mp.register_event("end-file", function(e)
+
+  -- Playback is over: whatever is left of the minute is written now, since
+  -- there is no next save to carry it.
+  local function finish(e)
+    log_tick(true)
     if e and e.reason == "eof" then mark_done() end
-  end)
+  end
+
+  mp.register_event("shutdown", function() save() log_tick(true) end)
+  mp.register_event("end-file", finish)
   """
 
   @doc """
@@ -202,7 +259,12 @@ defmodule Laev.Position do
             "--script-opts-append=laev-file=#{file}",
             "--script-opts-append=laev-tracks=#{tracks}",
             "--script-opts-append=laev-played=#{played}",
-            "--script-opts-append=laev-log=#{log_file()}"
+            "--script-opts-append=laev-log=#{log_file()}",
+            # The tick log and the key to write into it. Without these the
+            # script keeps the day log and nothing else, which is how every
+            # mpv play came to be missing from the per-title timeline.
+            "--script-opts-append=laev-ticks=#{Laev.Stints.log_file()}",
+            "--script-opts-append=laev-key=#{key}"
           ] ++ track_args(tracks)
 
         case read(file) do

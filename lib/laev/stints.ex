@@ -47,6 +47,8 @@ defmodule Laev.Stints do
   second line, and a film watched straight through is one.
   """
 
+  require Logger
+
   # Ticks this close together are one session.
   @gap 120
 
@@ -83,7 +85,20 @@ defmodule Laev.Stints do
   def tick(_key, _seconds, _at), do: :ok
 
   # Either extend the line at the end of the file or start a new one.
-  defp write(path, {at, key, seconds}) do
+  #
+  # Serialized on the path, because extending means read-the-tail, truncate,
+  # write: two callers doing that at once (two progress reports from a page,
+  # a poller and a page together) can have one read a tail the other is about
+  # to replace, and the write that lands second wins. A lock nobody can take
+  # falls through to appending, which is always safe.
+  defp write(path, tick) do
+    case :global.trans({{__MODULE__, path}, self()}, fn -> extend_or_append(path, tick) end, [node()], 20) do
+      :aborted -> append(path, tick)
+      result -> result
+    end
+  end
+
+  defp extend_or_append(path, {at, key, seconds}) do
     case open_tail(path) do
       {:ok, {last_at, ^key, last_seconds}, offset} when at - seconds <= last_at + @slack ->
         # The same watching, carrying straight on from where the last line
@@ -93,18 +108,39 @@ defmodule Laev.Stints do
         replace_tail(path, offset, {max(at, last_at), key, last_seconds + seconds})
 
       _ ->
-        File.write(path, line({at, key, seconds}), [:append])
+        append(path, {at, key, seconds})
     end
 
     :ok
   rescue
-    _ -> :ok
+    error ->
+      # A dropped tick used to be silent, and a silence is indistinguishable
+      # from not having watched anything. It still must not take a playback
+      # down, so it is recorded and swallowed rather than raised.
+      Logger.warning("laev: a tick was lost writing #{path}: #{Exception.message(error)}")
+      :ok
+  end
+
+  defp append(path, {_at, _key, _seconds} = tick) do
+    File.write(path, line(tick), [:append])
+    :ok
   end
 
   defp line({at, key, seconds}), do: "#{at} #{key} #{seconds}\n"
 
   # The last line of the log and the byte offset it starts at. Only the tail is
   # read — the file is never loaded to append to it.
+  #
+  # The offset used to be `size - byte_size(last) - 1`, where the `- 1` is the
+  # newline after the line. That is right only for a file that ends in one.
+  # For a file that doesn't — what sync used to write back, or what a process
+  # killed mid-write leaves — it points one byte early, at the newline that
+  # *ended the line before*. `replace_tail/3` then truncated there, and the
+  # previous line and the rewritten one became a single unreadable one:
+  #
+  #     1793960473 tv-289517-s1e8 3511793960669 movie-1657630 4
+  #
+  # So the start of the last line is found rather than computed.
   defp open_tail(path) do
     with {:ok, %{size: size}} when size > 0 <- File.stat(path),
          read_from = max(size - 512, 0),
@@ -112,20 +148,30 @@ defmodule Laev.Stints do
          {:ok, chunk} <- :file.pread(handle, read_from, size - read_from) do
       :file.close(handle)
 
-      case String.split(chunk, "\n", trim: true) do
-        [] ->
-          :none
-
-        parts ->
-          last = List.last(parts)
-
-          case parse(last) do
-            [tick] -> {:ok, tick, size - byte_size(last) - 1}
-            _ -> :none
-          end
+      with {line, offset} <- last_line(chunk, read_from),
+           [tick] <- parse(line) do
+        {:ok, tick, offset}
+      else
+        _ -> :none
       end
     else
       _ -> :none
+    end
+  end
+
+  # The final line of a chunk read from the end of a file, and where in the
+  # file it starts. A chunk with no newline in it has either the whole file in
+  # it (so the line starts at nothing) or a line that began before the window,
+  # which cannot be located and is left alone.
+  defp last_line(chunk, read_from) do
+    body = String.trim_trailing(chunk, "\n")
+
+    case :binary.matches(body, "\n") do
+      [] when read_from == 0 and body != "" -> {body, 0}
+      [] -> :none
+      matches ->
+        {at, _length} = List.last(matches)
+        {binary_part(body, at + 1, byte_size(body) - at - 1), read_from + at + 1}
     end
   end
 
