@@ -35,6 +35,7 @@ defmodule Laev.CLI do
       ["stats" | _] -> stats()
       ["setup" | _] -> setup()
       ["doctor" | _] -> doctor()
+      ["clean" | _] -> clean()
       ["update" | _] -> update()
       ["mal" | rest] -> mal(rest)
       ["tmdb" | rest] -> tmdb_account(rest)
@@ -983,8 +984,8 @@ defmodule Laev.CLI do
 
     actions = [
       {:now, "↻ sync now — pull the latest from the server"},
-      {:auto, "⚙ auto-sync on launch & after episodes  [#{if Laev.Sync.auto?(), do: "on", else: "off"}]"},
-      {:live, "⚡ live-save each change (pin, watched, resume)  [#{if Laev.Sync.live?(), do: "on", else: "off"}]"},
+      {:auto, "⚙ auto-sync — launch, each change, each episode, exit  [#{if Laev.Sync.auto?(), do: "on", else: "off"}]"},
+      {:live, "⚡ live-save each change even with auto off  [#{if Laev.Sync.live?(), do: "on", else: "off"}]"},
       {:keys, "🔑 carry my API keys too, encrypted  [#{if Laev.Sync.keys_enabled?(), do: "on", else: "off"}]"},
       {:show, "👁  show my laev key (to set up another device)"},
       {:token, "paste a laev key (from another setup)"},
@@ -1225,7 +1226,7 @@ defmodule Laev.CLI do
     if Laev.Sync.enabled?() do
       IO.puts("sync:  on  → #{Laev.Sync.url()}")
       IO.puts("token: #{if Laev.Sync.token(), do: "set", else: "none"}")
-      IO.puts("auto:  #{if Laev.Sync.auto?(), do: "on (syncs on launch & after episodes)", else: "off (manual — run `laev sync`)"}")
+      IO.puts("auto:  #{if Laev.Sync.auto?(), do: "on (launch, each change, each episode, exit)", else: "off (manual — run `laev sync`)"}")
       IO.puts("live:  #{if Laev.Sync.live?(), do: "on (each change pushed as a delta)", else: "off"}")
     else
       IO.puts("sync:  local only (set LAEV_SYNC_URL to enable)")
@@ -4621,20 +4622,7 @@ defmodule Laev.CLI do
 
         Laev.NowPlaying.mark(ctx, stream)
         save_resume(ctx, source)
-        start_mal_scrobbler(ctx)
-
-        # Push the fresh resume entry (title + torrent source) right away, so
-        # another device can already continue this title mid-playback…
-        cond do
-          Laev.Sync.auto?() -> Laev.Sync.sync_quiet("saved")
-          Laev.Sync.live?() -> Laev.Sync.live_push()
-          true -> :ok
-        end
-
-        # …and push again when playback actually ends: mpv runs detached, so
-        # the sync above happens at launch and never sees this session's
-        # final position or watched flag.
-        start_sync_watcher(ctx)
+        track_playback(ctx)
 
         IO.puts(:stderr, "playing in mpv: #{stream.filename}")
 
@@ -4894,6 +4882,7 @@ defmodule Laev.CLI do
 
     Player.play(ctx, stream.url, args)
     Laev.NowPlaying.mark(ctx, stream)
+    track_playback(ctx)
     IO.puts(:stderr, "playing in mpv: #{stream.filename}")
     post_play_menu(ctx, stream)
   end
@@ -6321,6 +6310,8 @@ defmodule Laev.CLI do
           Map.put(entry, "updated_at", System.os_time(:second))
         )
 
+        track_playback(ctx)
+
         IO.puts(:stderr, "playing in mpv: #{stream.filename}")
         post_play_menu(ctx, stream)
 
@@ -7551,6 +7542,28 @@ defmodule Laev.CLI do
   defp mal_import_rest(%{marked: 0}), do: ""
   defp mal_import_rest(counts), do: describe_import_rest(counts)
 
+  # Everything that has to follow a launch, wherever the launch came from —
+  # the search path, Continue, or re-opening what's already playing. Each of
+  # these used to be wired up on the main path only, so resuming a show
+  # scrobbled nothing to MAL and pushed nothing to the endpoint until the
+  # session ended. One door, so a new launch site can't forget again.
+  defp track_playback(ctx) do
+    start_mal_scrobbler(ctx)
+
+    # Push the fresh resume entry (title + torrent source) right away, so
+    # another device can already continue this title mid-playback…
+    cond do
+      Laev.Sync.auto?() -> Laev.Sync.sync_quiet("saved")
+      Laev.Sync.live?() -> Laev.Sync.live_push()
+      true -> :ok
+    end
+
+    # …and push again when playback actually ends: the player runs detached,
+    # so the sync above happens at launch and never sees this session's final
+    # position or watched flag.
+    start_sync_watcher(ctx)
+  end
+
   # Fire-and-forget scrobbler: watches the position file for THIS episode and,
   # the moment it's marked watched (85%/eof), pushes progress to MAL. Exits
   # when it scrobbles, or when mpv is gone (episode abandoned early). Anime +
@@ -8089,6 +8102,57 @@ defmodule Laev.CLI do
 
   # ── doctor (health checks) ────────────────────────────────────────
 
+  # `laev clean` — the sweep the launch runs quietly, run out loud and now.
+  # Deliberately narrow about what it will delete: see `Laev.RD.Sweep`.
+  defp clean do
+    IO.puts(:stderr, "\nlaev clean — clearing the strays probing left in your debrid account…\n")
+
+    case Laev.RD.Sweep.run() do
+      :disabled ->
+        IO.puts(:stderr, IO.ANSI.format([:faint, "  no debrid account configured — nothing to clean.\n", :reset]))
+
+      {:error, reason} ->
+        IO.puts(:stderr, IO.ANSI.format([:red, "  couldn't read the account: #{inspect(reason)}\n", :reset]))
+        System.halt(1)
+
+      %{deleted: [], kept: kept} ->
+        IO.puts(:stderr, IO.ANSI.format([:green, "  ✓ nothing to clean", :reset, :faint, " — #{kept} torrent(s) left alone.\n", :reset]))
+
+      %{deleted: deleted, kept: kept} ->
+        for {_id, name, why} <- deleted do
+          IO.puts(
+            :stderr,
+            IO.ANSI.format([
+              :faint,
+              "  removed ",
+              :reset,
+              String.slice(to_string(name), 0, 54),
+              :faint,
+              "  (#{clean_reason(why)})",
+              :reset
+            ])
+          )
+        end
+
+        IO.puts(
+          :stderr,
+          IO.ANSI.format([
+            :green,
+            "\n  ✓ #{length(deleted)} stray(s) removed",
+            :reset,
+            :faint,
+            " — #{kept} torrent(s) left alone.\n",
+            :reset
+          ])
+        )
+    end
+  end
+
+  defp clean_reason(:error), do: "the provider errored on it"
+  defp clean_reason(:never_converted), do: "never converted"
+  defp clean_reason(:abandoned_download), do: "downloading a file laev abandoned"
+  defp clean_reason(other), do: to_string(other)
+
   defp doctor do
     IO.puts(:stderr, "\nlaev doctor — checking everything laev depends on…\n")
     {results, healthy?} = Laev.Doctor.run()
@@ -8262,6 +8326,7 @@ defmodule Laev.CLI do
       laev play <magnet|url> [--season N] [--episode N]
       laev setup             interactive first-run wizard: keys in, validated live
       laev doctor            check binaries, keys, and every service laev talks to
+      laev clean             delete the strays probing left in your debrid account
       laev config
       laev stats             how much you've watched, and what you watched most
       laev update            self-update the standalone binary to the latest release

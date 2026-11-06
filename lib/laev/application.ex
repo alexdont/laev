@@ -20,11 +20,15 @@ defmodule Laev.Application do
     # In the background: the answer is wanted by the time the menu draws, and
     # nothing should wait on it to get there.
     Laev.Account.warm()
+    # And the strays a killed run left in the debrid account — at most once
+    # every six hours, in the background, silently. See `Laev.RD.Sweep`.
+    Laev.RD.Sweep.warm()
 
     children = [
       {Registry, keys: :unique, name: Laev.Remux.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: Laev.Remux.Supervisor},
-      Laev.Remux.Reaper
+      Laev.Remux.Reaper,
+      Laev.RD.Ledger
     ]
 
     result = Supervisor.start_link(children, strategy: :one_for_one, name: Laev.Supervisor)

@@ -7,6 +7,7 @@ defmodule Laev.RD do
   """
 
   alias Laev.FilePick
+  alias Laev.RD.{Cache, Ledger}
 
   @base "https://api.real-debrid.com/rest/1.0"
 
@@ -37,6 +38,18 @@ defmodule Laev.RD do
   def delete_torrent(id) do
     Req.delete(req(), url: "/torrents/delete/#{id}")
     :ok
+  end
+
+  @doc """
+  The account's torrents, newest first, as the provider returns them. Raw
+  because the sweep judges them on `status`, `added` and `id` — `library/1`
+  answers the different question of what is playable right now.
+  """
+  def torrents(opts \\ []) do
+    case Req.get(req(), url: "/torrents", params: [limit: Keyword.get(opts, :limit, 100)]) do
+      {:ok, %{status: 200, body: list}} when is_list(list) -> {:ok, list}
+      other -> error(other)
+    end
   end
 
   @doc """
@@ -81,11 +94,33 @@ defmodule Laev.RD do
   or `{:error, reason}` for API failures.
   """
   def resolve_magnet(magnet, opts \\ []) do
-    patience = Keyword.get(opts, :patience, 12)
     episode = Keyword.get(opts, :episode)
     season = Keyword.get(opts, :season)
+    hash = hash_of(magnet)
+
+    # Five calls, or none. What was resolved before is remembered per episode
+    # and checked before it is trusted — see `Laev.RD.Cache`.
+    case lookup(hash, season, episode, opts) do
+      {:ok, stream} -> {:ok, stream}
+      :miss -> fresh_resolve(magnet, hash, season, episode, opts)
+    end
+  end
+
+  defp lookup(nil, _season, _episode, _opts), do: :miss
+
+  defp lookup(hash, season, episode, opts) do
+    if Keyword.get(opts, :cache, true), do: Cache.get(hash, season, episode), else: :miss
+  end
+
+  defp fresh_resolve(magnet, hash, season, episode, opts) do
+    patience = Keyword.get(opts, :patience, 12)
 
     with {:ok, %{"id" => id}} <- add_magnet(magnet) do
+      # Adding a magnet creates a torrent in the account whatever happens next,
+      # and a probe that loses a hedged race is killed before it can tidy up.
+      # The claim is what gets it deleted anyway — see `Laev.RD.Ledger`.
+      Ledger.claim(id)
+
       result =
         with {:ok, info} <- await_file_list(id),
              {:ok, file} <- FilePick.choose(info["files"], episode, season),
@@ -95,14 +130,36 @@ defmodule Laev.RD do
           {:ok, stream_from(unrestricted)}
         end
 
-      # Leave successful torrents in the account; clean up the ones that
-      # failed (not cached, infringing, no video) so it doesn't pile up.
-      with {:error, _reason} <- result do
-        delete_torrent(id)
-        result
+      case result do
+        # Successful torrents stay in the account: this one is playing, and the
+        # others are on the picker's page, where switching source must not cost
+        # a second resolve.
+        {:ok, stream} ->
+          Ledger.keep(id)
+          Cache.put(hash, season, episode, stream)
+          {:ok, stream}
+
+        # And the ones that failed (not cached, infringing, no video) go, so
+        # they don't pile up.
+        {:error, _reason} ->
+          delete_torrent(id)
+          Ledger.forget(id)
+          result
       end
     end
   end
+
+  # The infohash a magnet carries, lowercased — the key the link cache and the
+  # blocklist both use. nil for a magnet without one, which simply isn't cached.
+  @doc false
+  def hash_of(magnet) when is_binary(magnet) do
+    case Regex.run(~r/urn:btih:([a-zA-Z0-9]{40})/, magnet) do
+      [_, hash] -> String.downcase(hash)
+      _ -> nil
+    end
+  end
+
+  def hash_of(_magnet), do: nil
 
   defp stream_from(u) do
     %{
@@ -216,40 +273,69 @@ defmodule Laev.RD do
   end
 
   # RD needs a moment after addMagnet before the file list is available.
-  defp await_file_list(id, attempts \\ 10)
-  defp await_file_list(_id, 0), do: {:error, :timeout_waiting_for_files}
+  # Waiting on the provider: the first look is immediate and what follows backs
+  # off, rather than asking once a second for the whole window.
+  #
+  # The window is exactly what it was — a source given ten seconds to come up
+  # still gets ten seconds — and the cost of waiting it out drops from ten
+  # requests to seven. Counted, not estimated: `poll_plan/1` is the schedule,
+  # and the test counts it rather than trusting this comment.
+  #
+  # It is a trade, not a free win. Fewer looks means a coarser answer later in
+  # the window: a torrent ready at 300ms is found at 500ms where a flat second
+  # found it at 1s, and one ready at 600ms is found at 1.5s where a flat second
+  # found it at 1s. Resolving waits seconds on somebody else's server either
+  # way, and the request this saves is the thing being asked for.
+  #
+  # The saving lands where the waiting actually happens: on the sources that
+  # never come up, which are polled for the whole window before laev gives up.
+  # The five-second window the probes use costs what it always did.
+  @first_wait 500
+  @growth 2.0
+  @longest_wait 3_000
+  @file_list_window 10_000
 
-  defp await_file_list(id, attempts) do
+  defp await_file_list(id), do: await_file_list(id, deadline(@file_list_window), @first_wait)
+
+  defp await_file_list(id, deadline, wait) do
     case torrent_info(id) do
-      {:ok, %{"status" => "waiting_files_selection"} = info} -> {:ok, info}
-      {:ok, %{"status" => "magnet_error"}} -> {:error, :magnet_error}
-      # Already selected on a previous attempt (RD dedupes torrents per account)
-      {:ok, %{"status" => status} = info} when status in ~w(downloaded downloading queued) -> {:ok, info}
-      {:ok, _info} -> retry_file_list(id, attempts)
-      error -> error
+      {:ok, %{"status" => "waiting_files_selection"} = info} ->
+        {:ok, info}
+
+      {:ok, %{"status" => "magnet_error"}} ->
+        {:error, :magnet_error}
+
+      # Files already selected: this magnet was resolved before. Real-Debrid
+      # does not dedupe by hash — adding one twice answers with a second id —
+      # so this is a torrent laev selected on an earlier attempt, not a
+      # duplicate the provider folded together.
+      {:ok, %{"status" => status} = info} when status in ~w(downloaded downloading queued) ->
+        {:ok, info}
+
+      {:ok, _info} ->
+        if sleep_within(deadline, wait),
+          do: await_file_list(id, deadline, longer(wait)),
+          else: {:error, :timeout_waiting_for_files}
+
+      error ->
+        error
     end
   end
 
-  defp retry_file_list(id, attempts) do
-    Process.sleep(1000)
-    await_file_list(id, attempts - 1)
-  end
+  # Cached torrents flip to "downloaded" within a couple of seconds. `patience`
+  # stays what it always meant in wall clock — it was that many one-second
+  # attempts — so nothing is given up on sooner than it used to be.
+  defp await_links(id, patience), do: await_links(id, deadline(patience * 1_000), @first_wait)
 
-  # Cached torrents flip to "downloaded" within a couple of seconds.
-  defp await_links(_id, 0), do: {:error, :timeout_waiting_for_links}
-
-  defp await_links(id, attempts) do
+  defp await_links(id, deadline, wait) do
     case torrent_info(id) do
       {:ok, %{"status" => "downloaded"} = info} ->
         {:ok, info}
 
       {:ok, %{"status" => status, "progress" => progress}} when status in ~w(downloading queued) ->
-        if attempts <= 1 do
-          {:error, {:not_cached, status, progress}}
-        else
-          Process.sleep(1000)
-          await_links(id, attempts - 1)
-        end
+        if sleep_within(deadline, wait),
+          do: await_links(id, deadline, longer(wait)),
+          else: {:error, {:not_cached, status, progress}}
 
       {:ok, %{"status" => status}} ->
         {:error, {:torrent_status, status}}
@@ -257,6 +343,40 @@ defmodule Laev.RD do
       error ->
         error
     end
+  end
+
+  defp deadline(ms), do: System.monotonic_time(:millisecond) + ms
+
+  # Sleep for `wait`, or for whatever is left of the window, and say whether
+  # there is still time to ask again.
+  defp sleep_within(deadline, wait) do
+    case min(wait, deadline - System.monotonic_time(:millisecond)) do
+      ms when ms > 0 ->
+        Process.sleep(ms)
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp longer(wait), do: min(round(wait * @growth), @longest_wait)
+
+  @doc """
+  The sleeps the backoff would take to fill a window of `window_ms`, in order.
+  Here so the cost of waiting can be counted in a test rather than argued
+  about: the same first wait and the same growth rule the polling uses.
+  """
+  def poll_plan(window_ms) do
+    Stream.unfold({@first_wait, window_ms}, fn
+      {_wait, left} when left <= 0 ->
+        nil
+
+      {wait, left} ->
+        step = min(wait, left)
+        {step, {longer(wait), left - step}}
+    end)
+    |> Enum.to_list()
   end
 
   defp post(path, form) do

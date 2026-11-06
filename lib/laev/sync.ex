@@ -243,7 +243,8 @@ defmodule Laev.Sync do
   defp raw_token, do: blank_to_nil(Laev.Scope.get(:sync_token))
 
   @doc """
-  Whether laev syncs automatically (on launch and after each episode).
+  Whether laev syncs automatically (on launch, after each episode, after a
+  change, and on exit).
   Off by default — with sync configured but auto off, state only moves when
   the user runs `laev sync` or the "sync now" menu action. `LAEV_SYNC_AUTO`.
   """
@@ -277,12 +278,24 @@ defmodule Laev.Sync do
   just the changed records to the server's merge endpoint; if the server has
   no delta endpoint yet, falls back to a full (safe) sync so nothing is lost.
 
+  Fires when either switch is on. `live?` is the explicit "push every change"
+  setting; `auto?` gets it too, because a mark that sits on one device until
+  the session ends is exactly what auto-sync is meant to prevent — and a
+  delta is cheaper than the full sync auto would otherwise do anyway.
+
   Returns `:skip` (disabled/off), `:ok` (nothing to send), `{:ok, n}` (n
   records pushed), a full-sync result, or `{:error, reason}`.
   """
   def live_push do
-    if enabled?() and live?(), do: do_live_push(), else: :skip
+    if push_now?(), do: do_live_push(), else: :skip
   end
+
+  @doc """
+  Whether a change made right now should leave this device right now. True
+  with sync configured and either switch on. The gate `live_push/0` asks, so
+  that what counts as "now" is one decision and a testable one.
+  """
+  def push_now?, do: enabled?() and (live?() or auto?())
 
   defp do_live_push do
     sidecar = load_sidecar()

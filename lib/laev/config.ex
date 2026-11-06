@@ -40,7 +40,10 @@ defmodule Laev.Config do
     "LAEV_SYNC_TOKEN" => :sync_token,
     "LAEV_SYNC_AUTO" => :sync_auto,
     "LAEV_SYNC_LIVE" => :sync_live,
-    "LAEV_SYNC_KEYS" => :sync_keys
+    "LAEV_SYNC_KEYS" => :sync_keys,
+    "LAEV_RD_SWEEP" => :rd_sweep,
+    "LAEV_RD_LINK_CACHE" => :rd_link_cache,
+    "LAEV_RD_LINK_TTL" => :rd_link_ttl
   }
 
   @doc "The ENV_KEY => app-env-atom map for every configurable key."

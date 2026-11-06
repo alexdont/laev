@@ -3,6 +3,92 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.50
+
+**Syncing while you watch, and a much smaller footprint on the debrid account.**
+
+### Watching four episodes used to sync none of them until you quit
+
+Marks, resume points and watched flags piled up locally and left in one burst
+on exit, so a second machine read stale progress for the whole session. Three
+reasons, all fixed:
+
+* `continue_entry` and `reopen` — the Continue row and re-opening what is
+  already playing — launched a player and went straight to the menu. No MAL
+  scrobble, no resume push, and no watcher to push the finished episode. Only
+  the search path was wired up. All three now go through one `track_playback/1`,
+  and a test reads `cli.ex`'s own syntax tree to assert that every function
+  which starts a player calls it.
+* `live_push/0` was gated on `LAEV_SYNC_LIVE`, which is off by default, while
+  setup turns `LAEV_SYNC_AUTO` on. Eighteen call sites — watched marks, pins,
+  holds, ratings, the Shelf, the Completed page — silently did nothing for
+  everyone running the default configuration. Either switch now pushes.
+* Which also closes the third gap: a mark made after the end-of-episode watcher
+  had already fired no longer waits for exit.
+
+Resuming a show also scrobbles to MyAnimeList again, which was broken on the
+same path and just as quietly.
+
+### Probing left a torrent in your account for every source it ever checked
+
+Measured on a real account: a hundred entries inside twelve hours, five to
+thirteen per title watched, four stuck in `magnet_conversion`, and three still
+downloading files nobody would ever watch — which costs the provider real
+bandwidth, not an API call.
+
+Two causes. Real-Debrid does *not* dedupe by hash, whatever the old comment in
+`rd.ex` claimed: adding a magnet the account already has answers with a new id,
+verified against the live API. And `resolve_best/2` kills the losers of a hedged
+race where they stand, so the `delete_torrent` at the end of a failed resolve
+never ran for them.
+
+So a probe now claims the torrent it creates and `Laev.RD.Ledger` watches the
+claimant: a claim released is kept — it resolved, and switching source on the
+picker's page must not need a second resolve — while a claimant that dies still
+holding one has abandoned it, and it is deleted. Claims are written to disk as
+well, because a laev that is killed outright takes its monitors with it.
+
+`Laev.RD.Sweep` is the pass that finishes the job on the next launch (quietly,
+at most once every six hours) or on demand with the new `laev clean`. It is
+deliberately narrow about deleting from somebody's account: `error`,
+`magnet_conversion` older than ten minutes, and `downloading` torrents laev's
+own ledger recorded abandoning. Never anything `downloaded`, and never anything
+whose infohash is in your resume history, whatever its status — from the
+provider's side a download you started looks exactly like one laev abandoned.
+`LAEV_RD_SWEEP=off` turns it off.
+
+### Watching the same thing twice costs nothing
+
+A resolve is five requests and cannot be fewer — add the magnet, read the file
+list, select the file, wait for the link, unrestrict it — and the endpoint that
+once answered "is this hash cached?" for a whole page at once now answers
+`403 disabled_endpoint`. So the only calls left to save are the ones made
+twice, and they are made twice constantly: resuming, pressing play after
+stopping, continuing a show the next evening.
+
+`Laev.RD.Cache` remembers what a source resolved to, per episode, for a day.
+Measured on the real path:
+
+    first  (cold)   649ms   5 Real-Debrid calls
+    second (warm)   416ms   0 Real-Debrid calls
+
+Same file both times. A stored link is checked before it is trusted, because
+the player is detached and an expired link would fail where laev can no longer
+retry — one HEAD against the download host, which counts against no rate
+limit. Read carefully, too: the host serves the file for any filename as long
+as the id is good, so what separates a live link from a dead one is the length
+it reports, not the status code. A miss resolves from scratch exactly as
+before. `LAEV_RD_LINK_CACHE=off` turns it off.
+
+### Waiting on the provider asks fewer times
+
+Polling backs off (500ms, doubling, capped at 3s) instead of asking once a
+second. The window is exactly what it was, so nothing is given up on sooner
+than it used to be, and waiting out a source that never comes up costs seven
+requests instead of ten. An honest trade rather than a free win: fewer looks
+means a coarser answer later in the window, and the five-second window the
+probes use costs what it always did.
+
 ## 0.1.49
 
 **Pressing play checks one source, not eight.**
