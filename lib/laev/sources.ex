@@ -8,11 +8,31 @@ defmodule Laev.Sources do
 
   Both go through the same release-name parsing, ranking, and magnet building,
   so the rest of the app (probe / resolve / play) doesn't care which found it.
+
+  ## AnimeTosho, which used to be the second half of anime search
+
+  It was a third indexer and, more usefully, the one keyed by **AniDB id** —
+  ask for a show by number and get that show's releases, with no same-name
+  spinoffs and no faith in release-name parsing.
+
+  It is gone. Anime Tosho announced its own shutdown (news of 2026-02-05, "will
+  begin shutting down permanently in May 2026"), stopped taking new torrents on
+  2026-05-09, and the `feed.animetosho.org` host it served every feed and API
+  call from was removed from DNS around 2026-10-26 — NXDOMAIN from the zone's
+  own nameservers, while the site itself still runs as an archive and still
+  documents that host. There is nothing to repoint at: the paths on the apex
+  answer 404, and the `animetosho.net` and `animetosho.xyz` domains that search
+  results offer as the migration are referenced nowhere on the real site and sit
+  on unrelated infrastructure. Sending somebody's search queries to a lookalike
+  of a dead tracker is not a fix, so laev does not.
+
+  What it cost: a title-keyed indexer that mostly duplicated Nyaa, and the
+  id-keyed path — which `torrentio_anime/2` already provides by Kitsu id, and
+  which ran beside AnimeTosho all along.
   """
 
   @apibay "https://apibay.org/q.php"
   @nyaa "https://nyaa.si/"
-  @animetosho "https://feed.animetosho.org/json"
   @torrentio "https://torrentio.strem.fun"
   @empty_hash "0000000000000000000000000000000000000000"
 
@@ -30,7 +50,7 @@ defmodule Laev.Sources do
   def search(query, opts \\ []) do
     indexers =
       case Keyword.get(opts, :backend, :apibay) do
-        :anime -> [fn -> search_nyaa(query) end, fn -> search_animetosho(query) end]
+        :anime -> [fn -> search_nyaa(query) end]
         :apibay -> [fn -> search_apibay(query) end]
         :nyaa -> [fn -> search_nyaa(query) end]
       end
@@ -164,8 +184,10 @@ defmodule Laev.Sources do
   Returns `{:ok, sources, :episode | :series | :mixed}`.
   """
   def anime_episode_search(title, episode, opts \\ []) do
-    # Torrentio by Kitsu id runs alongside the Nyaa/AnimeTosho search — it's
-    # the only anime path that reaches the big public/Russian trackers.
+    # Torrentio by Kitsu id runs alongside the Nyaa text search — it's the only
+    # anime path that reaches the big public/Russian trackers, and since
+    # AnimeTosho shut down it is also the only one keyed by an id rather than by
+    # a title. See `search/2` for why there is no second id-keyed source.
     torrentio =
       Laev.Scope.async(fn ->
         case torrentio_anime(Keyword.get(opts, :kitsu_id), episode) do
@@ -175,38 +197,9 @@ defmodule Laev.Sources do
       end)
 
     {base, scope} =
-      case Keyword.get(opts, :anidb_id) do
-        nil ->
-          case text_episode_search(title, episode) do
-            {:ok, sources, scope} -> {sources, scope}
-            _ -> {[], :episode}
-          end
-
-        aid ->
-          # Exact-show results by AniDB id; episode-specific first, then batches.
-          case search_animetosho_aid(aid) do
-            {:ok, all} when all != [] ->
-              {ep, rest} = Enum.split_with(all, &release_has_episode?(&1.name, episode))
-
-              # That feed is newest-first, so an older episode can be missing
-              # from it even though the show is right — ask the text queries too
-              # rather than offering only batches and later episodes.
-              extra =
-                if ep == [],
-                  do: (case text_episode_search(title, episode) do
-                         {:ok, sources, _} -> sources
-                         _ -> []
-                       end),
-                  else: []
-
-              {Enum.sort_by(ep, &score/1, :desc) ++ extra ++ Enum.sort_by(rest, &score/1, :desc), :mixed}
-
-            _ ->
-              case text_episode_search(title, episode) do
-                {:ok, sources, scope} -> {sources, scope}
-                _ -> {[], :episode}
-              end
-          end
+      case text_episode_search(title, episode) do
+        {:ok, sources, scope} -> {sources, scope}
+        _ -> {[], :episode}
       end
 
     tor = Task.await(torrentio, 25_000)
@@ -397,43 +390,6 @@ defmodule Laev.Sources do
     |> Enum.reject(&(&1.hash == ""))
     |> Enum.map(&build_source/1)
   end
-
-  # ── animetosho (anime, JSON; aggregates Nyaa + other trackers) ────
-
-  defp search_animetosho(query), do: fetch_animetosho(q: query, only_tor: 1)
-
-  # Query AnimeTosho by AniDB anime id — returns only the *exact* show's
-  # releases (no same-name spinoffs), the way Stremio/Torrentio do it.
-  defp search_animetosho_aid(aid), do: fetch_animetosho(aid: aid, only_tor: 1)
-
-  defp fetch_animetosho(params) do
-    req = Req.new(url: @animetosho, params: params, retry: false, receive_timeout: 15_000)
-
-    case Req.get(req) do
-      {:ok, %{status: 200, body: body}} when is_list(body) ->
-        {:ok,
-         body
-         |> Enum.filter(&valid_hash?/1)
-         |> Enum.map(fn t ->
-           build_source(%{
-             name: t["title"] || t["torrent_name"],
-             provider: "AnimeTosho",
-             hash: t["info_hash"],
-             seeders: to_int(t["seeders"]),
-             size: to_int(t["total_size"])
-           })
-         end)}
-
-      {:ok, %{status: status}} ->
-        {:error, {:animetosho, status}}
-
-      {:error, exception} ->
-        {:error, exception}
-    end
-  end
-
-  defp valid_hash?(%{"info_hash" => hash}) when is_binary(hash), do: byte_size(hash) == 40
-  defp valid_hash?(_), do: false
 
   # ── torrentio (public aggregator; fronts many trackers, keyed by IMDb id) ──
 

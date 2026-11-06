@@ -116,10 +116,11 @@ defmodule Laev.AnimeMap do
   @doc """
   The AniDB id for a MAL entry, or nil.
 
-  What AnimeTosho is organized by — with it, an episode search gets the show's
-  whole feed (every episode, every batch) instead of guessing text queries at
-  engines that can't match them. Kitsu's own mapping API misses newer shows;
-  this list doesn't.
+  Nothing in laev searches by it any more: it was what AnimeTosho organized its
+  feeds by, and AnimeTosho has shut down (see `Laev.Sources`). It is still here
+  because the mapping file carries it, it costs nothing to read, and it is the
+  id anything else organized around AniDB would ask for. Kitsu's own mapping API
+  misses newer shows; this list doesn't.
   """
   def anidb(mal_id) when is_integer(mal_id) do
     case Map.get(load().forward, Integer.to_string(mal_id)) do
@@ -206,8 +207,9 @@ defmodule Laev.AnimeMap do
     end
   end
 
-  # AniDB and Kitsu ride along: AnimeTosho is organized by the first, Torrentio
-  # by the second, and Kitsu's own mapping API doesn't know shows this list does.
+  # AniDB and Kitsu ride along: Torrentio is organized by the second (the first
+  # was AnimeTosho's, kept because the file gives it for free), and Kitsu's own
+  # mapping API doesn't know shows this list does.
   defp pair_for(%{"tv" => id}, season, row),
     do: with(n when is_integer(n) <- one_id(id), do: ["tv", n, season, one_id(row["anidb_id"]), one_id(row["kitsu_id"])])
 

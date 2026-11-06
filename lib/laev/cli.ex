@@ -2710,7 +2710,7 @@ defmodule Laev.CLI do
             :ok
 
           :no ->
-            sources = anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id)
+            sources = anime_episode_sources(search_title, n, kitsu.kitsu_id)
             q = Sources.anime_episode_query(search_title, n)
 
             with_library(q, sources)
@@ -2741,7 +2741,7 @@ defmodule Laev.CLI do
   defp kitsu_pick(name) do
     case Kitsu.search(name) do
       {:ok, []} ->
-        %{anime: nil, episodes: [], anidb: nil, kitsu_id: nil}
+        %{anime: nil, episodes: [], kitsu_id: nil}
 
       {:ok, [only]} ->
         kitsu_selected(only)
@@ -2757,7 +2757,7 @@ defmodule Laev.CLI do
         pick_anime_entry(name, results)
 
       _ ->
-        %{anime: nil, episodes: [], anidb: nil, kitsu_id: nil}
+        %{anime: nil, episodes: [], kitsu_id: nil}
     end
   end
 
@@ -2862,7 +2862,7 @@ defmodule Laev.CLI do
   defp kitsu_lookup(name) do
     case Kitsu.search(name) do
       {:ok, [anime | _]} -> kitsu_selected(anime)
-      _ -> %{anime: nil, episodes: [], anidb: nil, kitsu_id: nil}
+      _ -> %{anime: nil, episodes: [], kitsu_id: nil}
     end
   end
 
@@ -2883,15 +2883,7 @@ defmodule Laev.CLI do
           _ -> Laev.AnimeMap.kitsu_id(mal_id)
         end
 
-    anidb =
-      with id when not is_nil(id) <- kitsu_id,
-           {:ok, mapped} <- Kitsu.anidb_id(id) do
-        mapped
-      else
-        _ -> Laev.AnimeMap.anidb(mal_id)
-      end
-
-    %{anime: anime, episodes: kitsu_episode_list(anime), anidb: anidb, kitsu_id: kitsu_id}
+    %{anime: anime, episodes: kitsu_episode_list(anime), kitsu_id: kitsu_id}
   end
 
   # TV seasons sort ahead of everything else within a year; movies next,
@@ -2923,10 +2915,9 @@ defmodule Laev.CLI do
 
   # Returns episode-specific releases first, then the show's batch packs
   # (either can contain the episode; RD's file picker extracts it).
-  defp anime_episode_sources(search_title, episode, anidb, kitsu_id) do
+  defp anime_episode_sources(search_title, episode, kitsu_id) do
     {:ok, sources, _scope} =
       Sources.anime_episode_search(search_title, episode,
-        anidb_id: anidb,
         kitsu_id: kitsu_id,
         search_title: search_title
       )
@@ -6410,7 +6401,7 @@ defmodule Laev.CLI do
           Laev.Position.adopt(Map.put(ctx, :mal_id, nil), ctx)
 
           Sources.anime_episode_query(search_title, n)
-          |> with_library(anime_episode_sources(search_title, n, kitsu.anidb, kitsu.kitsu_id))
+          |> with_library(anime_episode_sources(search_title, n, kitsu.kitsu_id))
           |> probe_and_pick([episode: n], ctx)
 
         anime?(details) and type == "movie" ->

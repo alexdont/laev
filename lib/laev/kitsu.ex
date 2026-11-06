@@ -9,7 +9,12 @@ defmodule Laev.Kitsu do
   @headers [{"accept", "application/vnd.api+json"}]
   @page 20
 
-  @doc "The AniDB anime id mapped to a Kitsu anime — lets us query trackers by the exact show."
+  @doc """
+  The AniDB anime id mapped to a Kitsu anime.
+
+  For callers that want it — laev itself queries by Kitsu id now, since the one
+  tracker it had that was keyed by AniDB shut down (see `Laev.Sources`).
+  """
   def anidb_id(kitsu_id) do
     case get("/anime/#{kitsu_id}/mappings", "filter[externalSite]": "anidb") do
       {:ok, %{"data" => [%{"attributes" => %{"externalId" => id}} | _]}} -> {:ok, id}

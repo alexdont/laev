@@ -3,6 +3,39 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.52
+
+**AnimeTosho is gone, and laev stops asking for it.**
+
+Every anime search spent part of itself on a host that no longer exists. Anime
+Tosho shut itself down — announced on 2026-02-05 ("will begin shutting down
+permanently in May 2026"), new torrents stopped on 2026-05-09 — and the one
+host it served every feed and API call from, `feed.animetosho.org`, left DNS
+around 2026-10-26. NXDOMAIN from the zone's own nameservers, so it is gone
+rather than blocked, while the archive site still runs and still documents that
+host on its own about page. `laev doctor` was the only place it showed.
+
+There is nothing to repoint at. The apex's feed paths answer 404, and the
+`animetosho.net` and `animetosho.xyz` domains that turn up as the official
+migration are referenced nowhere on the real site and sit on unrelated
+infrastructure. A lookalike of a dead tracker is not somewhere to send
+somebody's search queries, so laev doesn't, and a test fails if any module
+names one.
+
+**What it cost: nothing that wasn't already covered.** AnimeTosho was a third
+text indexer that mostly duplicated Nyaa, and the only source laev could ask by
+**AniDB id** — a show by number instead of by title. That precision now comes
+from Torrentio by Kitsu id, which ran beside it all along. Measured on the live
+path, Frieren episode 3:
+
+    torrentio kitsu:46474:3   107 sources   208ms
+    whole episode search       40 sources  1535ms
+
+with the merged page coming from Nyaa and five trackers Torrentio fronts, and
+episode-exact files ranked first. So the AniDB id is no longer looked up for
+searching (`Laev.AnimeMap.anidb/1` and `Laev.Kitsu.anidb_id/1` stay — the
+mapping file carries the id for free), and the `:anime` text backend is Nyaa.
+
 ## 0.1.51
 
 **Two things that came with 0.1.50, one of which stopped it launching on macOS.**

@@ -195,7 +195,6 @@ defmodule Laev.Doctor do
       {"Torrentio", fn -> ping("https://torrentio.strem.fun/manifest.json") end},
       {"apibay", fn -> ping("https://apibay.org/q.php?q=ubuntu") end},
       {"nyaa", fn -> ping("https://nyaa.si/?page=rss&q=test") end},
-      {"AnimeTosho", fn -> ping("https://feed.animetosho.org/json?q=test") end},
       {"Kitsu", fn -> ping("https://kitsu.io/api/edge/anime?page[limit]=1") end},
       {"AniSkip", fn -> ping("https://api.aniskip.com/v2/skip-times/16498/1?types[]=op&episodeLength=0") end}
     ]

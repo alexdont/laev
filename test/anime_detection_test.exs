@@ -40,8 +40,9 @@ defmodule Laev.AnimeDetectionTest do
     assert AnimeMap.mal_ids("tv", 297_826) == [63_316]
   end
 
-  # The ids that make the anime source path work for it: AnimeTosho is
-  # organized by AniDB, Torrentio by Kitsu.
+  # Torrentio is keyed by Kitsu, which is what the anime source path searches
+  # by. AniDB rides along from the same mapping file — AnimeTosho was keyed by
+  # it until it shut down, and nothing in laev asks by it now.
   test "the tracker ids come along" do
     assert AnimeMap.anidb(63_316) == 19_838
     assert AnimeMap.kitsu_id(63_316) == 50_480
