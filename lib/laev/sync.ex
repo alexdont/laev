@@ -679,8 +679,8 @@ defmodule Laev.Sync do
     apply_dir(Path.join(data_dir(), "positions"), merged[:positions] || %{})
     apply_dir(Path.join(data_dir(), "tracks"), merged[:tracks] || %{})
     apply_dir(Path.join(data_dir(), "played"), merged[:played] || %{})
-    apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{})
-    apply_dir(Path.join(data_dir(), "ticks"), merged[:ticks] || %{})
+    apply_dir(Path.join(data_dir(), "watched"), merged[:watched] || %{}, :log)
+    apply_dir(Path.join(data_dir(), "ticks"), merged[:ticks] || %{}, :log)
     apply_dir(Path.join(data_dir(), "dated"), merged[:dated] || %{})
     apply_dir(Path.join(data_dir(), "holds"), merged[:holds] || %{})
     write_json_map(Path.join(data_dir(), "anime.json"), live(merged, :anime))
@@ -707,7 +707,29 @@ defmodule Laev.Sync do
     _ -> :ok
   end
 
-  defp apply_dir(dir, recs) do
+  @doc false
+  # `shape` is `:log` for the collections that are append-only line logs
+  # (`ticks/`, `watched/`) and `:record` for the ones that are a single value
+  # per file (positions, tracks, played, dated, holds).
+  #
+  # The distinction is the whole bug. `read_dir/1` trims what it reads, so a
+  # log arrives in the bundle without its final newline, and writing that back
+  # verbatim leaves the file unterminated. The readers of those files only ever
+  # append, so the next line fuses onto the last one:
+  #
+  #     1793460753 tv-110316-s2e1 1
+  #     1793460764 tv-110316-s2e1 9
+  #
+  # became `1793450449 movie-1283515 11793460753 tv-110316-s2e1 1`, which is
+  # one line that parses as neither. In `watched/` the damage was worse than a
+  # dropped line: `Laev.Days` read `2026-10-31 12026-11-01 1` as 12,026 seconds
+  # on the 31st, inflating a real account's day totals by 4,470 hours.
+  #
+  # So a log is written with exactly one trailing newline and a record is
+  # written exactly as it arrived. Trimming on the way out stays: it means two
+  # devices agree on a log's bytes whatever either one had at the end of it, so
+  # this does not make every log look changed once.
+  def apply_dir(dir, recs, shape \\ :record) do
     File.mkdir_p!(dir)
 
     for {key, rec} <- recs do
@@ -715,12 +737,20 @@ defmodule Laev.Sync do
 
       if rec["deleted"],
         do: File.rm(path),
-        else: File.write(path, to_string(rec["data"]))
+        else: File.write(path, terminate(to_string(rec["data"]), shape))
     end
 
     :ok
   rescue
     _ -> :ok
+  end
+
+  @doc false
+  def terminate("", _shape), do: ""
+  def terminate(data, :record), do: data
+
+  def terminate(data, :log) do
+    if String.ends_with?(data, "\n"), do: data, else: data <> "\n"
   end
 
   # ── sidecar (last-synced bundle) ──────────────────────────────────

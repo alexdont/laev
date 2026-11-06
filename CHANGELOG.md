@@ -3,6 +3,56 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.53
+
+**Sync was breaking the logs it carried, and the day totals were fiction.**
+
+Reported against 0.1.52 by somebody running laev as a library, and worse than
+the report had found.
+
+### The cause
+
+`read_dir/1` trims every file it reads into the bundle, so an append-only log
+reached the wire without its final newline, and a pull wrote it back that way.
+Everything that writes those files only appends, so the next line fused onto
+the last one:
+
+    1793450449 movie-1283515 11793460753 tv-110316-s2e1 1
+    2026-10-31 12026-11-01 1
+
+A pulled log is now written with exactly one trailing newline, while
+single-record files (positions, tracks, played, dated, holds) are still written
+byte for byte. Trimming on the way *out* stays, so two devices still agree on a
+log's bytes and no log looks changed once because of this.
+
+### What it cost, measured on a real account
+
+In `ticks/` the fused line parses as neither entry, so both were dropped: a log
+of 18 lines gave 358 of the 496 seconds it holds.
+
+In `watched/` it was worse, because `Integer.parse/1` stops at the first
+non-digit and took `12026-11-01` for **12,026 seconds**. 64 fused lines claimed
+**4,470 hours** of watching that never happened, and the day totals read
+243,288 hours against an actual 150.
+
+### Logs already damaged read correctly now
+
+Both readers split a fused line where the seam is exact — a tick's time is a
+ten-digit epoch, a day's is a full `YYYY-MM-DD` — and skip anything that isn't
+unambiguous, as they always did with a line laev didn't write. Nothing has to
+be repaired by hand, and the recovered seconds are back in stats and sessions.
+
+Two further things that only turned up in the real data:
+
+* **A day's line cannot exceed a day.** Compaction had folded fused lines with
+  the lenient parser and written the sums back, so `2026-09-30 194322026` is
+  all that is left of that day — the original seconds are unrecoverable. A line
+  claiming more than 86,400 seconds is proof of damage, and is skipped rather
+  than shown as 184,756 hours.
+* **Compaction keeps a backup.** Folding replaces a log with a summary of
+  itself, which is how those originals were lost. It now copies the file to
+  `<log>.bak` first.
+
 ## 0.1.52
 
 **AnimeTosho is gone, and laev stops asking for it.**

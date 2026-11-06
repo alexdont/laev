@@ -174,14 +174,51 @@ defmodule Laev.Stints do
   # A line laev did not write, or wrote half of when something was killed, is
   # skipped rather than allowed to end the parse: this log is only appended to
   # and never repaired.
+  #
+  # One kind of damage is worth repairing on the way in, because laev caused it
+  # and it is unambiguous. A pulled log used to arrive without its final
+  # newline (see `Laev.Sync.apply_dir/3`), so the next tick appended fused onto
+  # the last line:
+  #
+  #     1793450449 movie-1283515 11793460753 tv-110316-s2e1 1
+  #
+  # Both entries were lost, because the line parses as neither. The seam is
+  # exact: a tick's time is a ten-digit epoch, so in `11793460753` the last ten
+  # digits are the next entry's time and the `1` before them is this entry's
+  # seconds. Splitting there is only done when it leaves both halves whole;
+  # anything else is skipped as before.
   defp parse(line) do
-    with [at, key, seconds] <- String.split(line, " ", parts: 3),
-         {at, ""} <- Integer.parse(at),
-         {seconds, ""} <- Integer.parse(String.trim(seconds)),
-         true <- key != "" do
-      [{at, key, seconds}]
+    line |> String.split(" ", trim: true) |> ticks_from([])
+  end
+
+  defp ticks_from([], acc), do: Enum.reverse(acc)
+
+  defp ticks_from([at, key, tail | rest], acc) when key != "" do
+    with {at, ""} <- Integer.parse(at),
+         {:ok, seconds, rest} <- seconds_and_rest(tail, rest) do
+      ticks_from(rest, [{at, key, seconds} | acc])
     else
-      _ -> []
+      _ -> Enum.reverse(acc)
+    end
+  end
+
+  # Anything that is not a whole entry ends the line, keeping whatever came
+  # before it.
+  defp ticks_from(_tokens, acc), do: Enum.reverse(acc)
+
+  # The last field of an entry, which is either the seconds alone or the
+  # seconds with the next entry's epoch stuck to the end of them.
+  defp seconds_and_rest(tail, [] = rest) do
+    case Integer.parse(String.trim(tail)) do
+      {seconds, ""} -> {:ok, seconds, rest}
+      _ -> :no
+    end
+  end
+
+  defp seconds_and_rest(tail, rest) do
+    case Regex.run(~r/^(\d+)(1[6-9]\d{8})$/, tail) do
+      [_, seconds, next_at] -> {:ok, String.to_integer(seconds), [next_at | rest]}
+      _ -> :no
     end
   end
 
