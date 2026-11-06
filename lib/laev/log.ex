@@ -48,6 +48,8 @@ defmodule Laev.Log do
     # screen. The ssl app adds its own, which config cannot refuse.
     for id <- :logger.get_handler_ids(), do: :logger.remove_handler(id)
 
+    drop_primary_filters()
+
     :logger.add_handler(:laev_file, __MODULE__, %{level: :warning})
     :ok
   rescue
@@ -119,6 +121,33 @@ defmodule Laev.Log do
       {:ok, %{size: size}} when size >= @max_bytes -> File.rename(file, file <> ".1")
       _ -> :ok
     end
+  rescue
+    _ -> :ok
+  end
+
+  # Removing the handlers is not enough to be quiet. A filter runs before them,
+  # and when one *crashes* the logger says so with `erlang:display/1` — straight
+  # down file descriptor 2, past every handler there is and past anything this
+  # module could install:
+  #
+  #     Logger - error: {removed_failing_filter,logger_translator}
+  #
+  # `logger_translator` is Elixir's, and it crashes in exactly the situation
+  # this module exists for: it reaches for the pretty-printing machinery, out of
+  # the unpacked payload the standalone binary runs from, after an update has
+  # replaced that directory. Then it is removed, and the line is on the screen
+  # for good — mid-picker, over whatever was being drawn.
+  #
+  # Nothing here needs it. The handler below formats reports itself, with
+  # `safe_inspect/1` and nothing lazily loaded, so the translator can only cost
+  # us that line. The primary filters go, and every event reaches the handler,
+  # which is what we wanted of them anyway.
+  defp drop_primary_filters do
+    for {id, _filter} <- :logger.get_primary_config()[:filters] || [] do
+      :logger.remove_primary_filter(id)
+    end
+
+    :ok
   rescue
     _ -> :ok
   end

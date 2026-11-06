@@ -3,6 +3,48 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.51
+
+**Two things that came with 0.1.50, one of which stopped it launching on macOS.**
+
+### The macOS binary crashed at boot
+
+```
+dlopen(.../laev_erts-17.1_0.1.50/lib/asn1-5.5.2/priv/lib/asn1rt_nif.so):
+  slice is not valid mach-o file
+```
+
+It had a Linux library inside it. 0.1.50 pinned the bundled runtime to OTP
+29.1 because the CDN burrito fetches from has no build of 29.1.1, which is what
+this machine compiles with — and that one patch release apart is what did it.
+Burrito assembles the release from the local Erlang and then replaces the NIF
+libraries with the target platform's, matching them by path: OTP 29.1.1 ships
+`asn1-5.5.2`, 29.1 ships `asn1-5.5.1`, so the macOS library landed in a
+directory the release does not have and the Linux one stayed where the release
+does look. Nothing failed at build time. It failed at boot, on the user's
+machine, and took the VM down with it.
+
+So the bundled version is no longer a number kept in `mix.exs` to be updated.
+It is read from whatever Erlang is building, and a release step asks the CDN
+whether it has that version *before* wrapping anything — if it doesn't, the
+build stops and names the Erlang to build with instead. The binaries are built
+with OTP 29.0.6, matched exactly, as 0.1.49's were.
+
+### `Logger - error: {removed_failing_filter,logger_translator}` on the screen
+
+`Laev.Log` removes every log handler, because they all write to the terminal
+laev is drawing in. A filter runs *before* the handlers, though, and when one
+crashes the logger reports it with `erlang:display/1` — straight down file
+descriptor 2, past every handler and past anything laev could install.
+
+The filter that crashes is Elixir's `logger_translator`, and it crashes for the
+reason `Laev.Log` exists: it reaches for the pretty-printing machinery, out of
+the unpacked payload directory the standalone binary runs from, after an update
+has replaced that directory. Nothing in laev needs it — the file handler
+formats reports itself, with nothing lazily loaded — so the primary filters are
+now removed along with the handlers, and every event reaches the handler, which
+is what they were in the way of anyway.
+
 ## 0.1.50
 
 **Syncing while you watch, and a much smaller footprint on the debrid account.**

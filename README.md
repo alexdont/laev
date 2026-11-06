@@ -140,6 +140,16 @@ mix escript.build               # → ./laev (needs Erlang installed to run)
 MIX_ENV=prod mix release laev   # → burrito_out/laev_* (self-contained)
 ```
 
+The standalone binaries bundle a runtime for each platform, downloaded
+prebuilt, so they can only be built with an Erlang that has one — not every
+patch release does, and a mismatched one produces a binary that crashes at
+boot rather than a build that fails. The release checks before it builds and
+names an Erlang to use if the one in hand won't do:
+
+```sh
+MIX_ENV=prod mise exec erlang@29.0.6 zig@0.16.0 -- mix release laev --overwrite
+```
+
 ## As a library
 
 Everything the terminal does is callable, per user, from anything else — a web

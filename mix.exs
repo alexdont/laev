@@ -4,7 +4,7 @@ defmodule Laev.MixProject do
   def project do
     [
       app: :laev,
-      version: "0.1.50",
+      version: "0.1.51",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Laev.CLI, path: "laev"],
@@ -18,36 +18,104 @@ defmodule Laev.MixProject do
     ]
   end
 
-  # Burrito bundles whatever ERTS the build machine happens to run, and the CDN
-  # it fetches from does not carry every patch release: building on OTP 29.1.1
-  # fails with a 404 for both targets. So the bundled runtime is pinned to the
-  # newest one the CDN actually has, rather than to this machine's `pacman -Syu`.
-  #
-  # Bump it when the CDN catches up, and keep it at or below the OTP that
-  # compiles the release — the bundle runs the .beam files built here.
-  @erts "29.1"
   @beam_machine "https://beam-machine-universal.b-cdn.net"
   # The CDN asks for this, and burrito sends it on every fetch of its own.
   @be_kind "?please-respect-my-bandwidth-costs=thank-you"
 
-  @erts_linux "#{@beam_machine}/OTP-#{@erts}/linux/x86_64/any/otp_#{@erts}_linux_any_x86_64.tar.gz#{@be_kind}"
-  @erts_macos "#{@beam_machine}/OTP-#{@erts}/macos/universal/otp_#{@erts}_macos_universal.tar.gz#{@be_kind}"
-
   # `MIX_ENV=prod mix release laev` → burrito_out/laev_linux_x86_64:
   # a single self-contained binary (BEAM bundled, no Erlang needed on the
   # user's machine) — the artifact package managers ship.
+  #
+  # Build it with the Erlang the CDN has a build of, or `check_runtime!/1`
+  # below will stop and say so:
+  #
+  #     MIX_ENV=prod mise exec erlang@29.0.6 zig@0.16.0 -- mix release laev --overwrite
   defp releases do
     [
       laev: [
-        steps: [:assemble, &clean_stale_erts/1, &Burrito.wrap/1, &clean_stale_erts/1],
+        steps: [
+          :assemble,
+          &check_runtime!/1,
+          &clean_stale_erts/1,
+          &Burrito.wrap/1,
+          &clean_stale_erts/1
+        ],
         burrito: [
           targets: [
-            linux_x86_64: [os: :linux, cpu: :x86_64, custom_erts: @erts_linux],
-            macos_aarch64: [os: :darwin, cpu: :aarch64, custom_erts: @erts_macos]
+            linux_x86_64: [os: :linux, cpu: :x86_64],
+            macos_aarch64: [os: :darwin, cpu: :aarch64]
           ]
         ]
       ]
     ]
+  end
+
+  # The runtime each binary bundles has to be *the same OTP version* the release
+  # is compiled with, and nothing enforces that on its own.
+  #
+  # Burrito assembles the release out of the local Erlang, then replaces the NIF
+  # libraries in it with the target platform's — matching them by path,
+  # `lib/<app>-<version>/priv/lib/<name>.so`. So a bundle one patch release
+  # apart is worse than useless: OTP 29.1.1 ships `asn1-5.5.2` and 29.1 ships
+  # `asn1-5.5.1`, the macOS library lands in a directory the release does not
+  # have, and the Linux `.so` stays where the release *does* look. Nothing fails
+  # at build time. It fails at boot, on the user's machine, with
+  #
+  #     dlopen(...asn1-5.5.2/priv/lib/asn1rt_nif.so): slice is not valid mach-o file
+  #
+  # and the VM goes down with it. v0.1.50 shipped exactly that to macOS.
+  #
+  # Burrito asks the CDN for the version it is building with, which is right,
+  # and 404s three screens deep when the CDN hasn't got it, which is how that
+  # release came to be pinned to a near-miss. So the version is nothing to keep
+  # here and update — it is whatever Erlang is building — and the only thing
+  # asked of the CDN is that it has it. When it doesn't, the build stops here.
+  defp check_runtime!(release) do
+    version = otp_version()
+
+    missing =
+      for {os, url} <- [
+            linux: "#{@beam_machine}/OTP-#{version}/linux/x86_64/any/otp_#{version}_linux_any_x86_64.tar.gz#{@be_kind}",
+            macos: "#{@beam_machine}/OTP-#{version}/macos/universal/otp_#{version}_macos_universal.tar.gz#{@be_kind}"
+          ],
+          not served?(url),
+          do: os
+
+    if missing != [] do
+      Mix.raise("""
+      No prebuilt OTP #{version} for #{Enum.join(missing, " or ")} on the BEAM Machine CDN.
+
+      The binaries bundle the OTP they are compiled with, so build this release
+      with an Erlang the CDN carries — 29.0.6 is installed here and is what
+      0.1.49 shipped:
+
+          MIX_ENV=prod mise exec erlang@29.0.6 zig@0.16.0 -- mix release laev --overwrite
+
+      Building it anyway produces a macOS binary that crashes at boot.
+      """)
+    end
+
+    release
+  end
+
+  defp otp_version do
+    [:code.root_dir(), "releases", :erlang.system_info(:otp_release), "OTP_VERSION"]
+    |> Path.join()
+    |> File.read!()
+    |> String.trim()
+  end
+
+  # An answer of any kind is enough; a CDN that cannot be reached is not a
+  # reason to stop a build, since burrito's own fetch would say so next.
+  defp served?(url) do
+    {:ok, _} = Application.ensure_all_started(:req)
+
+    case Req.head(url, retry: false, receive_timeout: 10_000) do
+      {:ok, %{status: status}} -> status < 400
+      _ -> true
+    end
+  rescue
+    _ -> true
   end
 
   # Burrito unpacks ERTS bundles into /tmp/unpacked_erts_* and keeps its working
