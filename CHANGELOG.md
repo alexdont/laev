@@ -5,7 +5,11 @@ Earlier releases are described in full at
 
 ## 0.1.55
 
-### The rest of 0.1.55, from the task queue
+**A dozen tasks' worth: the library surfaces roki had rewritten, two wrong
+numbers in the stats, subtitles that were mojibake, and a browser path that
+stopped burning seven cores to watch a 4K film.**
+
+### Playing
 
 **Browser playback copies the video instead of re-encoding it.** Re-encoding
 HEVC or AV1 with libx264 takes five to seven cores and a 4K file never keeps
@@ -45,6 +49,8 @@ for two hours while serving a playlist that will never grow, and a conversion
 with no playable playlist after two minutes is stopped as stuck rather than
 waited out as idle.
 
+### Reading a subtitle file
+
 **Subtitles in Japanese, Russian and Chinese are readable.**
 
 A subtitle file carries no declaration of its encoding, and laev read anything
@@ -78,7 +84,7 @@ refuses the bytes) the result is the Latin-1 reading, exactly as before, and
 `laev doctor` now lists `iconv` among the optional binaries so a missing one is
 visible rather than silent.
 
-## 0.1.55
+### Numbers that were wrong
 
 **A runtime laev could not look up is no longer remembered as "no runtime".**
 
