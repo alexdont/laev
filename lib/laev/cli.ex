@@ -6114,6 +6114,23 @@ defmodule Laev.CLI do
       )
     end
 
+    # Not the same thing as having no runtime: these are titles laev could not
+    # ask about at all. Said out loud, because the total below is short by
+    # however long they were, and a short number looks like an answer.
+    if s[:unmeasurable] && s.unmeasurable > 0 do
+      why = if s[:tmdb] == false, do: "no TMDB key is set", else: "TMDB could not be reached"
+
+      IO.puts(
+        :stderr,
+        IO.ANSI.format([
+          :yellow,
+          "\n  #{s.unmeasurable} #{if s.unmeasurable == 1, do: "title", else: "titles"} could not be measured — #{why}. ",
+          "The totals above are short by whatever they run to; nothing was written down as zero.",
+          :reset
+        ])
+      )
+    end
+
     IO.puts(:stderr, "")
     # A picker rather than a prompt: esc leaves it the way esc leaves every
     # other screen. Reading a single keypress isn't open to us — a System.cmd

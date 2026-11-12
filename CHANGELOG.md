@@ -3,6 +3,43 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.55
+
+**A runtime laev could not look up is no longer remembered as "no runtime".**
+
+`runtimes.json` stored a failed lookup and a real answer the same way, as
+`"unknown"`, and kept it for good. So one run without a TMDB key — or on a
+train, or during a TMDB outage — taught the cache that every film it touched
+was zero seconds long, and every later run agreed: an account's 6,940 hours
+read as 2,500.
+
+The three cases are now told apart:
+
+* **An answer.** TMDB replied and lists no runtime, or has nothing at all under
+  that id (a 404). Remembered, but **dated**, so a title whose runtime is
+  filled in later is asked about again after a month rather than counted as
+  nothing forever.
+* **A failure to ask.** `:no_tmdb_key`, a 401 from a bad key, a 429, a 500, a
+  timeout, a refused connection, or MyAnimeList not answering. **Never written
+  down** — a failure of this machine's is not a fact about the film. It is used
+  for the run and forgotten, so the next run asks again.
+* **A number.** Unchanged.
+
+`Laev.Stats.all_time/0` now also returns `unmeasurable:` (how many titles this
+run could not ask about) and `tmdb:` (whether a key is configured), and `laev
+stats` says so out loud rather than presenting a short total as the answer —
+the totals are short by whatever those titles run to, and nothing was written
+down as zero.
+
+**Caches this bug already spoiled heal themselves.** A bare `"unknown"` is what
+older laevs wrote for failures and answers alike, so it is no longer believed:
+it is dropped on load and looked up again. A dated one keeps the date it was
+learned on — writing the cache does not refresh it, or the month would never
+come round.
+
+For `roki`: `heal_runtimes/0` and refusing to build without a TMDB key are no
+longer needed.
+
 ## 0.1.54
 
 **Why the tick log had days of nothing in it, and why the day log had too much.**

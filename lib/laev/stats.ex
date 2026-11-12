@@ -34,6 +34,19 @@ defmodule Laev.Stats do
   # TMDB gives a show's typical episode length; a few shows list none at all.
   @unknown :unknown
 
+  # "I could not ask" — a missing key, a 401, a rate limit, a timeout, a dead
+  # network. Never written to the cache: a failure of this machine's is not a
+  # fact about the film. One keyless run used to fill `runtimes.json` with
+  # `unknown` and turn 6,940 hours of watching into 2,500 for good.
+  @unavailable :unavailable
+
+  # A definite "TMDB lists no runtime for this" is remembered, but dated, so a
+  # title that gets its runtime filled in later is asked about again eventually
+  # rather than counted as nothing forever. Undated entries are the ones older
+  # laevs wrote, when a failure and an answer were stored the same way: they are
+  # dropped on load, which heals a cache this bug has already spoiled.
+  @unknown_ttl 30 * 24 * 60 * 60
+
   defmodule Title do
     @moduledoc false
     defstruct [:type, :tmdb_id, :title, seconds: 0, off: 0, finished: 0, started: 0, whole: false]
@@ -51,7 +64,7 @@ defmodule Laev.Stats do
   """
   def all_time do
     entries = read_positions()
-    runtimes = runtimes_for(entries)
+    {runtimes, unmeasurable} = runtimes_for(entries)
     played = read_played()
 
     {titles, unknown, skipped, measured} = fold(entries, runtimes, played)
@@ -69,6 +82,11 @@ defmodule Laev.Stats do
       marked: Enum.count(entries, fn {_n, _t, _i, _k, p} -> p == :seen end),
       titles: Enum.sort_by(titles, & &1.seconds, :desc),
       unknown: unknown,
+      # Titles whose length this run could not look up at all — not "TMDB has
+      # no runtime" but "laev could not ask". A caller showing totals should
+      # say so rather than present a short number as the answer.
+      unmeasurable: unmeasurable,
+      tmdb: Laev.Tmdb.configured?(),
       skipped: skipped,
       measured: measured,
       anime: slice(titles, entries, true),
@@ -101,7 +119,8 @@ defmodule Laev.Stats do
   """
   def for_title(type, tmdb_id) do
     entries = Enum.filter(read_positions(), fn {_n, t, id, _k, _p} -> t == type and id == tmdb_id end)
-    {titles, _unknown, _skipped, _measured} = fold(entries, runtimes_for(entries), read_played())
+    {runtimes, _unmeasurable} = runtimes_for(entries)
+    {titles, _unknown, _skipped, _measured} = fold(entries, runtimes, read_played())
 
     %{seconds: titles |> Enum.map(& &1.seconds) |> Enum.sum(), entries: length(entries)}
   end
@@ -301,9 +320,14 @@ defmodule Laev.Stats do
       end)
       |> Map.new()
 
-    merged = Map.merge(cached, fetched)
-    if fetched != %{}, do: save_cache(merged)
-    merged
+    # What could not be asked is used for this run and forgotten, so the next
+    # run asks again.
+    {unavailable, learned} = Map.split_with(fetched, fn {_key, value} -> value == @unavailable end)
+
+    merged = Map.merge(cached, learned)
+    if learned != %{}, do: save_cache(merged)
+
+    {merged, map_size(unavailable)}
   end
 
   defp cache_key({type, id}), do: "#{type}-#{id}"
@@ -314,8 +338,9 @@ defmodule Laev.Stats do
   defp runtime_key(_type, id, :series_mark), do: {"series", id}
   defp runtime_key(type, id, _kind), do: {type, id}
 
-  # Seconds, or `@unknown` when TMDB lists none — cached either way, so a show
-  # without runtimes isn't looked up again on every run.
+  # Seconds, `@unknown` when TMDB answered and lists no runtime, or
+  # `@unavailable` when the question could not be put. Only the first two are
+  # worth writing down; see `asked?/1`.
   defp fetch_runtime({"movie", id}) do
     case Tmdb.movie(id) do
       {:ok, %{"runtime" => minutes} = movie} when is_integer(minutes) and minutes > 0 ->
@@ -326,8 +351,8 @@ defmodule Laev.Stats do
         remember_name("movie", id, movie["title"])
         @unknown
 
-      _ ->
-        @unknown
+      error ->
+        answered(error)
     end
   end
 
@@ -337,8 +362,8 @@ defmodule Laev.Stats do
         remember_name("tv", id, show["name"])
         episode_seconds(show)
 
-      _ ->
-        @unknown
+      error ->
+        answered(error)
     end
   end
 
@@ -348,7 +373,10 @@ defmodule Laev.Stats do
   defp fetch_runtime({"mal", id}) do
     case Laev.Anime.learn(id) do
       %{seconds: seconds} when is_integer(seconds) and seconds > 0 -> seconds
-      _ -> @unknown
+      # The list answered and has no duration for it.
+      %{} -> @unknown
+      # No answer at all: no token, no network, MyAnimeList having a bad day.
+      _ -> @unavailable
     end
   end
 
@@ -357,21 +385,36 @@ defmodule Laev.Stats do
       %{seconds: seconds, episodes: count} when is_integer(seconds) and seconds > 0 and is_integer(count) and count > 0 ->
         seconds * count
 
-      _ ->
+      %{} ->
         @unknown
+
+      _ ->
+        @unavailable
     end
   end
 
   # Every episode there is — what marking a whole series claims you watched.
   defp fetch_runtime({"series", id}) do
-    with {:ok, show} <- Tmdb.tv(id),
-         seconds when is_integer(seconds) <- episode_seconds(show),
-         count when is_integer(count) and count > 0 <- show["number_of_episodes"] do
-      count * seconds
-    else
-      _ -> @unknown
+    case Tmdb.tv(id) do
+      {:ok, show} ->
+        with seconds when is_integer(seconds) <- episode_seconds(show),
+             count when is_integer(count) and count > 0 <- show["number_of_episodes"] do
+          count * seconds
+        else
+          _ -> @unknown
+        end
+
+      error ->
+        answered(error)
     end
   end
+
+  # TMDB saying it has nothing filed under an id is an answer, and is kept
+  # (dated, so a title added later is found). Anything else — `:no_tmdb_key`, a
+  # 401 from a bad key, a 429, a 500, a timeout, a refused connection — is this
+  # machine failing to ask, and is not a fact to remember about the title.
+  defp answered({:error, {:tmdb, 404, _body}}), do: @unknown
+  defp answered(_error), do: @unavailable
 
   # The name comes free with the runtime — the same response carries both — so a
   # title laev has never played still has something readable to show.
@@ -388,21 +431,66 @@ defmodule Laev.Stats do
 
   defp episode_seconds(_), do: @unknown
 
+  # On disk a runtime is a number of seconds, and a definite "no runtime" is
+  # `"unknown:<unix>"`. An entry that has run out its `@unknown_ttl` is left out
+  # of what is loaded, so it is asked about again; so is a bare `"unknown"`,
+  # which is what older laevs wrote for failures and answers alike. A cache this
+  # bug has already spoiled therefore heals itself on the next stats run.
   defp load_cache do
     with {:ok, body} <- File.read(Path.join(data_dir(), @cache)),
          {:ok, map} when is_map(map) <- Jason.decode(body) do
-      Map.new(map, fn {k, v} -> {k, if(v == "unknown", do: @unknown, else: v)} end)
+      for {key, value} <- map, usable = loaded(value), usable != :drop, into: %{}, do: {key, usable}
     else
       _ -> %{}
     end
   end
 
+  defp loaded(seconds) when is_integer(seconds), do: seconds
+
+  defp loaded("unknown:" <> at) do
+    case Integer.parse(at) do
+      {at, ""} -> if System.os_time(:second) - at < @unknown_ttl, do: @unknown, else: :drop
+      _ -> :drop
+    end
+  end
+
+  defp loaded(_value), do: :drop
+
   defp save_cache(map) do
-    wire = Map.new(map, fn {k, v} -> {k, if(v == @unknown, do: "unknown", else: v)} end)
+    previous = raw_cache()
+    now = System.os_time(:second)
+
+    wire =
+      Map.new(map, fn
+        {key, @unknown} -> {key, stamp(Map.get(previous, key), now)}
+        {key, seconds} -> {key, seconds}
+      end)
+
     File.write(Path.join(data_dir(), @cache), Jason.encode!(wire))
   rescue
     _ -> :ok
   end
+
+  # A date on an unknown is when it was learned, not when it was last written.
+  # Re-dating it on every save would keep it alive for as long as laev is used
+  # and the `@unknown_ttl` would never come round.
+  defp stamp("unknown:" <> _rest = already_dated, _now), do: already_dated
+  defp stamp(_undated, now), do: "unknown:#{now}"
+
+  defp raw_cache do
+    with {:ok, body} <- File.read(Path.join(data_dir(), @cache)),
+         {:ok, map} when is_map(map) <- Jason.decode(body) do
+      map
+    else
+      _ -> %{}
+    end
+  end
+
+  @doc false
+  # Whether an error from a provider is an answer about the title or this
+  # machine failing to ask. Public because it is the rule the whole fix turns
+  # on, and it is worth a test of its own.
+  def answer?(error), do: answered(error) == @unknown
 
   # ── folding it together ───────────────────────────────────────────
 
