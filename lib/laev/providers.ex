@@ -213,104 +213,43 @@ defmodule Laev.Providers do
   provider. Reports `{:trying, name}` / `{:skipped, name, reason}` through
   `opts[:notify]`. Returns `{:ok, stream, source, skipped}` or
   `{:error, {:all_failed, skipped}}`.
+
+  The racing itself is `Laev.Hedge.run/3` — a source that has not answered
+  within `hedge_after` has another started beside it, `max_in_flight` at once,
+  and the best-ranked of whatever answers wins. This function is what laev
+  plays with; anything else that wants the same race over its own candidates
+  wants `Laev.Hedge` directly, where the result also says what was never asked.
   """
   def resolve_best(sources, opts \\ []) do
     notify = Keyword.get(opts, :notify, fn _ -> :ok end)
-    hedge = Keyword.get(opts, :hedge_after, @hedge_after)
-    in_flight = Keyword.get(opts, :max_in_flight, @max_in_flight)
     resolve_opts = [patience: 5] ++ Keyword.take(opts, [:episode, :season])
     # The prober is an argument so the racing above it can be tested without a
     # debrid account and without waiting on anybody's network.
     resolver = Keyword.get(opts, :resolver, &probe_resolve/2)
 
-    sources
-    |> Enum.with_index()
-    |> race([], notify, {resolver, resolve_opts}, hedge, in_flight, [])
-  end
+    hedge_opts = [
+      delay_ms: Keyword.get(opts, :hedge_after, @hedge_after),
+      max_parallel: Keyword.get(opts, :max_in_flight, @max_in_flight),
+      # The source's name is what a picker shows, and `:skipped` is what laev's
+      # callers have always been told. Translated here rather than in `Hedge`,
+      # which knows nothing about sources.
+      notify: fn
+        {:trying, source} -> notify.({:trying, source.name})
+        {:hedging, source} -> notify.({:hedging, source.name})
+        {:failed, source, reason} -> notify.({:skipped, source.name, reason(reason)})
+      end
+    ]
 
-  # Nothing left to try and nothing still trying.
-  defp race([], [], _notify, _probe, _hedge, _in_flight, skipped),
-    do: {:error, {:all_failed, Enum.reverse(skipped)}}
-
-  defp race(queue, flight, notify, probe, hedge, in_flight, skipped) do
-    # Always something in the air: the best source not yet tried goes first.
-    {queue, flight} = launch(queue, flight, notify, probe, in_flight)
-
-    case Task.yield_many(Enum.map(flight, &elem(&1, 2)), hedge) do
-      answers when is_list(answers) ->
-        {done, waiting} = Enum.split_with(answers, fn {_task, answer} -> answer != nil end)
-
-        finished =
-          for {task, answer} <- done,
-              {index, source, ^task} <- flight,
-              do: {index, source, unwrap(answer)}
-
-        still = for {task, nil} <- waiting, {index, source, ^task} <- flight, do: {index, source, task}
-
-        case winner(finished) do
-          {index, source, stream} ->
-            # The losers are abandoned rather than waited for. A probe already
-            # in flight will finish on Real-Debrid's side whatever we do, so
-            # there is nothing to gain by watching it.
-            for {_i, _s, task} <- still, do: Task.shutdown(task, :brutal_kill)
-            _ = index
-            {:ok, stream, source, Enum.reverse(skipped)}
-
-          nil ->
-            skipped = Enum.reduce(failures(finished), skipped, fn {name, reason}, acc ->
-              notify.({:skipped, name, reason})
-              [{name, reason} | acc]
-            end)
-
-            # Nobody has answered inside the window, so a second source is
-            # started beside the first rather than behind it — see @hedge_after.
-            race(queue, still, notify, probe, hedge, in_flight, skipped)
-        end
+    case Laev.Hedge.run(sources, &resolver.(&1, resolve_opts), hedge_opts) do
+      {:ok, stream, source, %{failed: failed}} -> {:ok, stream, source, skipped(failed)}
+      {:error, :all_failed, %{failed: failed}} -> {:error, {:all_failed, skipped(failed)}}
     end
   end
 
-  defp launch(queue, flight, notify, probe, in_flight) do
-    cond do
-      queue != [] and flight == [] ->
-        [{source, index} | rest] = queue
-        notify.({:trying, source.name})
-        {rest, [start(index, source, probe)]}
+  defp skipped(failed), do: for({source, why} <- failed, do: {source.name, reason(why)})
 
-      # One more alongside what is already running, while the cap allows.
-      queue != [] and length(flight) < in_flight ->
-        [{source, index} | rest] = queue
-        notify.({:hedging, source.name})
-        {rest, flight ++ [start(index, source, probe)]}
-
-      true ->
-        {queue, flight}
-    end
-  end
-
-  defp start(index, source, {resolver, resolve_opts}),
-    do: {index, source, Laev.Scope.async(fn -> resolver.(source, resolve_opts) end)}
-
-  defp unwrap({:ok, result}), do: result
-  defp unwrap({:exit, reason}), do: {:error, {:probe_crashed, reason}}
-
-  # The best-ranked of whatever has actually answered. While nothing is hedged —
-  # which is every play where the first source answers in time — that is the
-  # first source, and the pick is exactly what probing the whole page would have
-  # chosen. Once hedging starts it can be a lower-ranked release: the leader was
-  # slow, and a good source now beats a marginally better one later.
-  defp winner(finished) do
-    finished
-    |> Enum.filter(fn {_index, _source, result} -> match?({:ok, _}, result) end)
-    |> Enum.min_by(fn {index, _source, _result} -> index end, fn -> nil end)
-    |> case do
-      {index, source, {:ok, stream}} -> {index, source, stream}
-      _ -> nil
-    end
-  end
-
-  defp failures(finished) do
-    for {_index, source, {:error, reason}} <- finished do
-      {source.name, if(match?({:rd, 451, _}, reason), do: :infringing, else: reason)}
-    end
-  end
+  # 451 is the provider refusing to touch it, which is worth saying plainly
+  # rather than showing somebody an HTTP status.
+  defp reason({:rd, 451, _body}), do: :infringing
+  defp reason(other), do: other
 end
