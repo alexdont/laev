@@ -5,6 +5,41 @@ Earlier releases are described in full at
 
 ## 0.1.55
 
+**Subtitles in Japanese, Russian and Chinese are readable.**
+
+A subtitle file carries no declaration of its encoding, and laev read anything
+that was not valid UTF-8 as Latin-1 — right for the French and other Western
+European releases it was written for, and mojibake for every Shift-JIS anime
+release, Windows-1251 Russian fansub and GBK Chinese one. It did not fail
+either: it produced a wall of `ã‚ã‚Š` that looks like a laev bug.
+
+`Laev.Encoding` works the encoding out from the bytes, in order of how much the
+evidence is worth:
+
+1. A byte-order mark — UTF-8, UTF-16 either way round.
+2. UTF-16 with no mark, from the NULs every second byte that ASCII in UTF-16 is
+   full of (which is what Windows subtitle tools write).
+3. Valid UTF-8, which is nearly everything.
+4. A multi-byte code page whose structure the high bytes actually fit —
+   Shift-JIS, EUC-JP, GBK. One byte out of place rules one out.
+5. A single-byte code page, from how the high bytes sit: Cyrillic words are
+   runs of them, a French accent sits alone between ASCII.
+
+Where more than one fits — Shift-JIS allows a trail byte almost anywhere, so a
+file of `0xA1..0xFE` pairs parses as all three — the rows decide. Shift-JIS
+keeps kana and most kanji in `0x81..0x9F`, which EUC-JP does not use for leads
+and GBK rarely reaches; EUC-JP and GBK are separated by the kana rows `0xA4`
+and `0xA5`, which Chinese has no use for.
+
+Decoding UTF-8, UTF-16 and Latin-1 is OTP's. The code pages need mapping tables
+OTP hasn't got, so laev shells out to `iconv` — the way it shells out to mpv and
+ffmpeg, with no NIF to compile and nothing to configure. Without it (or if it
+refuses the bytes) the result is the Latin-1 reading, exactly as before, and
+`laev doctor` now lists `iconv` among the optional binaries so a missing one is
+visible rather than silent.
+
+## 0.1.55
+
 **A runtime laev could not look up is no longer remembered as "no runtime".**
 
 `runtimes.json` stored a failed lookup and a real answer the same way, as

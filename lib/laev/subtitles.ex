@@ -28,30 +28,13 @@ defmodule Laev.Subtitles do
   @doc """
   A subtitle file's text, whatever it was encoded in.
 
-  Subtitle files in the wild are UTF-8, UTF-8 with a byte-order mark, UTF-16,
-  or Latin-1 — which is most French and other Western European releases, and
-  which arrives as mojibake or nothing at all if read as UTF-8. Anything that
-  is not valid UTF-8 is read as Latin-1: right for those, wrong for Shift-JIS
-  Japanese, which would need a real encoding detector to tell apart.
+  Subtitle files carry no declaration of their encoding, so it has to be worked
+  out from the bytes — see `Laev.Encoding`. This used to read anything that was
+  not valid UTF-8 as Latin-1, which is right for the French and other Western
+  European releases it was written for, and turned every Shift-JIS Japanese,
+  Windows-1251 Russian and GBK Chinese subtitle into mojibake.
   """
-  def to_utf8(<<0xFF, 0xFE, rest::binary>>), do: utf16(rest, :little)
-  def to_utf8(<<0xFE, 0xFF, rest::binary>>), do: utf16(rest, :big)
-  def to_utf8(<<0xEF, 0xBB, 0xBF, rest::binary>>), do: to_utf8(rest)
-
-  def to_utf8(content) when is_binary(content) do
-    if String.valid?(content),
-      do: content,
-      else: :unicode.characters_to_binary(content, :latin1, :utf8)
-  end
-
-  def to_utf8(content), do: content
-
-  defp utf16(bytes, endianness) do
-    case :unicode.characters_to_binary(bytes, {:utf16, endianness}, :utf8) do
-      text when is_binary(text) -> text
-      _ -> ""
-    end
-  end
+  defdelegate to_utf8(content), to: Laev.Encoding
 
   @doc "SubRip → WebVTT: add the header and switch the comma decimal to a dot."
   def srt_to_vtt(srt) do

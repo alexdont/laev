@@ -141,7 +141,8 @@ defmodule Laev.Doctor do
       {other, :optional, "the other player laev can use — switch in Settings"},
       {"fzf", :optional, "interactive pickers"},
       {"chafa", :optional, "poster previews"},
-      {"curl", :optional, "laev download + posters"}
+      {"curl", :optional, "laev download + posters"},
+      {"iconv", :optional, "Shift-JIS/Windows-1251/GBK subtitles — without it they read as Latin-1"}
     ]
 
     binary_results =
