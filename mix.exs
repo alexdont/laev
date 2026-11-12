@@ -180,6 +180,8 @@ defmodule Laev.MixProject do
     [
       {:req, "~> 0.5"},
       {:jason, "~> 1.2"},
+      # The MyAnimeList client laev and roki share, rather than a copy in each.
+      {:myanimelist, "~> 0.2"},
       # Only ever used to wrap the standalone CLI binaries and to ask, at boot,
       # whether we are running as one. Optional so that anything depending on
       # laev as a library does not drag a binary-packaging tool along with it.

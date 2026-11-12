@@ -1,107 +1,70 @@
 defmodule Laev.MAL do
   @moduledoc """
-  MyAnimeList API v2 client — anime list scrobbling.
+  Anime list scrobbling, over the `myanimelist` package.
 
-  OAuth is authorization-code + PKCE (MAL only supports the "plain" challenge,
-  so verifier == challenge). The owner ships a `MAL_CLIENT_ID` (and secret if
-  their app has one); each user authorizes their own account once via
-  `laev mal login`, and the tokens live in `~/.laev/mal.json`, auto-refreshed.
+  Laev carried its own MyAnimeList client until the package was published; the
+  protocol half of it — PKCE with MAL's plain challenge, the token refresh, the
+  `num_watched_episodes` spelling that MAL's responses do not use — now lives
+  there, and laev and roki share one copy of it.
+
+  What stays here is what is laev's rather than MyAnimeList's: where a token
+  lives (`Laev.MAL.Tokens`, per scope), the local listener the browser is
+  redirected to, and the shapes the rest of laev reads — `list/1`'s entries,
+  `anime/1`, and `set_progress/3` deciding that the last episode finishes a
+  show.
 
   Everything returns values, never raises.
   """
 
-  @base "https://api.myanimelist.net/v2"
-  @auth "https://myanimelist.net/v1/oauth2/authorize"
-  @token "https://myanimelist.net/v1/oauth2/token"
+  alias MyAnimeList.{Client, Token}
+  alias Laev.MAL.Tokens
+
   @redirect "http://localhost:8723/callback"
+
+  # The user's own list, with the node fields laev needs on it: how long an
+  # episode runs and how many there are, which is where anime hours come from.
+  # The package's `list_statuses/3` keeps only the list_status object, so this
+  # request is still laev's own — see the task filed about it.
+  @base "https://api.myanimelist.net/v2"
 
   # ── config / state ────────────────────────────────────────────────
 
   def client_id, do: Laev.Scope.get(:mal_client_id)
   def client_secret, do: Laev.Scope.get(:mal_client_secret)
-  def configured?, do: is_binary(client_id()) and client_id() != ""
+  def configured?, do: MyAnimeList.configured?(client_id())
 
   @doc "True once the user has logged in (a token is stored)."
-  def authenticated?, do: File.exists?(token_path())
+  def authenticated?, do: Tokens.exists?()
 
   def redirect_uri, do: @redirect
 
-  defp token_path do
-    dir = Laev.Scope.dir()
-    File.mkdir_p!(dir)
-    Path.join(dir, "mal.json")
+  # Everything the package needs to speak for this user.
+  defp client do
+    %Client{client_id: client_id(), client_secret: client_secret(), redirect_uri: @redirect}
   end
 
   # ── OAuth ─────────────────────────────────────────────────────────
 
   @doc "A PKCE verifier (also used verbatim as the plain challenge)."
-  def new_verifier, do: :crypto.strong_rand_bytes(64) |> Base.url_encode64(padding: false)
+  def new_verifier, do: MyAnimeList.new_code_verifier()
 
   @doc "The MAL authorize URL to open in the browser."
-  def authorize_url(state, verifier) do
-    @auth <>
-      "?" <>
-      URI.encode_query(%{
-        "response_type" => "code",
-        "client_id" => client_id(),
-        "state" => state,
-        "code_challenge" => verifier,
-        "code_challenge_method" => "plain",
-        "redirect_uri" => @redirect
-      })
-  end
+  def authorize_url(state, verifier), do: MyAnimeList.authorize_url(client(), state, verifier)
 
   @doc "Exchange an auth code for tokens and persist them."
   def exchange_code(code, verifier) do
-    with {:ok, tokens} <-
-           token_request(%{
-             "grant_type" => "authorization_code",
-             "code" => code,
-             "code_verifier" => verifier,
-             "redirect_uri" => @redirect
-           }) do
-      store_tokens(tokens)
-      {:ok, tokens}
+    case MyAnimeList.exchange_code(client(), code, verifier) do
+      {:ok, %Token{} = token} ->
+        Tokens.put_token(:me, token)
+        {:ok, %{access_token: token.access_token, refresh_token: token.refresh_token}}
+
+      error ->
+        error
     end
-  end
-
-  defp token_request(params) do
-    body =
-      params
-      |> Map.put("client_id", client_id())
-      |> maybe_secret()
-
-    case Req.post(@token, form: body, retry: false, receive_timeout: 15_000) do
-      {:ok, %{status: 200, body: %{"access_token" => at} = b}} ->
-        {:ok, %{access_token: at, refresh_token: b["refresh_token"], expires_in: b["expires_in"]}}
-
-      {:ok, %{status: s, body: b}} ->
-        {:error, {:mal, s, inspect(b)}}
-
-      {:error, e} ->
-        {:error, e}
-    end
-  end
-
-  defp maybe_secret(body) do
-    case client_secret() do
-      s when is_binary(s) and s != "" -> Map.put(body, "client_secret", s)
-      _ -> body
-    end
-  end
-
-  defp store_tokens(%{access_token: at, refresh_token: rt, expires_in: ei}) do
-    data = %{
-      "access_token" => at,
-      "refresh_token" => rt,
-      "expires_at" => System.os_time(:second) + (ei || 2_400_000)
-    }
-
-    File.write(token_path(), Jason.encode!(data))
   end
 
   @doc "Forget the stored tokens (logout)."
-  def logout, do: File.rm(token_path())
+  def logout, do: Tokens.delete_token(:me)
 
   @doc """
   Run the full login: open the browser to MAL, wait for the redirect on the
@@ -167,20 +130,14 @@ defmodule Laev.MAL do
     result
   end
 
-  # A valid access token, refreshing if expired. nil when not logged in or the
-  # refresh fails.
+  # A valid access token, refreshed if it is within a minute of expiry. nil
+  # when not logged in or the refresh fails. A refreshed token is persisted
+  # here, because the package hands one back rather than storing it.
   defp access_token do
-    with {:ok, body} <- File.read(token_path()),
-         {:ok, %{"access_token" => at, "refresh_token" => rt, "expires_at" => exp}} <-
-           Jason.decode(body) do
-      if System.os_time(:second) < exp - 60 do
-        at
-      else
-        case token_request(%{"grant_type" => "refresh_token", "refresh_token" => rt}) do
-          {:ok, tokens} -> store_tokens(tokens) && tokens.access_token
-          _ -> nil
-        end
-      end
+    with %Token{} = stored <- Tokens.get_token(:me),
+         {:ok, %Token{} = fresh} <- MyAnimeList.ensure_fresh(client(), stored) do
+      if fresh != stored, do: Tokens.put_token(:me, fresh)
+      fresh.access_token
     else
       _ -> nil
     end
@@ -190,10 +147,8 @@ defmodule Laev.MAL do
 
   @doc "The logged-in user's MAL username, or nil."
   def username do
-    with at when is_binary(at) <- access_token(),
-         {:ok, %{status: 200, body: %{"name" => name}}} <- get("/users/@me", at, fields: "name") do
-      name
-    else
+    case access_token() do
+      at when is_binary(at) -> MyAnimeList.username(at)
       _ -> nil
     end
   end
@@ -202,14 +157,23 @@ defmodule Laev.MAL do
   The user's list status for an anime: `%{status, episodes_watched, score}`
   or nil (not on list / not logged in).
   """
+  # One anime, one request. The package has `my_progress/4` (the count alone)
+  # and `list_statuses/3` (everybody's, paged a thousand at a time) and nothing
+  # in between — and this is called once per episode watched, so asking for the
+  # whole list to read one row of it is not an option.
   def list_status(mal_id) do
     with at when is_binary(at) <- access_token(),
-         {:ok, %{status: 200, body: %{"my_list_status" => ls}}} <-
-           get("/anime/#{mal_id}", at, fields: "my_list_status") do
+         {:ok, %{status: 200, body: %{"my_list_status" => status}}} <-
+           Req.get("#{@base}/anime/#{mal_id}",
+             headers: [{"authorization", "Bearer #{at}"}],
+             params: [fields: "my_list_status"],
+             retry: false,
+             receive_timeout: 15_000
+           ) do
       %{
-        status: ls["status"],
-        episodes_watched: ls["num_episodes_watched"] || 0,
-        score: ls["score"] || 0
+        status: status["status"],
+        episodes_watched: status["num_episodes_watched"] || 0,
+        score: status["score"] || 0
       }
     else
       _ -> nil
@@ -322,10 +286,19 @@ defmodule Laev.MAL do
 
   # The one request that works with either credential: a user token when there
   # is one (so my_list_status comes back), the bare client id when there isn't.
+  #
+  # Not the package's `get/4`: that is client-id only, and it normalizes the
+  # answer into its own shape, which has no room for *your* status and score.
+  # Those are the point of asking here.
   defp get_anime(mal_id, fields) do
     case access_token() do
       at when is_binary(at) ->
-        get("/anime/#{mal_id}", at, fields: fields)
+        Req.get("#{@base}/anime/#{mal_id}",
+          headers: [{"authorization", "Bearer #{at}"}],
+          params: [fields: fields],
+          retry: false,
+          receive_timeout: 15_000
+        )
 
       _ ->
         Req.get("#{@base}/anime/#{mal_id}",
@@ -381,17 +354,10 @@ defmodule Laev.MAL do
   MAL doesn't know (a running series, a long-form shounen) stays *watching*,
   because nothing here can tell when it ends.
   """
-  # The request field is `num_watched_episodes`; MAL's *responses* spell it
-  # `num_episodes_watched`, and sending the response spelling is a 400 ("this
-  # form should not contain extra fields") — which, being silently swallowed,
-  # meant episode counts never reached the list at all.
-  def progress_fields(count, total) do
-    if is_integer(total) and total > 0 and count >= total do
-      %{num_watched_episodes: count, status: "completed", finish_date: today()}
-    else
-      %{num_watched_episodes: count, status: "watching"}
-    end
-  end
+  # The spelling trap — the request field is `num_watched_episodes` while MAL's
+  # *responses* say `num_episodes_watched`, and sending the response spelling
+  # is a 400 that used to be swallowed silently — is the package's problem now.
+  def progress_fields(count, total), do: MyAnimeList.progress_fields(:anime, count, total)
 
   @doc """
   Set the list status of an anime — "watching", "on_hold", "completed",
@@ -407,39 +373,28 @@ defmodule Laev.MAL do
   @doc "Set the user's score (1–10) for an anime."
   def rate(mal_id, score) when score in 0..10 do
     case access_token() do
-      at when is_binary(at) -> patch(mal_id, at, %{score: score})
+      at when is_binary(at) -> unwrap(MyAnimeList.rate(:anime, at, mal_id, score))
       _ -> :skip
     end
   end
 
-  defp patch(mal_id, at, fields) do
-    req =
-      Req.new(
-        method: :patch,
-        url: "#{@base}/anime/#{mal_id}/my_list_status",
-        headers: [{"authorization", "Bearer #{at}"}],
-        form: fields,
-        retry: false,
-        receive_timeout: 15_000
-      )
-
-    case Req.request(req) do
-      {:ok, %{status: 200}} -> :ok
-      {:ok, %{status: s}} -> {:error, {:mal, s}}
-      {:error, e} -> {:error, e}
+  @doc """
+  An anime's opening and ending songs, as `%{openings: [...], endings: [...]}`.
+  Public data, so no login is needed.
+  """
+  def themes(mal_id) when is_integer(mal_id) do
+    case MyAnimeList.themes(mal_id, client_id() || "") do
+      {:ok, themes} -> themes
+      _ -> %{openings: [], endings: []}
     end
   end
 
-  defp get(path, at, params) do
-    Req.get("#{@base}#{path}",
-      headers: [{"authorization", "Bearer #{at}"}],
-      params: params,
-      retry: false,
-      receive_timeout: 15_000
-    )
-  end
+  defp patch(mal_id, at, fields),
+    do: unwrap(MyAnimeList.update_list_status(:anime, at, mal_id, fields))
 
-  defp today, do: Date.utc_today() |> Date.to_iso8601()
+  # Laev's callers only ever asked whether it went through.
+  defp unwrap({:ok, _body}), do: :ok
+  defp unwrap(error), do: error
 
   defp unix(stamp) when is_binary(stamp) do
     case DateTime.from_iso8601(stamp) do
