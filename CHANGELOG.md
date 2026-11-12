@@ -5,6 +5,46 @@ Earlier releases are described in full at
 
 ## 0.1.55
 
+### The rest of 0.1.55, from the task queue
+
+**Browser playback copies the video instead of re-encoding it.** Re-encoding
+HEVC or AV1 with libx264 takes five to seven cores and a 4K file never keeps
+up. Pass `caps:` to `Laev.Remux.start/3` — what the player decodes — and the
+`direct` package copies the video as it is into a fragmented MP4 that plays
+while it is written, which is also the only way HEVC reaches Safari over HLS.
+It decides for itself and answers `:skip` when the codec is not one those caps
+decode, so anything else falls through to the segmented path exactly as before.
+`Laev.Remux.kind/1` says which kind is on disk, since the two are laid out
+differently under the same id, and `direct` is an *optional* dependency: the
+terminal plays through mpv, which decodes everything itself.
+
+**One MyAnimeList client, not two.** `Laev.MAL` keeps every function it had and
+the protocol half of it is now the `myanimelist` package's — PKCE, the token
+refresh, the update spelling MAL's own responses do not use. Tokens stay in the
+same `mal.json`, so a login made before this still works.
+
+**One copy of the search rules.** `Laev.Search` holds what was private to the
+terminal's search: `parse/1` (title, year, IMDb id), `variants/1` for the
+spellings TMDB will not cross-match, `canonical/1`, `rank/3`.
+
+**The hedged race is its own function.** `Laev.Hedge.run/3` races any ranked
+list of candidates — another started beside a slow one after `delay_ms`,
+`max_parallel` at once, best-ranked answer wins — and says which candidates it
+never asked, so a caller can offer them. `resolve_best/2` is written on it.
+
+**Ratings in half steps.** TMDB has always stored them; the picker only offered
+whole numbers, so a film better than a seven and not an eight had to be rounded.
+MyAnimeList keeps whole numbers, because that is what it stores.
+
+**Esc goes one step out**, not home, from every screen — the screens are a
+stack now (`Laev.Nav`) — and the player's menu can get back to the list a title
+was picked from: the search results, Saved, the Watchlist.
+
+**A remux worker whose ffmpeg died gives its id back** instead of holding it
+for two hours while serving a playlist that will never grow, and a conversion
+with no playable playlist after two minutes is stopped as stuck rather than
+waited out as idle.
+
 **Subtitles in Japanese, Russian and Chinese are readable.**
 
 A subtitle file carries no declaration of its encoding, and laev read anything

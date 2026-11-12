@@ -22,6 +22,10 @@ defmodule Laev.Application do
     Laev.Account.warm()
     # And the strays a killed run left in the debrid account — at most once
     # every six hours, in the background, silently. See `Laev.RD.Sweep`.
+    # Both kinds of conversion live under the same id in the same directory,
+    # so `direct` is pointed at laev's layout before anything asks it where a
+    # file is — a host serving the files calls `Direct.playlist/3` itself.
+    Laev.Remux.share_directory()
     Laev.RD.Sweep.warm()
 
     children = [

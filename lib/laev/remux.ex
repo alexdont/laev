@@ -37,6 +37,9 @@ defmodule Laev.Remux do
   """
   def touch(id) when is_binary(id) do
     Laev.Remux.Reaper.touch(id)
+    # Both kinds keep their own clock: laev's reaper for the segmented path,
+    # `direct`'s own idle stop for the copied one.
+    if direct?(), do: apply(Direct, :touch, [id])
     touch_cache(id)
     :ok
   rescue
@@ -62,6 +65,7 @@ defmodule Laev.Remux do
     sweep()
     key = Keyword.get(opts, :key) || filename || url
     id = cache_id(key)
+    share_directory()
 
     cond do
       # Already remuxing/serving this exact content — don't start a second ffmpeg.
@@ -81,6 +85,11 @@ defmodule Laev.Remux do
         touch_cache(id)
         {:ok, id}
 
+      # The browser already decodes this video, so there is nothing to encode:
+      # copy it as it is. See `direct/3`.
+      match?({:ok, _id, _part}, direct(url, id, opts)) ->
+        {:ok, id}
+
       true ->
         # No usable cache: clear any stale/partial dir and remux fresh.
         File.rm_rf(dir(id))
@@ -92,6 +101,71 @@ defmodule Laev.Remux do
           {:error, reason} -> {:error, reason}
         end
     end
+  end
+
+  @doc """
+  Which kind of conversion is on disk under `id`:
+
+    * `:direct` — the video copied as it is, into a fragmented MP4 served as
+      byte ranges. Its playlists are `Direct.playlist/3` and
+      `Direct.media_playlist/3`, not `entry_playlist/1`.
+    * `:hls` — laev's own segmented remux, possibly re-encoded.
+    * `:none` — nothing here.
+
+  A host serving the files has to ask, because the two kinds are laid out
+  differently in the same directory.
+  """
+  def kind(id) do
+    cond do
+      direct?() and apply(Direct, :direct?, [id]) -> :direct
+      File.exists?(media_playlist_path(id)) or running?(id) -> :hls
+      true -> :none
+    end
+  end
+
+  # Copy rather than encode, when the client says it decodes the codec.
+  #
+  # Re-encoding HEVC or AV1 with libx264 takes five to seven cores and a 4K
+  # file never keeps up; the `direct` package copies the video into one
+  # fragmented MP4 that plays while it is written, and it is the only way HEVC
+  # reaches Safari over HLS. It decides for itself — `:skip` when the video is
+  # not one these caps decode — so laev offers it the job and falls through to
+  # the segmented path on anything but a yes.
+  #
+  # Only when a caller passes `caps:` (what the player decodes,
+  # `Direct.Caps.from_params/1`): the terminal plays through mpv, which decodes
+  # everything itself and wants none of this, which is also why the dependency
+  # is optional.
+  defp direct(url, id, opts) do
+    caps = Keyword.get(opts, :caps)
+
+    if direct?() and is_map(caps) and caps != %{} do
+      apply(Direct, :start, [url, [id: id, caps: caps, from: Keyword.get(opts, :from, 0)]])
+    else
+      :skip
+    end
+  rescue
+    _ -> :skip
+  end
+
+  defp direct?, do: Code.ensure_loaded?(Direct) and function_exported?(Direct, :start, 2)
+
+  @doc """
+  Point `direct` at laev's directory layout, so both kinds of conversion live
+  under the same id in the same place and one id is an address a host can serve
+  either from.
+
+  Called at boot, and again before starting a conversion for anything that runs
+  laev as a library without its supervision tree. Set here rather than asked of
+  config, because an application depending on laev has its own config and
+  should not have to know this.
+  """
+  def share_directory do
+    if direct?() and Application.get_env(:direct, :dir) == nil do
+      Application.put_env(:direct, :dir, {__MODULE__, :dir})
+    end
+
+    :ok
   end
 
   # A deterministic 16-hex id for a content key, valid for `valid_id?/1`.

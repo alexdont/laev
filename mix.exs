@@ -182,6 +182,10 @@ defmodule Laev.MixProject do
       {:jason, "~> 1.2"},
       # The MyAnimeList client laev and roki share, rather than a copy in each.
       {:myanimelist, "~> 0.2"},
+      # Copies browser-decodable video instead of re-encoding it. Optional: the
+      # terminal plays through mpv, which decodes everything itself, so only a
+      # host serving video to a browser needs this.
+      {:direct, "~> 0.1", optional: true},
       # Only ever used to wrap the standalone CLI binaries and to ask, at boot,
       # whether we are running as one. Optional so that anything depending on
       # laev as a library does not drag a binary-packaging tool along with it.

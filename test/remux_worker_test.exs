@@ -60,6 +60,40 @@ defmodule Laev.RemuxWorkerTest do
     end
   end
 
+  # Two kinds of conversion share the directory and the id: laev's segmented
+  # remux, and the copied fragmented MP4 the `direct` package writes when the
+  # browser already decodes the video. They are laid out differently, so a host
+  # serving the files has to be able to ask which it is holding.
+  describe "which kind is on disk" do
+    test "nothing is :none" do
+      File.rm_rf(Remux.dir(@id))
+      assert Remux.kind(@id) == :none
+    end
+
+    test "a segmented playlist is :hls" do
+      File.mkdir_p!(Remux.dir(@id))
+      File.write!(Path.join(Remux.dir(@id), "index.m3u8"), "#EXTM3U\n")
+      on_exit(fn -> File.rm_rf(Remux.dir(@id)) end)
+
+      assert Remux.kind(@id) == :hls
+    end
+
+    # What `direct` leaves beside its media file. Written here rather than by
+    # running a conversion, which would want ffmpeg and a real stream.
+    test "an audio manifest is :direct" do
+      File.mkdir_p!(Remux.dir(@id))
+      File.write!(Path.join(Remux.dir(@id), "audio.json"), "[]")
+      on_exit(fn -> File.rm_rf(Remux.dir(@id)) end)
+
+      assert Remux.kind(@id) == :direct
+    end
+
+    test "and a touch reaches both kinds without caring which" do
+      assert Remux.touch(@id) == :ok
+      assert Remux.touch(nil) == :ok
+    end
+  end
+
   describe "what counts as a cache" do
     test "a finished playlist does", %{} do
       File.mkdir_p!(Remux.dir(@id))
