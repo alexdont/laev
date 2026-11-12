@@ -65,8 +65,16 @@ defmodule Laev.Remux do
 
     cond do
       # Already remuxing/serving this exact content — don't start a second ffmpeg.
-      running?(id) ->
+      running?(id) and File.dir?(dir(id)) ->
         {:ok, id}
+
+      # Registered, but what it was writing is gone: a cache sweep, an `rm`, a
+      # full disk. Reusing it would wait on a playlist nothing is writing, so
+      # the worker goes and this falls through to a fresh remux below.
+      running?(id) ->
+        stop(id)
+        File.rm_rf(dir(id))
+        start(url, filename, opts)
 
       # A finished, fresh remux is cached on disk. Reuse it (no ffmpeg at all).
       complete?(id) ->
@@ -93,8 +101,12 @@ defmodule Laev.Remux do
 
   defp running?(id), do: Registry.lookup(@registry, id) != []
 
-  # A cached remux is usable if it finished (has ENDLIST) and is still fresh.
-  defp complete?(id) do
+  @doc """
+  Whether this id has a finished remux on disk — a media playlist carrying
+  `#EXT-X-ENDLIST`, written recently enough to still be a cache. `start/3`
+  reuses one of these with no ffmpeg at all.
+  """
+  def complete?(id) do
     path = media_playlist_path(id)
 
     case File.read(path) do

@@ -68,8 +68,23 @@ defmodule Laev.Remux.Worker do
   @impl true
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     if status != 0, do: Logger.warning("remux #{state.id} ffmpeg exited #{status}: #{state.last_error}")
-    # Keep the worker alive to serve the already-written segments; TTL/stop cleans up.
-    {:noreply, %{state | port: nil}}
+
+    # A finished conversion is worth keeping registered: the segments are all
+    # there, and this worker serves them for the rest of its TTL.
+    #
+    # A conversion whose ffmpeg *died* is not. It used to stay registered just
+    # the same, for two hours, and `Laev.Remux.start/3` reuses a registered id
+    # rather than starting a second ffmpeg — so every later play of that
+    # release waited on a playlist that would never grow another line, and the
+    # only cures were "restart laev or wait". Stopping here gives the id back:
+    # the next play finds no worker, no complete cache, and remuxes afresh.
+    # What ffmpeg did write stays on disk either way.
+    if complete?(state.dir) do
+      {:noreply, %{state | port: nil}}
+    else
+      Logger.warning("remux #{state.id} stopped: ffmpeg left no finished playlist")
+      {:stop, :normal, %{state | port: nil}}
+    end
   end
 
   # ffmpeg logs to stderr — keep the last line for diagnostics.
@@ -86,6 +101,22 @@ defmodule Laev.Remux.Worker do
     # next play/reload (Remux.sweep/0 evicts dirs older than the TTL).
     if state.os_pid, do: System.cmd("kill", ["-9", to_string(state.os_pid)], stderr_to_stdout: true)
     :ok
+  end
+
+  # Finished means ffmpeg wrote its last line: the media playlist carries
+  # ENDLIST. With switchable audio renditions that playlist is `s_0.m3u8`
+  # beside the master rather than `index.m3u8` — the same rule
+  # `Laev.Remux.complete?/1` reads it by.
+  defp complete?(dir) do
+    playlist =
+      if File.exists?(Path.join(dir, "master.m3u8")),
+        do: Path.join(dir, "s_0.m3u8"),
+        else: Path.join(dir, "index.m3u8")
+
+    case File.read(playlist) do
+      {:ok, content} -> content =~ "#EXT-X-ENDLIST"
+      _ -> false
+    end
   end
 
   defp write_subs_manifest(dir, subs) do
