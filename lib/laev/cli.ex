@@ -492,9 +492,10 @@ defmodule Laev.CLI do
   defp scale({r, g, b}, f), do: {round(r * f), round(g * f), round(b * f)}
 
   defp main_menu do
-    # The default place to come back to, until a list screen claims it. Reset
-    # here so a dead end can never land on a screen you have already left.
-    screen(fn -> main_menu() end)
+    # Home is the root: the way back from here is nowhere, and anything left on
+    # the stack by a screen that returned normally rather than through esc is
+    # dropped. A dead end can then never land on a screen you have left.
+    Laev.Nav.reset()
 
     # First run with no keys: go straight into the wizard instead of letting
     # every menu entry die with "RD_TOKEN is not set".
@@ -1436,6 +1437,7 @@ defmodule Laev.CLI do
             # the source search comes back here, rather than closing laev —
             # which is what "no playable source found" did from this page.
             screen(fn -> watching_menu() end)
+            Laev.Nav.mark_list("Watchlist", fn -> watching_menu() end)
             play_title(title)
 
           other ->
@@ -2031,7 +2033,11 @@ defmodule Laev.CLI do
           open_pinned_franchise(entry, fn -> saved_menu(index) end)
 
         {nil, entry} ->
-          screen(fn -> saved_menu(Enum.find_index(entries, &(&1 == entry)) || 0) end)
+          index = Enum.find_index(entries, &(&1 == entry)) || 0
+          screen(fn -> saved_menu(index) end)
+          # And the player's menu offers it back, so watching one of twenty
+          # saved titles does not mean finding the other nineteen again.
+          Laev.Nav.mark_list("Saved", fn -> saved_menu(index) end)
 
           play_title(%{
             type: entry["type"],
@@ -2377,8 +2383,15 @@ defmodule Laev.CLI do
   defp tty?, do: System.get_env("LAEV_INTERACTIVE") == "1" or IO.ANSI.enabled?()
 
   # Esc backs out to the main menu everywhere (piped/scripted runs exit).
+  # Esc: one step out, not all the way home. An empty stack *is* home, which is
+  # what esc at the top level should do, and a piped run has nowhere to go back
+  # to at all.
   defp back do
-    if tty?(), do: main_menu(), else: System.halt(0)
+    cond do
+      not tty?() -> System.halt(0)
+      fun = Laev.Nav.pop() -> fun.()
+      true -> main_menu()
+    end
   end
 
   # Full-screen feel (mov-cli style): each menu screen replaces what came
@@ -2536,6 +2549,9 @@ defmodule Laev.CLI do
     # and use it to rank instead (soft, ±1: release dates shift).
     {q, year} = split_year(query)
     screen(fn -> watch_title(query) end)
+    # The results of a search are a list like any other: the player's menu
+    # offers them back rather than making you type the query again.
+    Laev.Nav.mark_list("search: #{query}", fn -> watch_title(query) end)
     title = pick_title(q, year, 1, []) || back()
     play_title(title)
   end
@@ -3247,44 +3263,17 @@ defmodule Laev.CLI do
   defp featured_header("tv"), do: "trending shows this week"
 
   defp split_year(query) do
-    case Regex.run(~r/^(.*?)\s+((?:19|20)\d{2})\s*$/, String.trim(query)) do
-      [_, rest, year] when rest != "" -> {rest, String.to_integer(year)}
-      _ -> {query, nil}
-    end
+    Laev.Search.title_and_year(query)
   end
 
   # Show a page of TMDB titles (year-matches first when a year was given),
   # with a "more results" entry while further pages exist.
   # TMDB does not cross-match British/American spellings ("In the Grey" is
   # invisible to a "gray" query), so search every spelling variant and merge.
-  @spelling_pairs [
-    {"gray", "grey"},
-    {"color", "colour"},
-    {"theater", "theatre"},
-    {"harbor", "harbour"},
-    {"armor", "armour"},
-    {"honor", "honour"}
-  ]
-
-  defp spelling_variants(q) do
-    d = String.downcase(q)
-
-    extra =
-      Enum.flat_map(@spelling_pairs, fn {a, b} ->
-        cond do
-          String.contains?(d, a) -> [String.replace(d, a, b)]
-          String.contains?(d, b) -> [String.replace(d, b, a)]
-          true -> []
-        end
-      end)
-
-    Enum.uniq([q | extra])
-  end
-
-  defp canonical(s) do
-    d = s |> String.trim() |> String.downcase()
-    Enum.reduce(@spelling_pairs, d, fn {a, b}, acc -> String.replace(acc, b, a) end)
-  end
+  # The rules themselves are `Laev.Search` — public, because a web app wants
+  # the same ones and roki had rewritten all of them to get them.
+  defdelegate spelling_variants(query), to: Laev.Search, as: :variants
+  defdelegate canonical(title), to: Laev.Search
 
   defp pick_title(q, year, page, acc) do
     {results, more?} =
@@ -3620,27 +3609,7 @@ defmodule Laev.CLI do
   # Exact-title matches first (newest first — a remake outranks the original),
   # then the rest by TMDB popularity. A requested year trumps both, softly
   # (±1: release dates shift between regions and announcements).
-  defp rank_titles(titles, query, year) do
-    q = canonical(query)
-
-    Enum.sort_by(titles, fn t ->
-      yr = t.year && String.to_integer(t.year)
-
-      year_rank =
-        cond do
-          year == nil -> 0
-          yr == year -> 0
-          is_integer(yr) and abs(yr - year) <= 1 -> 1
-          true -> 2
-        end
-
-      if canonical(t.title || "") == q do
-        {year_rank, 0, -(yr || 0)}
-      else
-        {year_rank, 1, -(t.popularity || 0)}
-      end
-    end)
-  end
+  defdelegate rank_titles(titles, query, year), to: Laev.Search, as: :rank
 
   # ctrl-h moves a row from one section to another, and the list on screen was
   # built with the old answer baked into it. Re-derived from the rows already in
@@ -4742,8 +4711,13 @@ defmodule Laev.CLI do
       next = if episodic?, do: next_target(ctx)
       if episodic?, do: mark_series_if_done(ctx, next)
 
-      # The list this came from, if it came from one.
+      # The list this came from, if it came from one: a franchise or collection
+      # the title itself belongs to...
       list = browse_list(ctx)
+      # ...and, separately, the list it was *picked* from — the search results,
+      # Saved, the Watchlist. Those are not derivable from the title, so they
+      # are remembered when the pick happens (`Laev.Nav.mark_list/2`).
+      origin = Laev.Nav.list()
 
       # Nothing left in this show? Then the next thing is the next entry in the
       # list this came from — the point of a curated list is watching it in
@@ -4760,6 +4734,7 @@ defmodule Laev.CLI do
           # above is the only way back into the list you came from without
           # leaving the player and finding it again by hand.
           if(list, do: [{:list, "≡  #{list.name} — pick another from the list"}], else: []),
+          if(origin, do: [{:origin, "≡  back to #{origin.name}"}], else: []),
           {:play, "▶  play — from where you stopped"},
           # The two ratings sit either side of the browser row on purpose. Next
           # to each other, "this episode" and "the whole series" are one careless
@@ -4805,6 +4780,11 @@ defmodule Laev.CLI do
       case pick(items, &elem(&1, 1), "what next? · esc goes back to the menu") do
         {:next, _} -> play_to(ctx, next)
         {:onward, _} -> play_next_in_list(onward.entry)
+
+        {:origin, _} ->
+          # Esc inside it comes back here, the same as every other list row.
+          screen(fn -> post_play_menu(ctx, stream) end)
+          origin.open.()
 
         {:list, _} ->
           # Esc anywhere inside the list comes back here, so going to look is
@@ -6239,7 +6219,9 @@ defmodule Laev.CLI do
   # Set once per screen, so anything downstream — the season picker, the
   # episode picker, the source probe — lands back on the page you came from
   # rather than taking the app down with it.
-  defp screen(fun), do: Process.put(:laev_screen, fun)
+  # Where esc goes from the screen this one is about to open. A stack rather
+  # than a slot, so three levels in, esc is one level out — see `Laev.Nav`.
+  defp screen(fun), do: Laev.Nav.push(fun)
 
   # A title with nothing to play is not an error, it is an answer — most often
   # "this isn't out yet". Say so and go back. Piped runs still get the JSON
@@ -6250,10 +6232,7 @@ defmodule Laev.CLI do
     IO.puts(:stderr, IO.ANSI.format([:yellow, "\n  #{message}\n", :reset]))
     IO.gets("  press enter to go back… ")
 
-    case Process.get(:laev_screen) do
-      fun when is_function(fun, 0) -> fun.()
-      _ -> main_menu()
-    end
+    back()
   end
 
   # An empty shelf is not a failure: in the menu say so and go back, rather
