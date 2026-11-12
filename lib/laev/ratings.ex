@@ -485,6 +485,34 @@ defmodule Laev.Ratings do
   def score_words, do: @score_words
 
   @doc """
+  The scores a picker should offer, highest first, as `{score, word}`.
+
+  `:whole` is one to ten, which is what MyAnimeList stores. `:half` adds the
+  halves between them, which is what TMDB stores — it has always taken 0.5
+  steps and laev only ever offered whole ones, so a film that was better than
+  a seven and not an eight had to be rounded one way or the other.
+
+  A half step takes the word below it with a `+`: 8.5 is better than really
+  good and not yet a banger. (TMDB's scale starts at 0.5. Nothing below 1 is
+  offered — "absolute trash" is already the floor, and a second word for it
+  would be a joke rather than a rating.)
+  """
+  def score_steps(:whole), do: @score_words
+
+  def score_steps(:half) do
+    @score_words
+    |> Enum.flat_map(fn
+      {1, word} -> [{1, word}]
+      {score, word} -> [{score, word}, {score - 0.5, "#{word_below(score)}+"}]
+    end)
+  end
+
+  defp word_below(score) do
+    {_score, word} = Enum.find(@score_words, fn {n, _word} -> n == score - 1 end)
+    word
+  end
+
+  @doc """
   The word for a score: `score_word(8)` → `"really good"`.
 
   Takes integers and floats alike — a slider sends 7.5 and a stored rating

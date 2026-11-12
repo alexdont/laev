@@ -7319,24 +7319,28 @@ defmodule Laev.CLI do
   # and "good" does. Typing a number into a prompt is also the one moment in the
   # whole app where the arrow keys stop working, which is reason enough.
   # One list, on Laev.Ratings, because a second interface needs the same words.
-  @scores Laev.Ratings.score_words()
-
   defp prompt_rating(what, current, submit, clear, opts \\ []) do
     service = opts[:service] || "TMDB"
     rated? = is_number(current)
-    items = @scores ++ if(rated?, do: [:clear], else: [])
+    # TMDB has always stored half steps and laev only offered whole ones, so a
+    # film better than a seven and not an eight had to be rounded. MyAnimeList
+    # stores integers, so there is nothing to offer there — asking for 8.5 and
+    # silently sending 9 would be worse than not asking.
+    scores = Laev.Ratings.score_steps(opts[:steps] || :half)
+    items = scores ++ if(rated?, do: [:clear], else: [])
     suggestion = opts[:suggest]
 
-    # Start on what you gave it last time; failing that, on what your episodes
-    # already say, so agreeing with yourself is one keypress.
+    # Start on what you gave it last time — the exact half step if that is what
+    # it was; failing that, on what your episodes already say, so agreeing with
+    # yourself is one keypress.
     start_at =
       cond do
-        rated? -> round(current)
-        match?({_average, _count}, suggestion) -> round(elem(suggestion, 0))
+        rated? -> current
+        match?({_average, _count}, suggestion) -> elem(suggestion, 0)
         true -> 7
       end
 
-    initial = Enum.find_index(@scores, fn {score, _} -> score == clamp_score(start_at) end) || 0
+    initial = nearest_score(scores, start_at)
 
     header =
       "how was #{what}?" <>
@@ -7357,14 +7361,22 @@ defmodule Laev.CLI do
 
   defp suggestion_note(_suggestion), do: ""
 
-  defp clamp_score(score) when score < 1, do: 1
-  defp clamp_score(score) when score > 10, do: 10
-  defp clamp_score(score), do: score
+  # The row to open on: the offered score closest to what is already there. An
+  # average of 8.3 opens on 8.5 where halves are offered and on 8 where they
+  # are not, rather than on whatever `round/1` made of it.
+  defp nearest_score(scores, wanted) when is_number(wanted) do
+    scores
+    |> Enum.with_index()
+    |> Enum.min_by(fn {{score, _word}, _index} -> abs(score - wanted) end)
+    |> elem(1)
+  end
+
+  defp nearest_score(_scores, _wanted), do: 0
 
   defp describe_score(:clear), do: "✕  remove my rating"
 
   defp describe_score({score, label}) do
-    String.pad_leading("#{score}", 2) <>
+    String.pad_leading(trim_score(score), 4) <>
       "  " <> IO.iodata_to_binary(IO.ANSI.format_fragment([:faint, label, :reset]))
   end
 
@@ -7649,7 +7661,8 @@ defmodule Laev.CLI do
           # this one is unscored.
           fn -> Laev.MAL.rate(mal_id, 0) end,
           service: "MyAnimeList",
-          suggest: mal_suggestion(ctx)
+          suggest: mal_suggestion(ctx),
+          steps: :whole
         )
 
       _ ->
