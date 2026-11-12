@@ -78,6 +78,62 @@ defmodule Laev.EncodingTest do
     end
   end
 
+  # Reported against 0.1.55: a short Latin-1 French subtitle was read as
+  # Shift-JIS. "À bientôt" is `C0 20 62 69 65 6E 74 F4 74` — 0xC0 is a
+  # half-width katakana single in Shift-JIS and `F4 74` is a valid lead/trail
+  # pair, so the pair walk agreed with cp932 and it won before the single-byte
+  # pages were ever considered. The file came out as "ﾀ bient", and roki had to
+  # read such files as Western itself before laev saw them.
+  describe "a Western page the pair walk would agree with" do
+    @french_srt "1\n00:00:01,000 --> 00:00:03,500\nBonjour\n\n2\n00:00:04,000 --> 00:00:06,000\nÀ bientôt\n"
+
+    defp as(text, encoding), do: :unicode.characters_to_binary(text, :utf8, encoding)
+
+    test "the reported subtitle is Latin-1, not Shift-JIS" do
+      assert Encoding.detect(as(@french_srt, :latin1)) == :latin1
+    end
+
+    test "and its words survive the conversion" do
+      vtt = Subtitles.to_vtt("a.srt", as(@french_srt, :latin1))
+
+      assert vtt =~ "À bientôt"
+      assert vtt =~ "Bonjour"
+      refute vtt =~ "ﾀ", "that is what reading it as Shift-JIS looked like"
+    end
+
+    # 0xC0 alone was the whole case for cp932, and half-width katakana as the
+    # only evidence is not Japanese — real subtitles are double-byte kana.
+    test "a lone accent in the katakana range is not Japanese" do
+      for text <- ["À bientôt", "Dépêche-toi", "Grüße aus Köln", "¿Dónde está?"] do
+        assert Encoding.detect(as(text, :latin1)) in [:latin1, :cp1252],
+               "#{text} was read as #{inspect(Encoding.detect(as(text, :latin1)))}"
+      end
+    end
+
+    test "and one with a 0x80..0x9F byte is still Windows-1252" do
+      # The em dash is 0x97 there and a control character in Latin-1.
+      assert Encoding.detect(<<"Voil", 0xE0, " ", 0x97, " fin">>) == :cp1252
+    end
+
+    # The other direction: high bytes that touch each other, which is what CJK
+    # text is made of, must still reach the pair walk.
+    test "a page of adjacent high bytes is not taken for Western" do
+      assert Encoding.detect(bytes(:cp932)) == :cp932
+      assert Encoding.detect(bytes(:euc_jp)) == :euc_jp
+      assert Encoding.detect(bytes(:gbk)) == :gbk
+      assert Encoding.detect(bytes(:cp1251)) == :cp1251, "Cyrillic words are runs of high bytes"
+    end
+
+    # A long Japanese subtitle file has ASCII timestamps through it, so the
+    # ratio alone would not settle it — the adjacency is what does.
+    test "Japanese among timestamps is still Japanese" do
+      srt = "1\n00:00:01,000 --> 00:00:03,500\n" <> @japanese <> "\n"
+      {shift_jis, 0} = encode(srt, "CP932")
+
+      assert Encoding.detect(shift_jis) == :cp932
+    end
+  end
+
   describe "the text it gives back" do
     @describetag :iconv
 

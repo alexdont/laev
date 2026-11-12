@@ -3,6 +3,34 @@
 Earlier releases are described in full at
 <https://github.com/alexdont/laev/releases>.
 
+## 0.1.56
+
+**A French subtitle is not Japanese.**
+
+Reported against 0.1.55: a short Latin-1 file came out as mojibake, because the
+new encoding guess read it as Shift-JIS. `À bientôt` is
+`C0 20 62 69 65 6E 74 F4 74` — 0xC0 is a half-width katakana single there, and
+`F4 74` is a valid lead/trail pair — so the structural walk agreed with cp932
+and cp932 won before the single-byte pages were considered at all. The file
+rendered as `ﾀ bient`.
+
+Two things were wrong with the walk, and both are fixed:
+
+* **Half-width katakana alone is not evidence of Japanese.** Only double-byte
+  sequences count towards an encoding fitting now; a Western accent that lands
+  in 0xA1–0xDF no longer looks like kana. Real subtitles are double-byte kana
+  and kanji.
+* **A page that is mostly ASCII with scattered accents is read as Western
+  before the walk runs at all** — fewer than a third high bytes and no run of
+  three. Not "no two adjacent": `Grüße` puts ü next to ß, and that pair parses
+  happily as GBK. CJK text is four fifths high bytes, in runs as long as the
+  words.
+
+Checked against French, German, Spanish, Portuguese and Icelandic lines, which
+all read as Latin-1 (and Windows-1252 where a 0x80–0x9F byte says so), while
+the Shift-JIS, EUC-JP, GBK and Windows-1251 fixtures still detect as
+themselves — including `世界` on its own, two kanji and nothing else.
+
 ## 0.1.55
 
 **A dozen tasks' worth: the library surfaces roki had rewritten, two wrong

@@ -4,7 +4,7 @@ defmodule Laev.MixProject do
   def project do
     [
       app: :laev,
-      version: "0.1.55",
+      version: "0.1.56",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Laev.CLI, path: "laev"],

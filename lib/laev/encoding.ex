@@ -70,6 +70,8 @@ defmodule Laev.Encoding do
     cond do
       utf16 = unmarked_utf16(sample) -> utf16
       String.valid?(sample) -> :utf8
+      # Before the pair walk, because the walk can be fooled and this cannot.
+      western?(sample) -> single_byte(sample)
       true -> guess(sample)
     end
   end
@@ -115,6 +117,46 @@ defmodule Laev.Encoding do
     end
   end
 
+  # ── a Western page, which the pair walk cannot be trusted on ──────
+
+  # CJK text is almost all high bytes, and they come in pairs. A French or
+  # Spanish or German accent is a single high byte sitting alone between ASCII
+  # letters, and *that* is the shape to read, because the pair walk happily
+  # agrees with Shift-JIS about such a file:
+  #
+  #     "À bientôt"  ->  C0 20 62 69 65 6E 74 F4 74
+  #
+  # 0xC0 is a half-width katakana single in Shift-JIS and `F4 74` is a valid
+  # lead/trail pair, so cp932 "fits" and used to win — a Latin-1 subtitle came
+  # out as `ﾀ bient`. (Reported against 0.1.55: roki had to read such files as
+  # Western before laev saw them.)
+  #
+  # So: few high bytes, and none of them in a long run, is a single-byte page
+  # whatever else would parse. Not "none adjacent" — "Grüße" puts ü next to ß,
+  # and a pair of those parses as GBK — but no *run* of three, where CJK text
+  # is four fifths high bytes in runs as long as the words are.
+  # A third, not a tenth: a whole subtitle file is mostly ASCII timestamps, but
+  # one line of it can be a quarter accents — "À bientôt" is two high bytes in
+  # nine — and the line is what a short file amounts to. CJK text runs four
+  # fifths high bytes and over, so a third separates them with room to spare.
+  @mostly_ascii 1 / 3
+
+  defp western?(sample) do
+    bytes = :binary.bin_to_list(sample)
+    highs = Enum.count(bytes, &(&1 >= 0x80))
+
+    highs > 0 and highs / max(length(bytes), 1) < @mostly_ascii and longest_run(bytes) <= 2
+  end
+
+  defp longest_run(bytes) do
+    {longest, current} =
+      Enum.reduce(bytes, {0, 0}, fn byte, {longest, current} ->
+        if byte >= 0x80, do: {max(longest, current + 1), current + 1}, else: {longest, 0}
+      end)
+
+    max(longest, current)
+  end
+
   # ── the guess ─────────────────────────────────────────────────────
 
   defp guess(sample) do
@@ -130,35 +172,40 @@ defmodule Laev.Encoding do
   # Whether every high byte in the sample is part of a well-formed sequence of
   # this encoding. One byte out of place rules it out, which is what makes this
   # worth more than counting bytes.
+  #
+  # The count is of *double-byte* sequences only. Shift-JIS also has half-width
+  # katakana as single bytes in 0xA1..0xDF, and a file whose only evidence is
+  # those is not Japanese — it is a Western page whose accents happen to land
+  # in that range. Real subtitles are double-byte kana and kanji.
   defp fits?(encoding, sample), do: walk(encoding, sample, 0)
 
-  defp walk(_encoding, <<>>, pairs), do: pairs > 0
-  defp walk(encoding, <<byte, rest::binary>>, pairs) when byte < 0x80, do: walk(encoding, rest, pairs)
+  defp walk(_encoding, <<>>, doubles), do: doubles > 0
+  defp walk(encoding, <<byte, rest::binary>>, doubles) when byte < 0x80, do: walk(encoding, rest, doubles)
 
-  defp walk(:cp932, <<byte, rest::binary>>, pairs) when byte in 0xA1..0xDF,
-    do: walk(:cp932, rest, pairs + 1)
+  defp walk(:cp932, <<byte, rest::binary>>, doubles) when byte in 0xA1..0xDF,
+    do: walk(:cp932, rest, doubles)
 
-  defp walk(:cp932, <<lead, trail, rest::binary>>, pairs)
+  defp walk(:cp932, <<lead, trail, rest::binary>>, doubles)
        when lead in 0x81..0x9F or lead in 0xE0..0xFC do
-    if trail in 0x40..0x7E or trail in 0x80..0xFC, do: walk(:cp932, rest, pairs + 1), else: false
+    if trail in 0x40..0x7E or trail in 0x80..0xFC, do: walk(:cp932, rest, doubles + 1), else: false
   end
 
-  defp walk(:euc_jp, <<0x8E, trail, rest::binary>>, pairs) when trail in 0xA1..0xDF,
-    do: walk(:euc_jp, rest, pairs + 1)
+  defp walk(:euc_jp, <<0x8E, trail, rest::binary>>, doubles) when trail in 0xA1..0xDF,
+    do: walk(:euc_jp, rest, doubles + 1)
 
-  defp walk(:euc_jp, <<0x8F, lead, trail, rest::binary>>, pairs)
+  defp walk(:euc_jp, <<0x8F, lead, trail, rest::binary>>, doubles)
        when lead in 0xA1..0xFE and trail in 0xA1..0xFE,
-       do: walk(:euc_jp, rest, pairs + 1)
+       do: walk(:euc_jp, rest, doubles + 1)
 
-  defp walk(:euc_jp, <<lead, trail, rest::binary>>, pairs) when lead in 0xA1..0xFE do
-    if trail in 0xA1..0xFE, do: walk(:euc_jp, rest, pairs + 1), else: false
+  defp walk(:euc_jp, <<lead, trail, rest::binary>>, doubles) when lead in 0xA1..0xFE do
+    if trail in 0xA1..0xFE, do: walk(:euc_jp, rest, doubles + 1), else: false
   end
 
-  defp walk(:gbk, <<lead, trail, rest::binary>>, pairs) when lead in 0x81..0xFE do
-    if trail in 0x40..0xFE and trail != 0x7F, do: walk(:gbk, rest, pairs + 1), else: false
+  defp walk(:gbk, <<lead, trail, rest::binary>>, doubles) when lead in 0x81..0xFE do
+    if trail in 0x40..0xFE and trail != 0x7F, do: walk(:gbk, rest, doubles + 1), else: false
   end
 
-  defp walk(_encoding, _rest, _pairs), do: false
+  defp walk(_encoding, _rest, _doubles), do: false
 
   # More than one fits, which is the normal case: Shift-JIS allows a trail byte
   # anywhere in 0x40..0xFC, so a file of 0xA1..0xFE pairs parses as all three.
